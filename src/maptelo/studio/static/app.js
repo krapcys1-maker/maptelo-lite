@@ -192,8 +192,8 @@ const EN = {
   "{} w folderze {}": "{} in the folder {}",
   "Nowy proces: nagraj": "New process: record",
   "Tu pojawią się Twoje procesy": "Your processes will appear here",
-  "Zrób proces raz w przeglądarce albo w programie Java (np. Oracle Forms), a Maptelo Lite zapisze go jako mapę: kroki, instrukcję (SOP), diagram BPMN i raport.":
-    "Do a process once in a browser or in a Java program (Oracle Forms, say), and Maptelo Lite saves it as a map: its steps, an instruction (SOP), a BPMN diagram and a report.",
+  "Zrób proces raz w przeglądarce albo w programie Java, a Maptelo Lite zapisze go jako mapę: kroki, instrukcję (SOP), diagram BPMN i raport.":
+    "Do a process once in a browser or in a Java program, and Maptelo Lite saves it as a map: its steps, an instruction (SOP), a BPMN diagram and a report.",
   "Nagraj pierwszy proces": "Record your first process",
   "Zrób mapę ponownie": "Make the map again",
   "Zrób mapę": "Make the map",
@@ -717,7 +717,7 @@ async function showLiteProcesses() {
           h("div", { class: "facts" }, h("span", {}, plural(d.recordings, "nagranie", "nagrania", "nagrań"))))))
       : h("div", { class: "card empty" },
           h("h2", {}, t("Tu pojawią się Twoje procesy")),
-          h("p", {}, t("Zrób proces raz w przeglądarce albo w programie Java (np. Oracle Forms), a Maptelo Lite zapisze go jako mapę: kroki, instrukcję (SOP), diagram BPMN i raport.")),
+          h("p", {}, t("Zrób proces raz w przeglądarce albo w programie Java, a Maptelo Lite zapisze go jako mapę: kroki, instrukcję (SOP), diagram BPMN i raport.")),
           h("a", { class: "button primary", href: "#/new" }, t("Nagraj pierwszy proces"))));
 }
 

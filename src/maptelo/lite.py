@@ -102,7 +102,7 @@ def record(
     java: Annotated[
         str | None,
         typer.Option(
-            help="Record in a Java program (Oracle Forms, Swing) through the Java Access Bridge "
+            help="Record in a Java desktop program (Swing, AWT) through the Java Access Bridge "
             "instead of a browser: a part of its main window's title."
         ),
     ] = None,
