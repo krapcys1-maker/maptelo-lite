@@ -79,7 +79,7 @@ def check_record(workspace: Workspace, request: RecordRequest) -> tuple[Path | N
     if not KEY.fullmatch(request.process):
         problems.append("the process needs a name with letters or digits, e.g. Ceny klientów")
     if request.java:
-        if sys.platform != "win32":
+        if not ON_WINDOWS:
             problems.append(JAVA_ON_WINDOWS)
     else:
         if not request.url.startswith(("http://", "https://")):
@@ -152,13 +152,16 @@ def _recorded(
     }
 
 
+ON_WINDOWS = sys.platform == "win32"
+"""Java programs are recorded on Windows only (a test says otherwise here, never for the
+whole of Python: what else asks which system this is must hear the truth)."""
 JAVA_ON_WINDOWS = "a Java program can be recorded on Windows only"
 
 
 def java_programs() -> dict[str, Any]:
     """The Java programs open on this desktop (their main windows' titles, front first), to
     record one; and whether this computer has the bridge library that sees them."""
-    if sys.platform != "win32":
+    if not ON_WINDOWS:
         return {"windows": [], "bridge": False, "problem": polish(JAVA_ON_WINDOWS)}
     from maptelo.desktop import jab
 

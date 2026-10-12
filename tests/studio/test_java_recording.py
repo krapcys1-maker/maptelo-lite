@@ -83,7 +83,7 @@ class FakeRecorder:
 def fake_java(monkeypatch: pytest.MonkeyPatch) -> type[FakeRecorder]:
     FakeRecorder.made, FakeRecorder.missing = [], False
     monkeypatch.setattr("maptelo.capture.java.JavaRecorder", FakeRecorder)
-    monkeypatch.setattr(recording.sys, "platform", "win32")
+    monkeypatch.setattr(recording, "ON_WINDOWS", True)
     return FakeRecorder
 
 
@@ -150,12 +150,12 @@ def test_the_page_lists_the_java_programs_open(
     monkeypatch: pytest.MonkeyPatch, lite: tuple[httpx2.Client, Workspace]
 ) -> None:
     client, _ = lite
-    monkeypatch.setattr(recording.sys, "platform", "win32")
+    monkeypatch.setattr(recording, "ON_WINDOWS", True)
     monkeypatch.setattr("maptelo.desktop.jab.java_frames", lambda: [SRK])
     monkeypatch.setattr("maptelo.desktop.jab.find_dll", lambda extra=None: Path("jab.dll"))
     listed = client.get("/api/java/windows").json()
     assert listed == {"windows": [{"title": SRK.title}], "bridge": True, "problem": None}
-    monkeypatch.setattr(recording.sys, "platform", "linux")
+    monkeypatch.setattr(recording, "ON_WINDOWS", False)
     elsewhere = client.get("/api/java/windows").json()
     assert elsewhere["windows"] == []
     assert elsewhere["problem"] == "program Java można nagrać tylko w Windows"
