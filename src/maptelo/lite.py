@@ -5,6 +5,7 @@ this computer) and the map of one recording. The same as the full Maptelo's ``st
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 from typing import Annotated, NoReturn
 
@@ -51,13 +52,25 @@ def studio(
             "a tab of the default browser.",
         ),
     ] = True,
+    data: Annotated[
+        Path | None,
+        typer.Option(
+            file_okay=False,
+            help="Folder for sign-in profiles and the window's browser data (default: "
+            "~/.maptelo). The installer keeps it in Lite's own folder.",
+        ),
+    ] = None,
 ) -> None:
     """The Maptelo Lite window: record a process and see its map."""
+    if data is not None:  # read when the browser's module loads, so before anything imports it
+        os.environ["MAPTELO_HOME"] = str(data.resolve())
     try:
         from maptelo.studio import Workspace, serve
     except ImportError as exc:
         _fail(f"the window needs its extra: pip install 'maptelo-lite[studio]' ({exc})")
     workspace.mkdir(parents=True, exist_ok=True)
+    if sys.stdout is None or sys.stderr is None:  # no console (the shortcut starts pythonw)
+        _log_to_file()
     folder = Workspace(workspace)
     typer.echo(f"Maptelo Lite {__version__}, workspace {folder.root}")
     typer.echo("Open this address (it holds a key for this start only); Ctrl+C stops Lite:")
@@ -69,6 +82,16 @@ def studio(
         announce=lambda line: typer.echo(f"  {line}"),
         lite=True,
     )
+
+
+def _log_to_file() -> None:
+    """What Lite would say in a console (its address, a problem as it starts) goes to a file
+    with its data, where a person or IT can read it."""
+    from maptelo.browser import HOME
+
+    HOME.mkdir(parents=True, exist_ok=True)
+    log = (HOME / "maptelo-lite.log").open("a", encoding="utf-8", buffering=1)
+    sys.stdout = sys.stderr = log
 
 
 @app.command("record")

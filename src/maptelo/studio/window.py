@@ -21,9 +21,10 @@ import time
 from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 
+from maptelo.browser import HOME
 from maptelo.environment import Machine, browsers
 
-PROFILE = Path.home() / ".maptelo" / "studio-window"
+PROFILE = HOME / "studio-window"
 """The window's own browser profile: nothing of the person's browsing in it, nor of it there."""
 SIZE = (1360, 900)
 APPEARS_S = 20.0

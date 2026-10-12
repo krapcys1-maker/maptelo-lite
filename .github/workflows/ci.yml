@@ -90,7 +90,13 @@ jobs:
           $env:PYTHONIOENCODING = "utf-8"
           & build\MapteloLite\python\python.exe -m maptelo.lite studio --help > lite-help.txt
           if ($LASTEXITCODE -ne 0) { throw "maptelo.lite studio --help failed" }
-          if (-not (Select-String -Path lite-help.txt -Pattern "--workspace" -SimpleMatch -Quiet)) { throw "no --workspace" }
+          foreach ($option in "--workspace", "--data") {
+            if (-not (Select-String -Path lite-help.txt -Pattern $option -SimpleMatch -Quiet)) { throw "no $option" }
+          }
+          # the installer's shortcut starts it without a console, with its own icon
+          foreach ($file in "python\pythonw.exe", "maptelo-lite.ico", "Maptelo Lite.cmd") {
+            if (-not (Test-Path "build\MapteloLite\$file")) { throw "no $file" }
+          }
           & build\MapteloLite\python\python.exe -c "import maptelo.studio.app; print('the window imports')"
           if ($LASTEXITCODE -ne 0) { throw "imports failed" }
           & build\MapteloLite\python\python.exe tools/check_licenses.py | Tee-Object -FilePath build\MapteloLite\LICENSES.txt

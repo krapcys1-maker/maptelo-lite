@@ -66,6 +66,8 @@ NOT_FOR_THE_PAGE = {
     "{} = {}", "{} → {}", "column {} → {}", "screen {}: {} → {}", "toolbar button #",
     # already Polish
     "{}: tryb cienia, {} wierszy",
+    # parts of sentences Maptelo Lite says in place of others (app.py, LITE_WORDS)
+    "can be recorded and run", "can be recorded",
 }  # fmt: skip
 
 

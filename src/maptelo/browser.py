@@ -3,16 +3,18 @@
 With a profile (``--profile praca``) the browser keeps its own folder between runs, like a
 person's browser: sign in once there (also through a company's single sign-on) and every
 recording and run after that is signed in, with no session file in the project. A profile
-given by name lives in ``~/.maptelo/profiles``, never in a project folder, because it
-holds the sign-in. Two things a plain browser profile does not do, a Maptelo profile does:
-it keeps session cookies (many applications sign in with cookies a browser forgets when it
-closes) and it is used by one browser at a time (two would spoil each other's sign-in).
+given by name lives in ``~/.maptelo/profiles`` (or under ``MAPTELO_HOME``), never in a project
+folder, because it holds the sign-in. Two things a plain browser profile does not do, a
+Maptelo profile does: it keeps session cookies (many applications sign in with cookies a
+browser forgets when it closes) and it is used by one browser at a time (two would spoil each
+other's sign-in).
 """
 
 from __future__ import annotations
 
 import contextlib
 import json
+import os
 import sys
 from collections.abc import Iterator
 from dataclasses import dataclass, replace
@@ -27,9 +29,10 @@ from maptelo.model.schema import ProcessModel
 from maptelo.policy import PolicyError
 from maptelo.policy import current as current_policy
 
-HOME = Path.home() / ".maptelo"
-"""Maptelo's folder in the person's home (the one from before the rename is moved here,
-formerly.py)."""
+HOME = Path(os.environ.get("MAPTELO_HOME") or Path.home() / ".maptelo")
+"""What Maptelo keeps for this person: sign-in profiles, its window's browser data. In their
+home (the folder from before the rename is moved here, formerly.py), or where MAPTELO_HOME
+says: Maptelo Lite's installer keeps it in Lite's own folder, nothing in the user's profile."""
 PROFILES = HOME / "profiles"
 COOKIES = "maptelo-cookies.json"
 """The profile's cookies, session cookies too, kept in the profile folder."""

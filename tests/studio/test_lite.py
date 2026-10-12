@@ -20,6 +20,12 @@ TOKEN = "klucz-testowy"
 CHANGE = {"X-Maptelo-Token": TOKEN, "X-Maptelo": "1"}
 
 
+@pytest.fixture(autouse=True)
+def own_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The language Lite keeps goes to a folder of the test, not the computer's ~/.maptelo."""
+    monkeypatch.setattr("maptelo.browser.HOME", tmp_path / "home")
+
+
 @pytest.fixture
 def workspace(tmp_path: Path) -> Workspace:
     root = tmp_path / "praca"
@@ -73,3 +79,36 @@ def test_no_robot_in_lite(lite: httpx2.Client, path: str, body: dict[str, object
     assert answer.json()["problems"] == [
         "procesy uruchamia pełne Maptelo: Maptelo Lite tylko je mapuje"
     ]
+
+
+def test_lite_answers_in_the_pages_language(lite: httpx2.Client) -> None:
+    english = {"X-Maptelo-Lang": "en"}
+    answer = lite.post("/api/runs", json={"process": PROCESS}, headers=english)
+    assert answer.json()["problems"] == [
+        "the full Maptelo runs processes: Maptelo Lite only maps them"
+    ]
+    nameless = lite.post("/api/recordings", json={"url": "https://x.test"}, headers=english)
+    assert nameless.status_code == 400
+    assert nameless.json()["problems"][0].startswith("the process needs a name")
+    assert (
+        lite.get("/api/environment", headers=english).json()["summary"]
+        != (lite.get("/api/environment").json()["summary"])
+    )
+
+
+def test_the_language_chosen_is_kept(lite: httpx2.Client) -> None:
+    assert lite.get("/api/state").json()["lang"] is None  # not chosen: the computer's
+    assert lite.post("/api/language", json={"lang": "en"}).json() == {"lang": "en"}
+    assert lite.get("/api/state").json()["lang"] == "en"
+    wrong = lite.post("/api/language", json={"lang": "de"})
+    assert wrong.status_code == 400
+    assert wrong.json()["problems"] == ["język to pl albo en"]
+
+
+def test_lite_speaks_of_itself_not_of_studio(lite: httpx2.Client) -> None:
+    for language in ({}, {"X-Maptelo-Lang": "en"}):
+        checks = lite.get("/api/environment", headers=language).json()["checks"]
+        said = " ".join(f"{c['detail']} {c.get('hint') or ''}" for c in checks)
+        assert "Studio" not in said
+        assert "and run" not in said
+        assert "i uruchamiać" not in said

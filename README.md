@@ -19,7 +19,9 @@ z Twojego komputera.
   - `report.html` — raport w jednym pliku, gotowy do wysłania;
   - `model.yaml` — opis procesu w formacie Maptelo (schemat: `schemas/`).
 - **Okno Maptelo Lite** prowadzi przez wszystko: nowy proces, nagranie, mapa, „Gotowość”
-  (co ten komputer pozwala nagrać i czego brakuje).
+  (co ten komputer pozwala nagrać i czego brakuje). Po polsku albo po angielsku: przełącznik
+  jest na dole panelu po lewej (na początek język komputera), a instrukcja i raport powstają
+  w wybranym języku.
 
 ## Czego nie robi
 
@@ -36,18 +38,24 @@ korzysta z Java Access Bridge, ale na nim Lite nie był jeszcze sprawdzany.
 
 ## Prywatność
 
-- Wszystko zostaje na tym komputerze, w folderze `Dokumenty\Maptelo Lite`. Lite sam nie łączy
-  się z żadnym serwerem: otwiera tylko aplikację, w której nagrywasz proces. Okno działa pod
-  adresem 127.0.0.1 z kluczem, który powstaje przy każdym uruchomieniu.
+- Wszystko zostaje na tym komputerze, w folderze Maptelo Lite. Lite sam nie łączy się z żadnym
+  serwerem: otwiera tylko aplikację, w której nagrywasz proces. Okno działa pod adresem
+  127.0.0.1 z kluczem, który powstaje przy każdym uruchomieniu.
 - Hasła nigdy nie są zapisywane.
 - Tryb prywatny zakrywa na zrzutach wpisane wartości i zawartość tabel, a mapa nie przechowuje
   wartości jako przykładów.
 
 ## Instalacja
 
-- **Instalator** (Windows 10/11, na użytkownika, bez uprawnień administratora): zakładka
-  [Releases](https://github.com/krapcys1-maker/maptelo-lite/releases). To prototyp bez podpisu
-  kodu, więc Windows może ostrzec przy instalacji.
+- **Instalator** (Windows 10/11, bez uprawnień administratora): zakładka
+  [Releases](https://github.com/krapcys1-maker/maptelo-lite/releases). Pyta, gdzie zainstalować
+  (domyślnie `Pulpit\Maptelo Lite`), i nie zapisuje niczego w folderach ani rejestrze Windows:
+  w folderze programu są też Twoje procesy (`Procesy`) i zapamiętane logowania (`data`). Skróty
+  w menu Start i na pulpicie są do wyboru. Odinstalowanie: „Odinstaluj Maptelo Lite” w folderze
+  programu (procesy zostają) albo po prostu usunięcie folderu. To prototyp bez podpisu kodu, więc
+  Windows może ostrzec przy instalacji.
+- **Wersja przenośna** (zip z tej samej zakładki): rozpakuj w dowolne miejsce i uruchom
+  `Maptelo Lite.cmd`; wszystko zostaje w jej folderze.
 - **Z kodu** (Python 3.12):
 
   ```bash
@@ -96,22 +104,27 @@ nothing leaves your computer.
 - **Maps one recording** into `maps/<process>/<recording>/`: `sop.md` (inputs, steps, expected
   results, a screenshot of each step with the element marked), `process.svg` and `process.mmd`
   (diagram), `process.bpmn` (BPMN 2.0), `report.html` (one file, ready to send) and `model.yaml`.
-- **The Maptelo Lite window** guides you: a new process, the recording, its map, and "Gotowość"
-  (what this computer can record and what is missing). The interface is in Polish.
+- **The Maptelo Lite window** guides you: a new process, the recording, its map, and
+  "Readiness" (what this computer can record and what is missing). In English or Polish: the
+  switch is at the foot of the left panel (at first, the computer's own language).
 - **Java programs** are read the way screen readers read them, through the Java Access Bridge
   (enable it with `jabswitch -enable`, or ask IT). Tested with Swing programs, also on a clean
   Windows with a program that has only its own Java; Oracle Forms uses the bridge too, but Lite
   has not been tested on it yet.
 - **Does not run processes and uses no AI.** The robot that runs a mapped process and confirms
   the result by an independent read is the full Maptelo: [maptelo.dev](https://maptelo.dev).
-- **Private by design:** everything stays on this computer (`Documents\Maptelo Lite`); Lite itself
+- **Private by design:** everything stays on this computer, in Maptelo Lite's folder; Lite itself
   connects to no server, it only opens the application you record in. The window listens on
   127.0.0.1 with a key made at each start, passwords are never stored, and private mode covers
   typed values and tables on screenshots.
 
-Install the per-user Windows installer from
-[Releases](https://github.com/krapcys1-maker/maptelo-lite/releases) (a prototype, not code-signed
-yet), or from source with Python 3.12: `pip install ".[studio]"`, then `maptelo-lite`.
+**Install** with the Windows installer from
+[Releases](https://github.com/krapcys1-maker/maptelo-lite/releases): it asks where (the Desktop
+first), needs no administrator rights and writes nothing to Windows' folders or registry; your
+processes (`Processes`) and remembered sign-ins (`data`) stay in that folder, the Start menu and
+Desktop shortcuts are your choice, and deleting the folder removes everything. A prototype, not
+code-signed yet. A portable zip is there too; or from source with Python 3.12:
+`pip install ".[studio]"`, then `maptelo-lite`.
 For development: `uv sync`, `uv run playwright install chromium`, `uv run pytest`. Maptelo Lite is
 the open part of Maptelo, exported from the full Maptelo's repository; issues and pull requests
 are welcome.

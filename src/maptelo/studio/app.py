@@ -31,8 +31,9 @@ from maptelo import __version__, environment
 from maptelo.checks import summary_line
 from maptelo.data import sheet_names
 from maptelo.data.tables import TableError
+from maptelo.mapping.naming import Lang
 from maptelo.studio import readiness, recording
-from maptelo.studio.common import RunProblemError
+from maptelo.studio.common import RunProblemError, keep_page_language, page_language
 from maptelo.studio.jobs import BusyError, Jobs
 from maptelo.studio.polish import polish, polish_all
 from maptelo.studio.workspace import Workspace
@@ -116,8 +117,39 @@ class Guard:
         await self.app(scope, receive, send)
 
 
-def _problems(problems: list[str], status: int = 400) -> JSONResponse:
-    return JSONResponse({"problems": polish_all(problems)}, status)
+def _lang(request: Request) -> Lang:
+    """The page's language: Polish, unless it asks for English (Maptelo Lite's page can)."""
+    return "en" if request.headers.get("x-maptelo-lang") == "en" else "pl"
+
+
+def _said(text: str, lang: Lang) -> str:
+    """What the core says (in English), in the page's language."""
+    return text if lang == "en" else polish(text)
+
+
+def _problems(problems: list[str], status: int = 400, lang: Lang = "pl") -> JSONResponse:
+    return JSONResponse({"problems": problems if lang == "en" else polish_all(problems)}, status)
+
+
+LITE_WORDS = [
+    ("can be recorded and run", "can be recorded"),
+    ("można nagrywać i uruchamiać", "można nagrywać"),
+    ("Studio", "Maptelo Lite"),
+]
+"""What the look at this computer says of Studio and of runs, as Maptelo Lite (it records)."""
+
+
+def _as_lite(text: str) -> str:
+    for full, lite in LITE_WORDS:
+        text = text.replace(full, lite)
+    return text
+
+
+def _busy(exc: BusyError, lang: Lang) -> str:
+    """One job at a time: the one still going."""
+    return (
+        f"Finish first: {exc.job.title}" if lang == "en" else f"Najpierw zakończ: {exc.job.title}"
+    )
 
 
 def _open_with_system(path: Path) -> None:
@@ -181,31 +213,46 @@ def create_app(
                 "browser": browser,
                 "browser_required": required is not None,
                 "lite": lite,
+                "lang": page_language() if lite else "pl",  # the full Studio speaks Polish
             }
         )
 
+    async def language(request: Request) -> JSONResponse:
+        chosen = (await _json_object(request)).get("lang")
+        if chosen not in ("pl", "en"):
+            return _problems(["the language is pl or en"], lang=_lang(request))
+        keep_page_language("en" if chosen == "en" else "pl")
+        return JSONResponse({"lang": chosen})
+
     def this_computer(request: Request) -> JSONResponse:
-        checks = environment.probe(workspace.root, lang="pl")
+        lang = _lang(request)
+        checks = environment.probe(workspace.root, lang=lang)
+        shown = [asdict(c) for c in checks]
+        for check in shown if lite else []:
+            for field in ("detail", "hint"):
+                if isinstance(check.get(field), str):
+                    check[field] = _as_lite(check[field])
         return JSONResponse(
             {
-                "checks": [asdict(c) for c in checks],
-                "summary": summary_line(checks, "pl"),
+                "checks": shown,
+                "summary": summary_line(checks, lang),
                 "ready": not any(c.verdict == "FAIL" for c in checks),
                 "browser": environment.recommended_browser(),
             }
         )
 
     async def upload(request: Request) -> JSONResponse:
+        lang = _lang(request)
         name = request.query_params.get("name", "")
         body = await request.body()
         if not body:
-            return _problems(["the file is empty"])
+            return _problems(["the file is empty"], lang=lang)
         if len(body) > MAX_UPLOAD:
-            return _problems(["the file is larger than 50 MB"], 413)
+            return _problems(["the file is larger than 50 MB"], 413, lang)
         try:
             path = workspace.keep_sheet(name, body)
         except (ValueError, TableError) as exc:
-            return _problems([str(exc)])
+            return _problems([str(exc)], lang=lang)
         return JSONResponse({"sheet": workspace.relative(path), "sheets": sheet_names(path)})
 
     def job(request: Request) -> JSONResponse:
@@ -216,7 +263,7 @@ def create_app(
         after = request.query_params.get("after", "0")
         view = found.view(int(after) if after.isdigit() else 0)
         if view.get("error"):
-            view["error"] = polish(view["error"])
+            view["error"] = _said(view["error"], _lang(request))
         return JSONResponse(view)
 
     def stop(request: Request) -> JSONResponse:
@@ -231,7 +278,7 @@ def create_app(
         try:
             path = workspace.inside(request.path_params["path"])
         except PermissionError as exc:
-            return JSONResponse({"error": polish(str(exc))}, 403)
+            return JSONResponse({"error": _said(str(exc), _lang(request))}, 403)
         if not path.is_file():
             raise _NotFoundError("there is no such file")
         # A map made again keeps its file names: checked every time, never an old SOP or
@@ -243,7 +290,7 @@ def create_app(
         try:
             path = workspace.inside(str(data.get("path", "")))
         except PermissionError as exc:
-            return JSONResponse({"error": polish(str(exc))}, 403)
+            return JSONResponse({"error": _said(str(exc), _lang(request))}, 403)
         if not path.exists():
             raise _NotFoundError("there is no such file or folder")
         opener(path)
@@ -261,20 +308,22 @@ def create_app(
         return JSONResponse(recording.recordings_view(workspace, request.path_params["key"]))
 
     async def start_recording(request: Request) -> JSONResponse:
+        lang = _lang(request)
         try:
             wanted = recording.RecordRequest.from_json(await _json_object(request))
             work = recording.record_work(workspace, wanted)
         except RunProblemError as exc:
-            return _problems(exc.problems)
+            return _problems(exc.problems, lang=lang)
         try:
             named = wanted.title or wanted.process  # as the person named it
-            job = jobs.start("record", f"Pokaz: {named}", work, process=wanted.process)
+            title = f"Recording: {named}" if lang == "en" else f"Pokaz: {named}"
+            job = jobs.start("record", title, work, process=wanted.process)
         except BusyError as exc:
-            return _problems([f"Najpierw zakończ: {exc.job.title}"], 409)
+            return _problems([_busy(exc, lang)], 409, lang)
         return JSONResponse(job.view(), 202)
 
     def java_windows(request: Request) -> JSONResponse:
-        return JSONResponse(recording.java_programs())
+        return JSONResponse(recording.java_programs(_lang(request)))
 
     async def make_map(request: Request) -> JSONResponse:
         data = await _json_object(request)
@@ -283,7 +332,7 @@ def create_app(
                 workspace,
                 str(data.get("process", "")),
                 str(data.get("recording", "")),
-                str(data.get("lang", "pl")),
+                str(data.get("lang") or _lang(request)),
             )
         except RunProblemError as exc:
             return _problems(exc.problems)
@@ -293,26 +342,32 @@ def create_app(
         return JSONResponse(readiness.profiles_view())
 
     async def sign_in(request: Request) -> JSONResponse:
+        lang = _lang(request)
         try:
             wanted = readiness.SignInRequest.from_json(await _json_object(request))
             work = readiness.sign_in_work(wanted)
         except RunProblemError as exc:
-            return _problems(exc.problems)
+            return _problems(exc.problems, lang=lang)
         try:
-            job = jobs.start("sign-in", f"Logowanie: profil {wanted.profile}", work)
+            profile = wanted.profile
+            title = (
+                f"Sign-in: profile {profile}" if lang == "en" else f"Logowanie: profil {profile}"
+            )
+            job = jobs.start("sign-in", title, work)
         except BusyError as exc:
-            return _problems([f"Najpierw zakończ: {exc.job.title}"], 409)
+            return _problems([_busy(exc, lang)], 409, lang)
         return JSONResponse(job.view(), 202)
 
     async def not_found(request: Request, exc: Exception) -> JSONResponse:
-        return JSONResponse({"error": polish(str(exc))}, 404)
+        return JSONResponse({"error": _said(str(exc), _lang(request))}, 404)
 
     async def robot_only(request: Request) -> JSONResponse:
-        return _problems([ROBOT_ONLY], 404)
+        return _problems([ROBOT_ONLY], 404, _lang(request))
 
     routes: list[BaseRoute] = [
         Route("/", index),
         Route("/api/state", state),
+        Route("/api/language", language, methods=["POST"]),
         Route("/api/environment", this_computer),
         Route("/api/sheets", upload, methods=["POST"]),
         Route("/api/jobs/{job}", job),

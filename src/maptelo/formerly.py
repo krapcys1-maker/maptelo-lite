@@ -19,6 +19,8 @@ TRACE_NAMES = {
 """A recording's header from before: what each old value is called now."""
 
 HOME = Path.home() / ".stepproof"
+MAPTELO_HOME = Path.home() / ".maptelo"
+"""Where the old home's things go; a home set apart (MAPTELO_HOME) gets none of them."""
 COOKIES = "stepproof-cookies.json"
 POLICY_ENV = "STEPPROOF_POLICY"
 POLICY_FOLDER = "Stepproof"
@@ -31,6 +33,8 @@ def carried(path: Path, home: Path, old_home: Path | None = None) -> Path:
     Moved when first needed; when it cannot be moved (a browser still has a profile in it
     open, the disk says no), it is used where it is. A path outside ``home`` comes back as it
     is (a profile given by its path, a test's folder)."""
+    if old_home is None and home != MAPTELO_HOME:
+        return path  # Maptelo Lite's own folder: nothing from before the rename belongs there
     try:
         inside = path.relative_to(home)
     except ValueError:

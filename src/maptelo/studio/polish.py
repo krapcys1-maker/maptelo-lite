@@ -482,6 +482,7 @@ SENTENCES: list[tuple[str, str]] = [
     ("there is no process {name}", "nie ma procesu {name}"),
     ("the file is empty", "plik jest pusty"),
     ("the file is larger than 50 MB", "plik ma więcej niż 50 MB"),
+    ("the language is pl or en", "język to pl albo en"),
     ("{title} is still running", "wciąż trwa: {title}"),
     ("the process needs a name with letters or digits, e.g. Ceny klientów",
      "proces potrzebuje nazwy z literami albo cyframi, np. Ceny klientów"),

@@ -158,11 +158,12 @@ whole of Python: what else asks which system this is must hear the truth)."""
 JAVA_ON_WINDOWS = "a Java program can be recorded on Windows only"
 
 
-def java_programs() -> dict[str, Any]:
+def java_programs(lang: Lang = "pl") -> dict[str, Any]:
     """The Java programs open on this desktop (their main windows' titles, front first), to
     record one; and whether this computer has the bridge library that sees them."""
     if not ON_WINDOWS:
-        return {"windows": [], "bridge": False, "problem": polish(JAVA_ON_WINDOWS)}
+        problem = JAVA_ON_WINDOWS if lang == "en" else polish(JAVA_ON_WINDOWS)
+        return {"windows": [], "bridge": False, "problem": problem}
     from maptelo.desktop import jab
 
     windows = jab.java_frames()

@@ -53,29 +53,61 @@ if exist "%HERE%browsers" set "PLAYWRIGHT_BROWSERS_PATH=%HERE%browsers"
 
 LITE_CMD = r"""@echo off
 rem Maptelo Lite: record a process, get its map (steps, SOP, BPMN, report). No robot.
+rem Everything stays in this folder: the processes in Procesy (Processes), the sign-ins and
+rem settings in data. No console: what Lite says goes to data\maptelo-lite.log.
 setlocal
 set "HERE=%~dp0"
-set "WORK=%USERPROFILE%\Documents\Maptelo Lite"
-if not exist "%WORK%" mkdir "%WORK%"
-start "Maptelo Lite" /min "%HERE%python\python.exe" -m maptelo.lite studio --workspace "%WORK%" %*
+set "WORK=%HERE%Procesy"
+if exist "%HERE%Processes\" set "WORK=%HERE%Processes"
+if not exist "%HERE%Procesy\" if not exist "%HERE%Processes\" (
+  reg query "HKCU\Control Panel\International" /v LocaleName 2>nul ^
+    | find /i "pl-" >nul || set "WORK=%HERE%Processes"
+)
+start "" "%HERE%python\pythonw.exe" -m maptelo.lite studio ^
+  --workspace "%WORK%" --data "%HERE%data" %*
 """
 
 LITE_README = """\
 Maptelo Lite
 ============
 
-Nagrywa proces zrobiony w przeglądarce i robi z niego mapę: kroki, instrukcję krok po kroku
-(SOP), diagram BPMN i raport HTML. Nie uruchamia procesów (to robi pełne Maptelo).
-Nie wymaga uprawnień administratora.
+Nagrywa proces zrobiony w przeglądarce albo w programie Java i robi z niego mapę: kroki,
+instrukcję krok po kroku (SOP) ze zrzutami ekranu, diagram BPMN i raport HTML. Nie uruchamia
+procesów: to robi pełne Maptelo (https://maptelo.dev). Nie wymaga uprawnień administratora.
 
-  Maptelo Lite.cmd       okno Maptelo Lite (Edge w trybie aplikacji); folder roboczy:
-                         Dokumenty\\Maptelo Lite. Zamknięcie okna zamyka program.
+Wszystko zostaje w tym folderze, nic w folderach ani rejestrze Windows:
+  Maptelo Lite       uruchamia program: okno Edge w trybie aplikacji, zamknięcie okna go kończy
+  Procesy            Twoje nagrania i mapy
+  data               zapamiętane logowania i ustawienia (nie udostępniaj go nikomu)
+  python             Python z bibliotekami Maptelo Lite
 
-Jak zacząć: „Nowy proces: nagraj”, wpisz nazwę i adres startowy, zrób proces w oknie, które
-się otworzy, i zamknij je. Mapa pojawi się sama. W „Gotowości” możesz raz zalogować się do
-aplikacji, żeby nagrywanie pamiętało logowanie.
+Jak zacząć: „Nowy proces: nagraj”, wpisz nazwę i adres startowy (albo wybierz program Java),
+zrób proces tak jak zwykle i zakończ nagrywanie. Mapa pojawi się sama. W „Gotowości” możesz raz
+zalogować się do aplikacji, żeby nagrywanie pamiętało logowanie. Język (PL/EN) zmienisz na dole
+panelu po lewej.
 
-To prototyp: plik nie jest podpisany, więc Windows może zapytać, czy go uruchomić.
+To prototyp bez podpisu kodu, więc Windows może zapytać, czy go uruchomić.
+
+
+Maptelo Lite (English)
+======================
+
+Records a process done in a browser or in a Java program and maps it: the steps, a
+step-by-step instruction (SOP) with screenshots, a BPMN diagram and an HTML report. It does not
+run processes: the full Maptelo does (https://maptelo.dev). No administrator rights needed.
+
+Everything stays in this folder, nothing in Windows' folders or registry:
+  Maptelo Lite       starts the program: an Edge window in app mode, closing it ends Lite
+  Processes          your recordings and maps
+  data               remembered sign-ins and settings (share it with no one)
+  python             Python with Maptelo Lite's libraries
+
+To start: "New process: record", type a name and the start address (or choose a Java
+program), do the process as usual and finish the recording. The map appears by itself. In
+"Readiness" you can sign in to the application once, so that recording remembers it. The
+language (PL/EN) is at the foot of the left panel.
+
+A prototype, not code-signed yet, so Windows may ask whether to run it.
 """
 
 POLICY_EXAMPLE = """\
@@ -108,6 +140,10 @@ tym komputerze działa, czego użyje zamiast tego, czego nie ma, i o co ewentual
 
 Zasady od IT: zobacz policy.example.yaml.
 """
+
+
+ICON = Path(__file__).resolve().parents[2] / "installer" / "lite" / "maptelo-lite.ico"
+"""Maptelo Lite's icon: its shortcuts show it (tools/package/lite_pictures.py draws it)."""
 
 
 def _patch_paths(python: Path) -> None:
@@ -166,6 +202,8 @@ def build(
     for name, text in files:
         newline = "\r\n" if name.endswith((".cmd", ".txt")) else "\n"
         (out / name).write_text(text, encoding="utf-8", newline=newline)
+    if lite:
+        shutil.copyfile(ICON, out / ICON.name)
     return out
 
 
