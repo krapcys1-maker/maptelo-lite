@@ -46,8 +46,8 @@ korzysta z Java Access Bridge, ale na nim Lite nie był jeszcze sprawdzany.
 ## Instalacja
 
 - **Instalator** (Windows 10/11, na użytkownika, bez uprawnień administratora): zakładka
-  [Releases](../../releases). To prototyp bez podpisu kodu, więc Windows może ostrzec przy
-  instalacji.
+  [Releases](https://github.com/krapcys1-maker/maptelo-lite/releases). To prototyp bez podpisu
+  kodu, więc Windows może ostrzec przy instalacji.
 - **Z kodu** (Python 3.12):
 
   ```bash
@@ -109,8 +109,9 @@ nothing leaves your computer.
   127.0.0.1 with a key made at each start, passwords are never stored, and private mode covers
   typed values and tables on screenshots.
 
-Install the per-user Windows installer from [Releases](../../releases) (a prototype, not
-code-signed yet), or from source with Python 3.12: `pip install ".[studio]"`, then `maptelo-lite`.
+Install the per-user Windows installer from
+[Releases](https://github.com/krapcys1-maker/maptelo-lite/releases) (a prototype, not code-signed
+yet), or from source with Python 3.12: `pip install ".[studio]"`, then `maptelo-lite`.
 For development: `uv sync`, `uv run playwright install chromium`, `uv run pytest`. Maptelo Lite is
 the open part of Maptelo, exported from the full Maptelo's repository; issues and pull requests
 are welcome.
