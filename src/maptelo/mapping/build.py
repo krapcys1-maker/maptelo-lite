@@ -1752,15 +1752,16 @@ class _Builder:
             base = f"pick_row_{target.row.table or 'table'}"
             if how == "key":
                 evidence_note = (
-                    f"Wiersz wskazuje wartość z danych ({column}), nie stała z nagrania"
+                    f"Wiersz wskazuje wartość z danych wejściowych ({column}), "
+                    "a nie stała z nagrania"
                     if self.lang == "pl"
-                    else f"The row is named by a value from the data ({column}), not a constant"
+                    else f"The row is identified by an input value ({column}), not a constant"
                 )
             elif how == "rule":
                 evidence_note = (
-                    f"Reguła wyboru wiersza odgadnięta z jednego nagrania: {rule}"
+                    f"Regułę wyboru wiersza wywnioskowano z jednego nagrania: {rule}"
                     if self.lang == "pl"
-                    else f"Row rule guessed from one recording: {rule}"
+                    else f"Row rule inferred from a single recording: {rule}"
                 )
             else:
                 evidence_note = (
@@ -1933,16 +1934,16 @@ class _Builder:
             preconditions.append(say(self.lang, "login", app=self.app))
         if self.inputs:
             self.note(
-                "Wszystkie wpisane i wybrane wartości potraktowano jako dane wejściowe; "
-                "stałe wymagają kilku nagrań.",
-                "Every typed or chosen value was treated as an input; "
-                "constants need several recordings.",
+                "Wszystkie wprowadzone i wybrane wartości potraktowano jako dane wejściowe; "
+                "rozpoznanie wartości stałych wymaga kilku nagrań.",
+                "Every entered or selected value was treated as an input; "
+                "identifying constants requires several recordings.",
             )
 
         start_iso = self.trace.header.started_at.date().isoformat()
         description = say(self.lang, "mapped_from", recording=self.recording, date=start_iso)
         note = (self.trace.header.note or "").strip()
-        if note:  # „Nowa cena do akceptacji” and „Zmapowano…” are two sentences
+        if note:  # „Nowa cena do akceptacji” and „Mapę utworzono…” are two sentences
             description = f"{note}{'' if note[-1] in '.!?…' else '.'} {description}"
         data: dict[str, Any] = {
             "schema_version": "0.1",

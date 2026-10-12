@@ -48,8 +48,8 @@ WORDS: dict[Lang, dict[str, str]] = {
         "to_confirm": "Do potwierdzenia",
         "verification": "Jak sprawdzić wynik",
         "no_effects": (
-            "Mapa nie określa jeszcze, jak niezależnie sprawdzić efekt (np. odczyt przez API). "
-            "Bez tego automatyzacja nie zgłosi wyniku VERIFIED."
+            "Mapa nie określa jeszcze sposobu niezależnej weryfikacji wyniku (np. odczytu "
+            "przez API). Bez niego automatyzacja nie zgłosi wyniku VERIFIED."
         ),
         "expected": "Oczekiwany wynik",
         "if_message": "Jeśli pojawi się komunikat",
@@ -59,8 +59,9 @@ WORDS: dict[Lang, dict[str, str]] = {
         "read_in_step": "odczytana w kroku",
         "named_in_step": "opcja, którą wymienia tekst odczytany w kroku",
         "from_picture": (
-            "Z obrazu dokumentu: wartość tak, jak jest wydrukowana; robot czyta ją modelem, który "
-            "widzi obrazy, i sprawdza regułami ({checks}); niepewny odczyt zostawia człowiekowi"
+            "Z obrazu dokumentu: wartość w postaci wydrukowanej; robot odczytuje ją modelem "
+            "rozpoznającym obrazy i weryfikuje regułami ({checks}); niepewny odczyt przekazuje "
+            "do weryfikacji pracownikowi"
         ),
         "each_line": "Dla każdej pozycji rekordu (każdego jego wiersza w arkuszu):",
         "per_line_input": "na pozycję",
@@ -69,20 +70,23 @@ WORDS: dict[Lang, dict[str, str]] = {
         "keep_typed": "Gdy żadna podpowiedź nie pasuje: zostaw wpisaną wartość i przejdź dalej",
         "address": "adres",
         "only_if": "Tylko gdy",
-        "otherwise": "Tylko gdy nie zrobiono kroku {step} (druga droga procesu)",
-        "requires": "Przed krokiem, jak w każdym pokazie",
-        "or_stop": "inaczej przerwij",
+        "otherwise": "Tylko gdy nie wykonano kroku {step} (alternatywna ścieżka procesu)",
+        "requires": "Warunek wstępny kroku, spełniony we wszystkich pokazach",
+        "or_stop": "w przeciwnym razie przerwij",
         "in_window": "W osobnym oknie",
-        "opens_window": "Otwiera osobne okno: kolejne kroki robi się w nim",
-        "closes_window": "Zamyka swoje okno: dalej w oknie pod nim",
+        "opens_window": "Otwiera osobne okno; kolejne kroki wykonuje się w nim",
+        "closes_window": "Zamyka okno; kolejne kroki wykonuje się w oknie poniżej",
         "asks_confirm": "Przeglądarka pyta {message}: {answer}",
-        "asks_prompt": "Przeglądarka prosi {message}: wpisz {value} i OK",
-        "shows_alert": "Przeglądarka pokazuje {message}: OK",
+        "asks_prompt": "Przeglądarka prosi {message}: wpisz {value} i kliknij OK",
+        "shows_alert": "Przeglądarka wyświetla {message}: kliknij OK",
         "cancel": "Anuluj",
-        "other_question": "Inne pytanie przeglądarki: Anuluj i przerwij",
+        "other_question": "Inne pytanie przeglądarki: kliknij Anuluj i przerwij proces",
         "commits": "zapisuje dane",
-        "by_person": "robi człowiek",
-        "control": "kontrola: osoba porównuje z dokumentem, zanim potwierdzi (cztery oczy)",
+        "by_person": "wykonuje pracownik",
+        "control": (
+            "kontrola: pracownik porównuje dane z dokumentem przed zatwierdzeniem "
+            "(zasada czterech oczu)"
+        ),
         "screen": "ekran",
         "message_appears": "pojawia się komunikat",
         "dialog_appears": "pojawia się okno",
@@ -101,7 +105,7 @@ WORDS: dict[Lang, dict[str, str]] = {
         "decimal": "liczba",
         "date": "data",
         "boolean": "tak/nie",
-        "generated": "Wygenerowano przez Maptelo",
+        "generated": "Wygenerowano w Maptelo",
         "click": "kliknij",
     },
     "en": {
@@ -133,8 +137,8 @@ WORDS: dict[Lang, dict[str, str]] = {
         "to_confirm": "To confirm",
         "verification": "How to check the result",
         "no_effects": (
-            "The map does not yet say how to check the result independently (e.g. an API read). "
-            "Without it an automation cannot report VERIFIED."
+            "The map does not yet define how to verify the result independently (e.g. an "
+            "API read). Without it, an automation cannot report VERIFIED."
         ),
         "expected": "Expected result",
         "if_message": "If the message appears",
@@ -144,31 +148,34 @@ WORDS: dict[Lang, dict[str, str]] = {
         "read_in_step": "read in step",
         "named_in_step": "the option named in the text read in step",
         "from_picture": (
-            "From the document's picture: the value as printed; the robot reads it with a model "
-            "that sees images and checks it by rules ({checks}); an unsure reading is left to a "
-            "person"
+            "From the document image: the value as printed; the robot reads it with an image "
+            "recognition model and verifies it by rules ({checks}); an uncertain reading is "
+            "passed to an employee for review"
         ),
         "each_line": "For each line of the record (each of its rows in the sheet):",
         "per_line_input": "per line",
         "file": "file",
         "downloaded_in_step": "downloaded in step",
-        "keep_typed": "If no suggestion matches: leave the value typed and go on",
+        "keep_typed": "If no suggestion matches: keep the entered value and continue",
         "address": "address",
         "only_if": "Only if",
-        "otherwise": "Only if step {step} was not done (the other way the process goes)",
-        "requires": "Before the step, as in every recording",
+        "otherwise": "Only if step {step} was not performed (alternative path of the process)",
+        "requires": "Precondition of the step, met in all recordings",
         "or_stop": "otherwise stop",
-        "in_window": "In a window of its own",
-        "opens_window": "Opens a window of its own: the next steps are done in it",
-        "closes_window": "Closes its window: the work goes on in the one under it",
+        "in_window": "In a separate window",
+        "opens_window": "Opens a separate window; the next steps are performed in it",
+        "closes_window": "Closes the window; the next steps are performed in the window below",
         "asks_confirm": "The browser asks {message}: {answer}",
-        "asks_prompt": "The browser asks {message}: type {value} and OK",
-        "shows_alert": "The browser shows {message}: OK",
+        "asks_prompt": "The browser asks {message}: enter {value} and click OK",
+        "shows_alert": "The browser displays {message}: click OK",
         "cancel": "Cancel",
-        "other_question": "Any other question of the browser: Cancel, and stop",
+        "other_question": "Any other browser question: click Cancel and stop the process",
         "commits": "saves data",
-        "by_person": "done by a person",
-        "control": "a check: a person compares with the document before confirming (four eyes)",
+        "by_person": "performed by an employee",
+        "control": (
+            "control: an employee compares the data with the document before approving "
+            "(four-eyes principle)"
+        ),
         "screen": "screen",
         "message_appears": "a message appears",
         "dialog_appears": "the dialog appears",

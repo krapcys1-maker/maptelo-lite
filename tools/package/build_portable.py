@@ -71,43 +71,49 @@ LITE_README = """\
 Maptelo Lite
 ============
 
-Nagrywa proces zrobiony w przeglądarce albo w programie Java i robi z niego mapę: kroki,
-instrukcję krok po kroku (SOP) ze zrzutami ekranu, diagram BPMN i raport HTML. Nie uruchamia
-procesów: to robi pełne Maptelo (https://maptelo.dev). Nie wymaga uprawnień administratora.
+Maptelo Lite nagrywa proces wykonywany w przeglądarce lub w programie Java i przygotowuje jego
+dokumentację: opis kroków, instrukcję stanowiskową (SOP) ze zrzutami ekranu, diagram BPMN oraz
+raport HTML. Program nie wykonuje procesów; służy do tego pełne Maptelo (https://maptelo.dev).
+Nie wymaga uprawnień administratora.
 
-Wszystko zostaje w tym folderze, nic w folderach ani rejestrze Windows:
-  Maptelo Lite       uruchamia program: okno Edge w trybie aplikacji, zamknięcie okna go kończy
-  Procesy            Twoje nagrania i mapy
-  data               zapamiętane logowania i ustawienia (nie udostępniaj go nikomu)
-  python             Python z bibliotekami Maptelo Lite
+Wszystkie dane pozostają w tym folderze; program nie zapisuje niczego w folderach systemowych
+ani w rejestrze Windows:
+  Maptelo Lite       uruchamia program (okno Edge w trybie aplikacji; zamknięcie okna kończy pracę)
+  Procesy            nagrania i mapy procesów
+  data               zapamiętane logowania i ustawienia (nie należy ich udostępniać)
+  python             środowisko Python z bibliotekami Maptelo Lite
 
-Jak zacząć: „Nowy proces: nagraj”, wpisz nazwę i adres startowy (albo wybierz program Java),
-zrób proces tak jak zwykle i zakończ nagrywanie. Mapa pojawi się sama. W „Gotowości” możesz raz
-zalogować się do aplikacji, żeby nagrywanie pamiętało logowanie. Język (PL/EN) zmienisz na dole
-panelu po lewej.
+Pierwsze kroki: kliknij „Nowy proces”, wprowadź nazwę i adres startowy (albo wybierz program
+Java), wykonaj proces w zwykły sposób i zakończ nagrywanie. Mapa zostanie utworzona
+automatycznie. W zakładce „Gotowość” można jednorazowo zalogować się do aplikacji, aby
+nagrywanie korzystało z zapamiętanego logowania. Język interfejsu (PL/EN) zmienia przełącznik
+w lewym dolnym rogu okna.
 
-To prototyp bez podpisu kodu, więc Windows może zapytać, czy go uruchomić.
+Wersje 0.x nie mają jeszcze podpisu kodu, dlatego Windows może poprosić o potwierdzenie
+uruchomienia.
 
 
 Maptelo Lite (English)
 ======================
 
-Records a process done in a browser or in a Java program and maps it: the steps, a
-step-by-step instruction (SOP) with screenshots, a BPMN diagram and an HTML report. It does not
-run processes: the full Maptelo does (https://maptelo.dev). No administrator rights needed.
+Maptelo Lite records a process performed in a browser or a Java program and prepares its
+documentation: a description of the steps, a work instruction (SOP) with screenshots, a BPMN
+diagram and an HTML report. It does not execute processes; that is the full Maptelo
+(https://maptelo.dev). No administrator rights are required.
 
-Everything stays in this folder, nothing in Windows' folders or registry:
-  Maptelo Lite       starts the program: an Edge window in app mode, closing it ends Lite
-  Processes          your recordings and maps
-  data               remembered sign-ins and settings (share it with no one)
-  python             Python with Maptelo Lite's libraries
+All data stays in this folder; nothing is written to system folders or the Windows registry:
+  Maptelo Lite       starts the program (an Edge window in app mode; closing it ends the session)
+  Processes          recordings and process maps
+  data               saved sign-ins and settings (do not share)
+  python             the Python runtime with Maptelo Lite's libraries
 
-To start: "New process: record", type a name and the start address (or choose a Java
-program), do the process as usual and finish the recording. The map appears by itself. In
-"Readiness" you can sign in to the application once, so that recording remembers it. The
-language (PL/EN) is at the foot of the left panel.
+Getting started: click "New process", enter a name and the start address (or choose a Java
+program), perform the process as usual and finish the recording. The map is created
+automatically. In the "Readiness" tab you can sign in to the application once, so that
+recording uses the saved sign-in. The interface language (PL/EN) is switched in the lower-left
+corner of the window.
 
-A prototype, not code-signed yet, so Windows may ask whether to run it.
+Versions 0.x are not yet code-signed, so Windows may ask you to confirm running the program.
 """
 
 POLICY_EXAMPLE = """\

@@ -62,7 +62,7 @@ TEMPLATES: dict[Lang, dict[str, str]] = {
         "check": "Zaznacz „{name}”",
         "uncheck": "Odznacz „{name}”",
         "login": "Zalogowany użytkownik aplikacji {app}",
-        "mapped_from": "Zmapowano automatycznie z nagrania {recording} ({date}).",
+        "mapped_from": "Mapę utworzono automatycznie na podstawie nagrania {recording} ({date}).",
     },
     "en": {
         "open": "Open the “{screen}” screen",
@@ -88,7 +88,7 @@ TEMPLATES: dict[Lang, dict[str, str]] = {
         "check": "Tick “{name}”",
         "uncheck": "Untick “{name}”",
         "login": "A user signed in to {app}",
-        "mapped_from": "Mapped automatically from recording {recording} ({date}).",
+        "mapped_from": "Map created automatically from recording {recording} ({date}).",
     },
 }
 

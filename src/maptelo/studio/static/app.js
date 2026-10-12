@@ -41,88 +41,88 @@ const EN = {
   "Trwa: {}": "In progress: {}",
   "Zobacz": "See",
   "Wróć do procesów": "Back to the processes",
-  "Nie ma takiej strony.": "There is no such page.",
+  "Strona nie istnieje.": "This page does not exist.",
   "Brak dostępu": "No access",
-  "Otwórz {} z adresu, który pokazał się przy uruchomieniu (zawiera klucz do tej sesji).":
-    "Open {} from the address it showed when it started (it holds the key to this session).",
+  "Otwórz {} z adresu wyświetlonego przy uruchomieniu (zawiera klucz tej sesji).":
+    "Open {} from the address shown at start-up (it contains this session's key).",
   "Polecenie: {}": "Command: {}",
   // the browser and the sign-in
   "Chromium (wbudowany)": "Chromium (built in)",
   "Przeglądarka": "Browser",
   "Wymagana przez zasady IT: {}": "Required by IT policy: {}",
-  "Polecana na tym komputerze: {}": "Recommended on this computer: {}",
+  "Zalecana na tym komputerze: {}": "Recommended on this computer: {}",
   "Bez profilu": "No profile",
-  "Profil pamięta logowanie do aplikacji; zakłada się go w „Gotowości”.":
-    "A profile remembers the sign-in to the application; you set it up in “Readiness”.",
-  "Nie ma jeszcze profilu: ": "No profile yet: ",
-  "zaloguj się raz w „Gotowości”": "sign in once in “Readiness”",
-  ", potem nagrywanie pamięta logowanie.": ", then recording remembers the sign-in.",
-  ", potem robot pamięta logowanie.": ", then the robot remembers the sign-in.",
+  "Profil przechowuje logowanie do aplikacji; tworzy się go w zakładce „Gotowość”.":
+    "A profile keeps the sign-in to the application; it is created in the “Readiness” tab.",
+  "Brak profilu: ": "No profile: ",
+  "zaloguj się jednorazowo w zakładce „Gotowość”": "sign in once in the “Readiness” tab",
+  ", a nagrywanie będzie korzystać z zapamiętanego logowania.": ", and recording will use the saved sign-in.",
+  ", a robot będzie korzystać z zapamiętanego logowania.": ", and the robot will use the saved sign-in.",
   "Profil z logowaniem": "Profile with the sign-in",
   "plik sesji (.json)": "session file (.json)",
-  "Albo zapisana sesja": "Or a saved session",
-  "Dla IT: plik z maptelo session save": "For IT: a file from maptelo session save",
+  "Lub zapisana sesja": "Or a saved session",
+  "Dla działu IT: plik z polecenia maptelo session save": "For IT: a file from the maptelo session save command",
   // recording
   "np. Zmiana cen klientów": "e.g. Customer price change",
   "https://… adres, od którego zaczyna się proces": "https://… the address the process starts at",
   "np. klient bez cen, cena z rabatem": "e.g. a customer without prices, a discounted price",
-  " Maptelo zapamięta, z której kolumny bierzesz każdą wartość.":
-    " Maptelo remembers which column each value comes from.",
-  "Szukam otwartych programów Java…": "Looking for open Java programs…",
-  "Nie widzę otwartego programu Java. Otwórz go, zaloguj się i kliknij „Odśwież listę”.":
-    "No Java program is open. Open it, sign in and click “Refresh the list”.",
-  "Na tym komputerze brakuje mostu Java (Java Access Bridge), przez który Maptelo widzi program: zajrzyj do „Gotowości”.":
-    "This computer lacks the Java bridge (Java Access Bridge) Maptelo sees the program through: look in “Readiness”.",
+  " Maptelo zapisze, z której kolumny pochodzi każda wartość.":
+    " Maptelo records which column each value comes from.",
+  "Wyszukiwanie otwartych programów Java…": "Looking for open Java programs…",
+  "Nie znaleziono otwartego programu Java. Uruchom program, zaloguj się i kliknij „Odśwież listę”.":
+    "No open Java program was found. Start the program, sign in and click “Refresh the list”.",
+  "Na tym komputerze brakuje Java Access Bridge, przez który Maptelo odczytuje program. Szczegóły w zakładce „Gotowość”.":
+    "This computer lacks the Java Access Bridge, through which Maptelo reads the program. See the “Readiness” tab.",
   "Adres startowy": "Start address",
   "Program": "Program",
-  "Otwarte teraz programy Java. Maptelo nagrywa tylko ten, który wybierzesz.":
-    "The Java programs open now. Maptelo records only the one you choose.",
+  "Otwarte programy Java. Maptelo nagrywa wyłącznie wybrany program.":
+    "Open Java programs. Maptelo records only the selected program.",
   "Odśwież listę": "Refresh the list",
-  "Gdzie robisz proces": "Where you do the process",
-  "Gdzie robisz proces:": "Where you do the process:",
-  "Wybierz program Java, w którym robisz proces (otwarty, najlepiej już po zalogowaniu). Po kliknięciu „Rozpocznij nagrywanie” {} zejdzie na pasek zadań: zrób proces w programie tak jak zwykle, potem wróć tutaj i kliknij „Zakończ nagrywanie”. Hasła nigdy nie są zapisywane.":
-    "Choose the Java program you do the process in (open, ideally signed in already). When you click “Start recording”, {} goes down to the taskbar: do the process in the program as usual, then come back here and click “Finish recording”. Passwords are never saved.",
-  "Otworzy się okno przeglądarki. Zrób w nim proces tak jak zwykle, a potem zamknij okno albo kliknij „Zakończ nagrywanie” w {}. Hasła nigdy nie są zapisywane.":
-    "A browser window opens. Do the process in it as usual, then close the window or click “Finish recording” in {}. Passwords are never saved.",
+  "Miejsce wykonywania procesu": "Where the process is performed",
+  "Miejsce wykonywania procesu:": "Where the process is performed:",
+  "Wybierz program Java, w którym wykonujesz proces (uruchomiony, najlepiej po zalogowaniu). Po kliknięciu „Rozpocznij nagrywanie” okno {} zostanie zminimalizowane. Wykonaj proces w programie w zwykły sposób, a następnie wróć do tego okna i kliknij „Zakończ nagrywanie”. Hasła nie są zapisywane.":
+    "Choose the Java program in which you perform the process (running, preferably signed in). When you click “Start recording”, the {} window is minimised. Perform the process in the program as usual, then return to this window and click “Finish recording”. Passwords are not stored.",
+  "Zostanie otwarte okno przeglądarki. Wykonaj w nim proces w zwykły sposób, a następnie zamknij okno lub kliknij „Zakończ nagrywanie” w {}. Hasła nie są zapisywane.":
+    "A browser window will open. Perform the process in it as usual, then close the window or click “Finish recording” in {}. Passwords are not stored.",
   "W przeglądarce": "In a browser",
   "W programie Java": "In a Java program",
   "Rozpocznij nagrywanie": "Start recording",
   "Najpierw wybierz program Java z listy.": "First choose a Java program from the list.",
   "nowy proces": "new process",
-  " / pokaz": " / recording",
+  " / nagranie": " / recording",
   "Nagraj proces ponownie": "Record the process again",
   "Kolejny pokaz procesu": "Another demonstration of the process",
-  "Nowy proces: nagraj pokaz": "New process: record it",
+  "Nowy proces: nagranie": "New process: recording",
   "Nazwa procesu": "Process name",
-  "Ten sam proces: nowe nagranie dostanie własną mapę.": "The same process: the new recording gets a map of its own.",
-  "Ten sam proces: kolejny pokaz uczy model czegoś nowego.":
-    "The same process: another demonstration teaches the model something new.",
-  "Tak, jak nazywa go zespół. Z niej powstanie nazwa folderu.":
-    "As your team calls it. The folder's name is made from it.",
-  "Co jest w tym pokazie szczególnego": "What is special about this recording",
+  "Ten sam proces: nowe nagranie otrzyma własną mapę.": "The same process: the new recording will get its own map.",
+  "Ten sam proces: kolejny pokaz uzupełnia model.":
+    "The same process: another demonstration extends the model.",
+  "Nazwa używana w zespole; na jej podstawie powstanie nazwa folderu.":
+    "The name used by your team; the folder name is derived from it.",
+  "Uwagi do nagrania": "Notes on this recording",
   "Opcjonalnie. Pojawi się na mapie.": "Optional. It appears on the map.",
-  "Opcjonalnie. Pomaga przy pytaniach modelu.": "Optional. It helps with the model's questions.",
-  "Dane z arkusza (opcjonalnie)": "Data from a sheet (optional)",
-  "Jeśli wartości bierzesz z arkusza, wskaż go. Przyda się, jeśli z tej mapy ma kiedyś powstać automatyzacja: robot będzie wiedział, która kolumna daje którą daną.":
-    "If you take the values from a sheet, choose it. It helps if this map is to become an automation one day: the robot will know which column gives which value.",
-  "Jeśli wartości bierzesz z arkusza, wskaż go: model nauczy się, która kolumna daje którą daną.":
-    "If you take the values from a sheet, choose it: the model learns which column gives which value.",
-  "Wybierz arkusz…": "Choose a sheet…",
-  "Jak nagrywać": "How to record",
-  "Tryb prywatny: zrzuty zakryją wpisane wartości i zawartość tabel":
-    "Private mode: screenshots cover what is typed and what tables hold",
-  "Czekam na pierwsze kroki…": "Waiting for the first steps…",
-  "Okno przeglądarki jest otwarte (jeśli go nie widać, kliknij jego ikonę na pasku zadań). Zrób w nim proces tak jak zwykle. Gdy skończysz, zamknij okno albo kliknij „Zakończ nagrywanie”.":
-    "The browser window is open (if you cannot see it, click its icon on the taskbar). Do the process in it as usual. When you are done, close the window or click “Finish recording”.",
+  "Opcjonalnie. Ułatwia uzupełnienie modelu.": "Optional. It helps when completing the model.",
+  "Dane z arkusza (opcjonalnie)": "Data from a spreadsheet (optional)",
+  "Jeżeli dane pochodzą z arkusza, wskaż go. Ułatwi to późniejszą automatyzację: mapa zapisze, z której kolumny pochodzi każda wartość.":
+    "If the data comes from a spreadsheet, select it. This makes later automation easier: the map records which column each value comes from.",
+  "Jeżeli dane pochodzą z arkusza, wskaż go: model zapisze, z której kolumny pochodzi każda wartość.":
+    "If the data comes from a spreadsheet, select it: the model records which column each value comes from.",
+  "Wybierz arkusz…": "Choose a spreadsheet…",
+  "Ustawienia nagrywania": "Recording settings",
+  "Tryb prywatny: zrzuty ekranu zasłaniają wprowadzone wartości i zawartość tabel":
+    "Private mode: screenshots mask entered values and table contents",
+  "Oczekiwanie na pierwsze kroki…": "Waiting for the first steps…",
+  "Okno przeglądarki jest otwarte (jeśli nie jest widoczne, kliknij jego ikonę na pasku zadań). Wykonaj w nim proces w zwykły sposób. Po zakończeniu zamknij okno lub kliknij „Zakończ nagrywanie”.":
+    "The browser window is open (if it is not visible, click its icon on the taskbar). Perform the process in it as usual. When finished, close the window or click “Finish recording”.",
   "Zakończ nagrywanie": "Finish recording",
-  "Nagrywam program „{}”. Zrób w nim proces tak jak zwykle. Gdy skończysz, wróć tutaj ({} na pasku zadań) i kliknij „Zakończ nagrywanie”. Maptelo zapisuje tylko to, co dzieje się w tym programie.":
-    "Recording the program “{}”. Do the process in it as usual. When you are done, come back here ({} on the taskbar) and click “Finish recording”. Maptelo saves only what happens in this program.",
+  "Trwa nagrywanie programu „{}”. Wykonaj w nim proces w zwykły sposób. Po zakończeniu wróć do tego okna ({} na pasku zadań) i kliknij „Zakończ nagrywanie”. Maptelo zapisuje wyłącznie działania w tym programie.":
+    "Recording the program “{}”. Perform the process in it as usual. When finished, return to this window ({} on the taskbar) and click “Finish recording”. Maptelo records only actions in this program.",
   "Zapisane kroki i zdarzenia: {}": "Steps and events saved: {}",
-  "nagrywa": "recording",
+  "nagrywanie": "recording",
   "błąd": "error",
   "nagranie zapisane": "recording saved",
-  " Robię mapę procesu…": " Making the map of the process…",
-  "Nagranie się nie zapisało.": "The recording was not saved.",
+  " Tworzenie mapy procesu…": " Creating the process map…",
+  "Nie udało się zapisać nagrania.": "The recording was not saved.",
   "Maptelo Lite nie ma zadań „{}”.": "Maptelo Lite has no “{}” jobs.",
   // readiness
   "Oprogramowanie": "Software",
@@ -133,90 +133,90 @@ const EN = {
   "Niezależny odczyt": "Independent read",
   "Strefa czasowa": "Time zone",
   "Przeglądarki": "Browsers",
-  "Prowadzenie przeglądarki": "Driving the browser",
+  "Sterowanie przeglądarką": "Browser control",
   "Narzędzia deweloperskie": "Developer tools",
   "Okno aplikacji": "Application window",
   "Proxy": "Proxy",
   "Skrypt proxy": "Proxy script",
   "Certyfikaty HTTPS": "HTTPS certificates",
-  "Uprawnienia": "Rights",
+  "Uprawnienia": "Permissions",
   "Adres lokalny": "Local address",
   "Zasady IT": "IT policy",
   "Programy Java": "Java programs",
-  "w porządku": "fine",
+  "poprawnie": "OK",
   "problem": "problem",
   "informacja": "note",
   "Ten komputer": "This computer",
-  "Co Maptelo tu może: sprawdzone w chwili, bez łączenia się z siecią. Czego brakuje, tam Maptelo wybiera inną drogę albo mówi, o co poprosić IT.":
-    "What Maptelo can do here, checked in a moment without going on the network. Where something is missing, Maptelo takes another way or says what to ask IT for.",
+  "Możliwości Maptelo na tym komputerze, sprawdzane lokalnie, bez połączenia z siecią. Jeśli czegoś brakuje, Maptelo stosuje rozwiązanie alternatywne albo wskazuje, o co poprosić dział IT.":
+    "What Maptelo can do on this computer, checked locally without a network connection. If something is missing, Maptelo uses an alternative or states what to request from IT.",
   "do poprawy: {}": "to fix: {}",
-  "rdzeń działa": "the core works",
+  "podstawowe funkcje działają": "core functions work",
   "np. praca": "e.g. work",
-  "Profil przeglądarki z logowaniem": "A browser profile with your sign-in",
-  "Nagranie może się odbywać w osobnym profilu przeglądarki, który pamięta Twoje logowanie. Zaloguj się w nim raz, sam, w zwykłym oknie: Maptelo nie widzi i nie zapisuje hasła.":
-    "A recording can happen in a browser profile of its own that remembers your sign-in. Sign in there once, yourself, in an ordinary window: Maptelo neither sees nor saves the password.",
-  "Robot pracuje w osobnym profilu przeglądarki, który pamięta Twoje logowanie. Zaloguj się w nim raz, sam, w zwykłym oknie: Studio nie widzi i nie zapisuje hasła.":
-    "The robot works in a browser profile of its own that remembers your sign-in. Sign in there once, yourself, in an ordinary window: Studio neither sees nor saves the password.",
-  "zapamiętane {}": "remembered {}",
+  "Profil przeglądarki z zapamiętanym logowaniem": "Browser profile with a saved sign-in",
+  "Nagrywanie może korzystać z osobnego profilu przeglądarki z zapamiętanym logowaniem. Zaloguj się w nim jednorazowo, samodzielnie, w zwykłym oknie przeglądarki; Maptelo nie widzi i nie zapisuje hasła.":
+    "Recording can use a separate browser profile with a saved sign-in. Sign in once, yourself, in an ordinary browser window; Maptelo neither sees nor stores the password.",
+  "Robot pracuje w osobnym profilu przeglądarki z zapamiętanym logowaniem. Zaloguj się w nim jednorazowo, samodzielnie, w zwykłym oknie przeglądarki; Studio nie widzi i nie zapisuje hasła.":
+    "The robot works in a separate browser profile with a saved sign-in. Sign in once, yourself, in an ordinary browser window; Studio neither sees nor stores the password.",
+  "zapamiętane {}": "saved {}",
   "jeszcze nie": "not yet",
   "Na tym komputerze nie ma jeszcze profilu.": "This computer has no profile yet.",
   "Nazwa profilu": "Profile name",
-  "Małe litery, cyfry, - albo _. Ten profil wybierzesz przy nagrywaniu.":
-    "Small letters, digits, - or _. You choose this profile when recording.",
-  "Małe litery, cyfry, - albo _. Tę nazwę wpiszesz przy uruchamianiu.":
-    "Small letters, digits, - or _. You type this name when running.",
-  "Adres do zalogowania": "Address to sign in at",
+  "Małe litery, cyfry oraz znaki - i _. Profil wybiera się przy nagrywaniu.":
+    "Lower-case letters, digits, - and _. The profile is chosen when recording.",
+  "Małe litery, cyfry oraz znaki - i _. Tę nazwę podaje się przy uruchamianiu.":
+    "Lower-case letters, digits, - and _. This name is entered when running.",
+  "Adres strony logowania": "Sign-in address",
   "Strona logowania albo pierwszy ekran procesu.": "The sign-in page or the first screen of the process.",
   "Otwórz okno logowania": "Open the sign-in window",
   "Logowanie i sprawdzenie komputera przed pierwszym nagraniem.":
-    "The sign-in and a check of this computer before the first recording.",
+    "Sign-in and a check of this computer before the first recording.",
   "Logowanie i sprawdzenie komputera przed pierwszym przebiegiem.":
-    "The sign-in and a check of this computer before the first run.",
+    "Sign-in and a check of this computer before the first run.",
   "Zakończ": "Finish",
   " / logowanie": " / sign-in",
   "okno otwarte": "window open",
   "gotowe": "done",
-  "Okno przeglądarki jest otwarte. Zaloguj się w nim tak jak zwykle (także przez SSO firmy), a potem zamknij okno.":
-    "The browser window is open. Sign in there as usual (also through your company's SSO), then close the window.",
-  "Profil {} pamięta logowanie": "The profile {} remembers the sign-in",
-  "Logowanie nie zostało zapamiętane": "The sign-in was not remembered",
-  "Wybierz „{}” w polu „Profil z logowaniem” przy nagrywaniu. Profil to Twoje ciasteczka: nie udostępniaj go nikomu.":
-    "Choose “{}” in the “Profile with the sign-in” field when you record. The profile holds your cookies: share it with no one.",
-  "Wpisz „{}” w polu „Profil z logowaniem” przy pokazie i przy uruchamianiu. Profil to Twoje ciasteczka: nie udostępniaj go nikomu.":
-    "Type “{}” in the “Profile with the sign-in” field when you record and when you run. The profile holds your cookies: share it with no one.",
-  "Okno zamknęło się, zanim strona coś zapisała. Spróbuj jeszcze raz.":
-    "The window closed before the page saved anything. Try again.",
-  "Wróć do gotowości": "Back to readiness",
+  "Okno przeglądarki jest otwarte. Zaloguj się w zwykły sposób (również przez firmowe SSO), a następnie zamknij okno.":
+    "The browser window is open. Sign in as usual (including through your company's SSO), then close the window.",
+  "Profil {} zapamiętał logowanie": "The profile {} has saved the sign-in",
+  "Logowanie nie zostało zapamiętane": "The sign-in was not saved",
+  "Przy nagrywaniu wybierz „{}” w polu „Profil z logowaniem”. Profil zawiera Twoje pliki cookie; nie udostępniaj go innym osobom.":
+    "When recording, choose “{}” in the “Profile with the sign-in” field. The profile contains your cookies; do not share it.",
+  "Przy pokazie i przy uruchamianiu wpisz „{}” w polu „Profil z logowaniem”. Profil zawiera Twoje pliki cookie; nie udostępniaj go innym osobom.":
+    "When recording and running, enter “{}” in the “Profile with the sign-in” field. The profile contains your cookies; do not share it.",
+  "Okno zostało zamknięte, zanim strona zapisała dane logowania. Spróbuj ponownie.":
+    "The window was closed before the page saved the sign-in. Please try again.",
+  "Powrót do zakładki „Gotowość”": "Back to “Readiness”",
   // maps
   "Mapa gotowa: {}.": "The map is ready: {}.",
   "{} w folderze {}": "{} in the folder {}",
-  "Nowy proces: nagraj": "New process: record",
-  "Tu pojawią się Twoje procesy": "Your processes will appear here",
-  "Zrób proces raz w przeglądarce albo w programie Java, a Maptelo Lite zapisze go jako mapę: kroki, instrukcję (SOP), diagram BPMN i raport.":
-    "Do a process once in a browser or in a Java program, and Maptelo Lite saves it as a map: its steps, an instruction (SOP), a BPMN diagram and a report.",
+  "Nowy proces": "New process",
+  "Nie ma jeszcze żadnych procesów": "No processes yet",
+  "Nagraj proces wykonywany w przeglądarce lub w programie Java. Maptelo Lite utworzy jego mapę: opis kroków, instrukcję stanowiskową (SOP), diagram BPMN i raport.":
+    "Record a process performed in a browser or a Java program. Maptelo Lite will create its map: the steps, a work instruction (SOP), a BPMN diagram and a report.",
   "Nagraj pierwszy proces": "Record your first process",
-  "Zrób mapę ponownie": "Make the map again",
-  "Zrób mapę": "Make the map",
-  "Zobacz mapę": "See the map",
+  "Utwórz mapę ponownie": "Create the map again",
+  "Utwórz mapę": "Create the map",
+  "Otwórz mapę": "Open the map",
   "Nagraj ponownie": "Record again",
-  "Kiedy": "When",
-  "Notatka": "Note",
+  "Data": "Date",
+  "Uwagi": "Notes",
   "Działania": "Actions",
   "Mapa": "Map",
   "Ten proces nie ma jeszcze nagrań.": "This process has no recordings yet.",
   "Powiększ: {}": "Enlarge: {}",
   "Powiększ": "Enlarge",
-  "Ta mapa jeszcze nie powstała.": "This map has not been made yet.",
+  "Mapa nie została jeszcze utworzona.": "This map has not been created yet.",
   "Wróć do procesu": "Back to the process",
-  "Wczytuję instrukcję…": "Loading the instruction…",
-  "Nie udało się wczytać instrukcji: otwórz raport albo folder z plikami.":
-    "The instruction could not be loaded: open the report or the folder with the files.",
+  "Wczytywanie instrukcji…": "Loading the instruction…",
+  "Nie udało się wczytać instrukcji. Otwórz raport lub folder z plikami.":
+    "The instruction could not be loaded. Open the report or the folder with the files.",
   " / mapa": " / map",
   "nagranie {}": "recorded {}",
   "Otwórz raport": "Open the report",
   "Folder z plikami": "Folder with the files",
   "Diagram procesu {}": "Diagram of the process {}",
-  "Instrukcja krok po kroku (SOP)": "Step-by-step instruction (SOP)",
+  "Instrukcja stanowiskowa (SOP)": "Work instruction (SOP)",
 };
 const EN_PLURALS = { krok: ["step", "steps"], proces: ["process", "processes"],
                      nagranie: ["recording", "recordings"], "działanie": ["action", "actions"] };
@@ -356,7 +356,7 @@ function fileUrl(path) {
 function noAccess() {
   show(h("div", { class: "card empty" },
     h("h1", {}, t("Brak dostępu")),
-    h("p", {}, t("Otwórz {} z adresu, który pokazał się przy uruchomieniu (zawiera klucz do tej sesji).", lite ? "Maptelo Lite" : "Studio")),
+    h("p", {}, t("Otwórz {} z adresu wyświetlonego przy uruchomieniu (zawiera klucz tej sesji).", lite ? "Maptelo Lite" : "Studio")),
     h("p", { class: "muted" }, t("Polecenie: {}", lite ? "maptelo-lite" : "maptelo studio"))));
 }
 
@@ -372,25 +372,25 @@ function browserLabel(select) {
   return h("label", {}, t("Przeglądarka"), select,
     preferred ? h("span", { class: "hint" }, browserRequired
       ? t("Wymagana przez zasady IT: {}", t(preferred[1]))
-      : t("Polecana na tym komputerze: {}", t(preferred[1]))) : null);
+      : t("Zalecana na tym komputerze: {}", t(preferred[1]))) : null);
 }
 
 /* The profiles this computer keeps a sign-in in, the only one chosen already (the clean-Windows
    test of 11.10: the name was typed by hand, or the run stopped at the application's sign-in). */
 function profileChoice() {
   const select = h("select", {}, h("option", { value: "" }, t("Bez profilu")));
-  const hint = h("span", { class: "hint" }, t("Profil pamięta logowanie do aplikacji; zakłada się go w „Gotowości”."));
+  const hint = h("span", { class: "hint" }, t("Profil przechowuje logowanie do aplikacji; tworzy się go w zakładce „Gotowość”."));
   api("/api/profiles").then((found) => {
     for (const p of found) select.append(h("option", { value: p.name }, p.name));
     if (found.length === 1) select.value = found[0].name;
-    if (!found.length) fill(hint, t("Nie ma jeszcze profilu: "), h("a", { href: "#/ready" }, t("zaloguj się raz w „Gotowości”")), lite ? t(", potem nagrywanie pamięta logowanie.") : t(", potem robot pamięta logowanie."));
+    if (!found.length) fill(hint, t("Brak profilu: "), h("a", { href: "#/ready" }, t("zaloguj się jednorazowo w zakładce „Gotowość”")), lite ? t(", a nagrywanie będzie korzystać z zapamiętanego logowania.") : t(", a robot będzie korzystać z zapamiętanego logowania."));
   }).catch(() => {});
   return { select, label: h("label", {}, t("Profil z logowaniem"), select, hint) };
 }
 
 function sessionField() {
   const input = h("input", { type: "text", placeholder: t("plik sesji (.json)") });
-  return { input, label: h("label", {}, t("Albo zapisana sesja"), input, h("span", { class: "hint" }, t("Dla IT: plik z maptelo session save"))) };
+  return { input, label: h("label", {}, t("Lub zapisana sesja"), input, h("span", { class: "hint" }, t("Dla działu IT: plik z polecenia maptelo session save"))) };
 }
 
 // --- recording a demonstration --------------------------------------------------------------
@@ -431,14 +431,14 @@ async function showRecordForm(key) {
       state.sheet = kept.sheet;
       fill(sheetPick, kept.sheets.map((s) => h("option", { value: s }, s)));
       sheetPick.hidden = kept.sheets.length < 2;
-      fill(sheetInfo, h("span", { class: "chip ok" }, file.name), t(" Maptelo zapamięta, z której kolumny bierzesz każdą wartość."));
+      fill(sheetInfo, h("span", { class: "chip ok" }, file.name), t(" Maptelo zapisze, z której kolumny pochodzi każda wartość."));
     } catch (error) { fill(sheetInfo, problemsBox(error.problems || [error.message])); }
   });
   // a Java program on this computer (Oracle Forms, Swing): chosen from those open now
   const javaPick = h("select", {});
   const javaInfo = h("div");
   const listPrograms = async () => {
-    fill(javaInfo, h("p", { class: "muted" }, t("Szukam otwartych programów Java…")));
+    fill(javaInfo, h("p", { class: "muted" }, t("Wyszukiwanie otwartych programów Java…")));
     try {
       const found = await api("/api/java/windows");
       const before = javaPick.value || program;
@@ -447,8 +447,8 @@ async function showRecordForm(key) {
       if (again) javaPick.value = again.title;
       javaPick.disabled = !found.windows.length;
       if (found.problem) fill(javaInfo, problemsBox([found.problem]));
-      else if (!found.windows.length) fill(javaInfo, h("div", { class: "notice" }, t("Nie widzę otwartego programu Java. Otwórz go, zaloguj się i kliknij „Odśwież listę”.")));
-      else if (!found.bridge) fill(javaInfo, h("div", { class: "notice" }, t("Na tym komputerze brakuje mostu Java (Java Access Bridge), przez który Maptelo widzi program: zajrzyj do „Gotowości”.")));
+      else if (!found.windows.length) fill(javaInfo, h("div", { class: "notice" }, t("Nie znaleziono otwartego programu Java. Uruchom program, zaloguj się i kliknij „Odśwież listę”.")));
+      else if (!found.bridge) fill(javaInfo, h("div", { class: "notice" }, t("Na tym komputerze brakuje Java Access Bridge, przez który Maptelo odczytuje program. Szczegóły w zakładce „Gotowość”.")));
       else fill(javaInfo);
     } catch (error) { fill(javaInfo, problemsBox(error.problems || [error.message])); }
   };
@@ -457,12 +457,12 @@ async function showRecordForm(key) {
   const urlLabel = h("label", {}, t("Adres startowy"), url);
   const javaBox = h("div", { class: "java-pick" },
     h("div", { class: "form" },
-      h("label", {}, t("Program"), javaPick, h("span", { class: "hint" }, t("Otwarte teraz programy Java. Maptelo nagrywa tylko ten, który wybierzesz."))),
+      h("label", {}, t("Program"), javaPick, h("span", { class: "hint" }, t("Otwarte programy Java. Maptelo nagrywa wyłącznie wybrany program."))),
       h("div", { class: "actions" }, h("button", { type: "button", onclick: () => listPrograms() }, t("Odśwież listę")))),
     javaInfo);
   const browserOptions = h("div", { class: "form" }, browserLabel(browser), profile.label, session.label);
   const problems = h("div");
-  const where = h("div", { class: "segmented", role: "group", "aria-label": t("Gdzie robisz proces") });
+  const where = h("div", { class: "segmented", role: "group", "aria-label": t("Miejsce wykonywania procesu") });
   const setWhere = (java) => {
     state.java = java;
     for (const button of where.children) button.setAttribute("aria-pressed", String((button.dataset.where === "java") === java));
@@ -470,8 +470,8 @@ async function showRecordForm(key) {
     browserOptions.hidden = java;
     javaBox.hidden = !java;
     fill(intro, java
-      ? t("Wybierz program Java, w którym robisz proces (otwarty, najlepiej już po zalogowaniu). Po kliknięciu „Rozpocznij nagrywanie” {} zejdzie na pasek zadań: zrób proces w programie tak jak zwykle, potem wróć tutaj i kliknij „Zakończ nagrywanie”. Hasła nigdy nie są zapisywane.", here)
-      : t("Otworzy się okno przeglądarki. Zrób w nim proces tak jak zwykle, a potem zamknij okno albo kliknij „Zakończ nagrywanie” w {}. Hasła nigdy nie są zapisywane.", here));
+      ? t("Wybierz program Java, w którym wykonujesz proces (uruchomiony, najlepiej po zalogowaniu). Po kliknięciu „Rozpocznij nagrywanie” okno {} zostanie zminimalizowane. Wykonaj proces w programie w zwykły sposób, a następnie wróć do tego okna i kliknij „Zakończ nagrywanie”. Hasła nie są zapisywane.", here)
+      : t("Zostanie otwarte okno przeglądarki. Wykonaj w nim proces w zwykły sposób, a następnie zamknij okno lub kliknij „Zakończ nagrywanie” w {}. Hasła nie są zapisywane.", here));
     fill(problems);
     if (java) listPrograms();
   };
@@ -496,24 +496,24 @@ async function showRecordForm(key) {
   setWhere(state.java);
   show(
     h("div", { class: "head" }, h("div", { class: "titles" },
-      h("div", { class: "crumbs" }, h("a", { href: "#/" }, t("Procesy")), " / ", key ? h("a", { href: lite ? `#/p/${encodeURIComponent(key)}` : `#/p/${encodeURIComponent(key)}/recordings` }, named) : t("nowy proces"), t(" / pokaz")),
-      h("h1", {}, key ? (lite ? t("Nagraj proces ponownie") : t("Kolejny pokaz procesu")) : t("Nowy proces: nagraj pokaz")))),
+      h("div", { class: "crumbs" }, h("a", { href: "#/" }, t("Procesy")), " / ", key ? h("a", { href: lite ? `#/p/${encodeURIComponent(key)}` : `#/p/${encodeURIComponent(key)}/recordings` }, named) : t("nowy proces"), t(" / nagranie")),
+      h("h1", {}, key ? (lite ? t("Nagraj proces ponownie") : t("Kolejny pokaz procesu")) : t("Nowy proces: nagranie")))),
     h("div", { class: "card" },
-      h("div", { class: "actions" }, h("span", { class: "muted" }, t("Gdzie robisz proces:")), where),
+      h("div", { class: "actions" }, h("span", { class: "muted" }, t("Miejsce wykonywania procesu:")), where),
       intro,
       h("div", { class: "form" },
-        h("label", {}, t("Nazwa procesu"), name, h("span", { class: "hint" }, key ? (lite ? t("Ten sam proces: nowe nagranie dostanie własną mapę.") : t("Ten sam proces: kolejny pokaz uczy model czegoś nowego.")) : t("Tak, jak nazywa go zespół. Z niej powstanie nazwa folderu."))),
+        h("label", {}, t("Nazwa procesu"), name, h("span", { class: "hint" }, key ? (lite ? t("Ten sam proces: nowe nagranie otrzyma własną mapę.") : t("Ten sam proces: kolejny pokaz uzupełnia model.")) : t("Nazwa używana w zespole; na jej podstawie powstanie nazwa folderu."))),
         urlLabel,
-        h("label", {}, t("Co jest w tym pokazie szczególnego"), note, h("span", { class: "hint" }, lite ? t("Opcjonalnie. Pojawi się na mapie.") : t("Opcjonalnie. Pomaga przy pytaniach modelu.")))),
+        h("label", {}, t("Uwagi do nagrania"), note, h("span", { class: "hint" }, lite ? t("Opcjonalnie. Pojawi się na mapie.") : t("Opcjonalnie. Ułatwia uzupełnienie modelu.")))),
       javaBox,
       h("fieldset", {}, h("legend", {}, t("Dane z arkusza (opcjonalnie)")),
         h("p", { class: "muted" }, lite
-          ? t("Jeśli wartości bierzesz z arkusza, wskaż go. Przyda się, jeśli z tej mapy ma kiedyś powstać automatyzacja: robot będzie wiedział, która kolumna daje którą daną.")
-          : t("Jeśli wartości bierzesz z arkusza, wskaż go: model nauczy się, która kolumna daje którą daną.")),
+          ? t("Jeżeli dane pochodzą z arkusza, wskaż go. Ułatwi to późniejszą automatyzację: mapa zapisze, z której kolumny pochodzi każda wartość.")
+          : t("Jeżeli dane pochodzą z arkusza, wskaż go: model zapisze, z której kolumny pochodzi każda wartość.")),
         h("div", { class: "actions" }, h("button", { type: "button", onclick: () => fileInput.click() }, t("Wybierz arkusz…")), fileInput, sheetPick),
         sheetInfo),
-      h("fieldset", {}, h("legend", {}, t("Jak nagrywać")),
-        h("label", { class: "check" }, priv, t("Tryb prywatny: zrzuty zakryją wpisane wartości i zawartość tabel")),
+      h("fieldset", {}, h("legend", {}, t("Ustawienia nagrywania")),
+        h("label", { class: "check" }, priv, t("Tryb prywatny: zrzuty ekranu zasłaniają wprowadzone wartości i zawartość tabel")),
         browserOptions),
       problems,
       h("div", { class: "actions" }, start)));
@@ -522,15 +522,15 @@ async function showRecordForm(key) {
 async function showRecordJob(id, first) {
   let after = 0, alive = true, events = 0;
   const status = h("div", { class: "chips" });
-  const count = h("p", {}, t("Czekam na pierwsze kroki…"));
+  const count = h("p", {}, t("Oczekiwanie na pierwsze kroki…"));
   const footer = h("div");
-  const what = h("p", {}, t("Okno przeglądarki jest otwarte (jeśli go nie widać, kliknij jego ikonę na pasku zadań). Zrób w nim proces tak jak zwykle. Gdy skończysz, zamknij okno albo kliknij „Zakończ nagrywanie”."));
+  const what = h("p", {}, t("Okno przeglądarki jest otwarte (jeśli nie jest widoczne, kliknij jego ikonę na pasku zadań). Wykonaj w nim proces w zwykły sposób. Po zakończeniu zamknij okno lub kliknij „Zakończ nagrywanie”."));
   const finish = h("button", { type: "button", class: "primary", onclick: async () => {
     finish.disabled = true;
     try { await api(`/api/jobs/${id}/stop`, { method: "POST" }); } catch (error) { alert(error.message); }
   } }, t("Zakończ nagrywanie"));
   leave = () => { alive = false; };
-  show(h("div", { class: "head" }, h("div", { class: "titles" }, h("div", { class: "crumbs" }, h("a", { href: "#/" }, t("Procesy")), t(" / pokaz")), h("h1", {}, first.title)), h("div", { class: "actions" }, status, finish)),
+  show(h("div", { class: "head" }, h("div", { class: "titles" }, h("div", { class: "crumbs" }, h("a", { href: "#/" }, t("Procesy")), t(" / nagranie")), h("h1", {}, first.title)), h("div", { class: "actions" }, status, finish)),
        h("div", { class: "card" }, what, count),
        footer);
   while (alive) {
@@ -541,24 +541,24 @@ async function showRecordJob(id, first) {
       after = event.seq;
       if (event.type === "progress") events = event.events;
       if (event.type === "start" && event.program) {  // a Java program: it has no window to close
-        fill(what, t("Nagrywam program „{}”. Zrób w nim proces tak jak zwykle. Gdy skończysz, wróć tutaj ({} na pasku zadań) i kliknij „Zakończ nagrywanie”. Maptelo zapisuje tylko to, co dzieje się w tym programie.", event.program, lite ? "Maptelo Lite" : "Studio"));
+        fill(what, t("Trwa nagrywanie programu „{}”. Wykonaj w nim proces w zwykły sposób. Po zakończeniu wróć do tego okna ({} na pasku zadań) i kliknij „Zakończ nagrywanie”. Maptelo zapisuje wyłącznie działania w tym programie.", event.program, lite ? "Maptelo Lite" : "Studio"));
       }
     }
     if (events) fill(count, t("Zapisane kroki i zdarzenia: {}", events));
     const running = job.state === "running";
     fill(status, running
-      ? h("span", { class: "chip bad" }, h("span", { class: "spin" }), t("nagrywa"))
+      ? h("span", { class: "chip bad" }, h("span", { class: "spin" }), t("nagrywanie"))
       : job.state === "failed" ? h("span", { class: "chip bad" }, t("błąd")) : h("span", { class: "chip ok" }, t("nagranie zapisane")));
     finish.hidden = !running;
     if (!running) {
       const key = job.process;
       if (lite && !job.error && job.result) {  // Lite: the map of this demonstration, at once
-        fill(footer, h("div", { class: "card" }, h("p", {}, h("span", { class: "spin" }), t(" Robię mapę procesu…"))));
+        fill(footer, h("div", { class: "card" }, h("p", {}, h("span", { class: "spin" }), t(" Tworzenie mapy procesu…"))));
         try { await makeMap(key, job.result.recording); }
         catch (error) { fill(footer, problemsBox(error.problems || [error.message])); }
         break;
       }
-      fill(footer, problemsBox([job.error || t("Nagranie się nie zapisało.")]));
+      fill(footer, problemsBox([job.error || t("Nie udało się zapisać nagrania.")]));
       break;
     }
     await new Promise((resolve) => setTimeout(resolve, 600));
@@ -569,7 +569,7 @@ async function showRecordJob(id, first) {
 
 const CHECKS = { software: "Oprogramowanie", model: "Model procesu", profile: "Profil", browser: "Przeglądarka",
                  application: "Aplikacja", "sign-in": "Logowanie", "independent read": "Niezależny odczyt",
-                 "time zone": "Strefa czasowa", browsers: "Przeglądarki", driving: "Prowadzenie przeglądarki",
+                 "time zone": "Strefa czasowa", browsers: "Przeglądarki", driving: "Sterowanie przeglądarką",
                  "developer tools": "Narzędzia deweloperskie", window: "Okno aplikacji", proxy: "Proxy",
                  "proxy script": "Skrypt proxy", certificates: "Certyfikaty HTTPS", rights: "Uprawnienia",
                  loopback: "Adres lokalny", workspace: "Folder roboczy", policy: "Zasady IT",
@@ -578,7 +578,7 @@ const CHECKS = { software: "Oprogramowanie", model: "Model procesu", profile: "P
 function checksTable(checks) {
   return h("table", { class: "checks" }, h("tbody", {}, checks.map((c) => h("tr", {},
     h("td", {}, h("span", { class: `chip ${c.verdict === "ok" ? "ok" : c.verdict === "FAIL" ? "bad" : "info"}` },
-      c.verdict === "ok" ? t("w porządku") : c.verdict === "FAIL" ? t("problem") : t("informacja"))),
+      c.verdict === "ok" ? t("poprawnie") : c.verdict === "FAIL" ? t("problem") : t("informacja"))),
     h("th", { scope: "row" }, t(CHECKS[c.what] || c.what)),
     h("td", {}, c.detail, c.hint ? h("div", { class: "hint" }, c.hint) : null)))));
 }
@@ -590,8 +590,8 @@ function computerCard(computer) {
   return h("div", { class: "card" },
     h("div", { class: "head" },
       h("div", { class: "titles" }, h("h2", {}, t("Ten komputer")),
-        h("p", { class: "muted" }, t("Co Maptelo tu może: sprawdzone w chwili, bez łączenia się z siecią. Czego brakuje, tam Maptelo wybiera inną drogę albo mówi, o co poprosić IT."))),
-      fails ? h("span", { class: "chip bad" }, t("do poprawy: {}", fails)) : h("span", { class: "chip ok" }, t("rdzeń działa"))),
+        h("p", { class: "muted" }, t("Możliwości Maptelo na tym komputerze, sprawdzane lokalnie, bez połączenia z siecią. Jeśli czegoś brakuje, Maptelo stosuje rozwiązanie alternatywne albo wskazuje, o co poprosić dział IT."))),
+      fails ? h("span", { class: "chip bad" }, t("do poprawy: {}", fails)) : h("span", { class: "chip ok" }, t("podstawowe funkcje działają"))),
     checksTable(computer.checks));
 }
 
@@ -609,18 +609,18 @@ async function showReady() {
       location.hash = `#/job/${job.id}`;
     } catch (error) { fill(signProblems, problemsBox(error.problems || [error.message])); }
   } },
-    h("h2", {}, t("Profil przeglądarki z logowaniem")),
+    h("h2", {}, t("Profil przeglądarki z zapamiętanym logowaniem")),
     h("p", { class: "muted" }, lite
-      ? t("Nagranie może się odbywać w osobnym profilu przeglądarki, który pamięta Twoje logowanie. Zaloguj się w nim raz, sam, w zwykłym oknie: Maptelo nie widzi i nie zapisuje hasła.")
-      : t("Robot pracuje w osobnym profilu przeglądarki, który pamięta Twoje logowanie. Zaloguj się w nim raz, sam, w zwykłym oknie: Studio nie widzi i nie zapisuje hasła.")),
+      ? t("Nagrywanie może korzystać z osobnego profilu przeglądarki z zapamiętanym logowaniem. Zaloguj się w nim jednorazowo, samodzielnie, w zwykłym oknie przeglądarki; Maptelo nie widzi i nie zapisuje hasła.")
+      : t("Robot pracuje w osobnym profilu przeglądarki z zapamiętanym logowaniem. Zaloguj się w nim jednorazowo, samodzielnie, w zwykłym oknie przeglądarki; Studio nie widzi i nie zapisuje hasła.")),
     profiles.length
       ? h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, t("Profil")), h("th", {}, t("Logowanie")))),
           h("tbody", {}, profiles.map((p) => h("tr", {}, h("td", { class: "mono" }, p.name),
             h("td", {}, p.signed_in ? t("zapamiętane {}", p.signed_in.replace("T", ", ")) : h("span", { class: "muted" }, t("jeszcze nie")))))))
       : h("p", {}, t("Na tym komputerze nie ma jeszcze profilu.")),
     h("div", { class: "form" },
-      h("label", {}, t("Nazwa profilu"), name, h("span", { class: "hint" }, lite ? t("Małe litery, cyfry, - albo _. Ten profil wybierzesz przy nagrywaniu.") : t("Małe litery, cyfry, - albo _. Tę nazwę wpiszesz przy uruchamianiu."))),
-      h("label", {}, t("Adres do zalogowania"), url, h("span", { class: "hint" }, t("Strona logowania albo pierwszy ekran procesu."))),
+      h("label", {}, t("Nazwa profilu"), name, h("span", { class: "hint" }, lite ? t("Małe litery, cyfry oraz znaki - i _. Profil wybiera się przy nagrywaniu.") : t("Małe litery, cyfry oraz znaki - i _. Tę nazwę podaje się przy uruchamianiu."))),
+      h("label", {}, t("Adres strony logowania"), url, h("span", { class: "hint" }, t("Strona logowania albo pierwszy ekran procesu."))),
       browserLabel(browser)),
     signProblems,
     h("div", { class: "actions" }, h("button", { type: "submit", class: "primary" }, t("Otwórz okno logowania"))));
@@ -658,14 +658,14 @@ async function showSignInJob(id, first) {
     close.hidden = !running;
     fill(status, running ? h("span", { class: "chip info" }, h("span", { class: "spin" }), t("okno otwarte"))
       : job.state === "failed" ? h("span", { class: "chip bad" }, t("błąd")) : h("span", { class: "chip ok" }, t("gotowe")));
-    if (running) fill(body, h("p", {}, t("Okno przeglądarki jest otwarte. Zaloguj się w nim tak jak zwykle (także przez SSO firmy), a potem zamknij okno.")));
+    if (running) fill(body, h("p", {}, t("Okno przeglądarki jest otwarte. Zaloguj się w zwykły sposób (również przez firmowe SSO), a następnie zamknij okno.")));
     else if (job.error) fill(body, problemsBox([job.error]));
     else fill(body,
-      h("h2", {}, job.result.kept ? t("Profil {} pamięta logowanie", job.result.profile) : t("Logowanie nie zostało zapamiętane")),
+      h("h2", {}, job.result.kept ? t("Profil {} zapamiętał logowanie", job.result.profile) : t("Logowanie nie zostało zapamiętane")),
       h("p", { class: "muted" }, job.result.kept
-        ? (lite ? t("Wybierz „{}” w polu „Profil z logowaniem” przy nagrywaniu. Profil to Twoje ciasteczka: nie udostępniaj go nikomu.", job.result.profile) : t("Wpisz „{}” w polu „Profil z logowaniem” przy pokazie i przy uruchamianiu. Profil to Twoje ciasteczka: nie udostępniaj go nikomu.", job.result.profile))
-        : t("Okno zamknęło się, zanim strona coś zapisała. Spróbuj jeszcze raz.")),
-      h("div", { class: "actions" }, h("a", { class: "button primary", href: "#/ready" }, t("Wróć do gotowości"))));
+        ? (lite ? t("Przy nagrywaniu wybierz „{}” w polu „Profil z logowaniem”. Profil zawiera Twoje pliki cookie; nie udostępniaj go innym osobom.", job.result.profile) : t("Przy pokazie i przy uruchamianiu wpisz „{}” w polu „Profil z logowaniem”. Profil zawiera Twoje pliki cookie; nie udostępniaj go innym osobom.", job.result.profile))
+        : t("Okno zostało zamknięte, zanim strona zapisała dane logowania. Spróbuj ponownie.")),
+      h("div", { class: "actions" }, h("a", { class: "button primary", href: "#/ready" }, t("Powrót do zakładki „Gotowość”"))));
   });
 }
 
@@ -709,15 +709,15 @@ async function showLiteProcesses() {
     h("div", { class: "head" }, h("div", { class: "titles" },
       h("h1", {}, t("Procesy")),
       h("p", { class: "muted" }, t("{} w folderze {}", plural(drafts.length, "proces", "procesy", "procesów"), workspace))),
-      h("div", { class: "actions" }, h("a", { class: "button primary", href: "#/new" }, t("Nowy proces: nagraj")))),
+      h("div", { class: "actions" }, h("a", { class: "button primary", href: "#/new" }, t("Nowy proces")))),
     takeFlash(),
     drafts.length
       ? h("div", { class: "grid" }, drafts.map((d) => h("a", { class: "card", href: `#/p/${encodeURIComponent(d.process)}` },
           h("h2", {}, d.title || d.process),
           h("div", { class: "facts" }, h("span", {}, plural(d.recordings, "nagranie", "nagrania", "nagrań"))))))
       : h("div", { class: "card empty" },
-          h("h2", {}, t("Tu pojawią się Twoje procesy")),
-          h("p", {}, t("Zrób proces raz w przeglądarce albo w programie Java, a Maptelo Lite zapisze go jako mapę: kroki, instrukcję (SOP), diagram BPMN i raport.")),
+          h("h2", {}, t("Nie ma jeszcze żadnych procesów")),
+          h("p", {}, t("Nagraj proces wykonywany w przeglądarce lub w programie Java. Maptelo Lite utworzy jego mapę: opis kroków, instrukcję stanowiskową (SOP), diagram BPMN i raport.")),
           h("a", { class: "button primary", href: "#/new" }, t("Nagraj pierwszy proces"))));
 }
 
@@ -730,13 +730,13 @@ async function showLiteProcess(key) {
       make.disabled = true;
       try { await makeMap(key, r.id); }
       catch (error) { fill(problems, problemsBox(error.problems || [error.message])); make.disabled = false; }
-    } }, r.map ? t("Zrób mapę ponownie") : t("Zrób mapę"));
+    } }, r.map ? t("Utwórz mapę ponownie") : t("Utwórz mapę"));
     return h("tr", {},
       h("td", {}, r.started ? new Date(r.started).toLocaleString(locale(), { dateStyle: "medium", timeStyle: "short" }) : r.id),
       h("td", {}, r.problem ? h("span", { class: "chip bad" }, r.problem) : (r.note || "—")),
       h("td", { class: "num" }, r.actions ?? "—"),
       h("td", {}, h("div", { class: "actions" },
-        r.map ? h("a", { class: "button primary", href: `#/p/${encodeURIComponent(key)}/map/${encodeURIComponent(r.id)}` }, t("Zobacz mapę")) : null,
+        r.map ? h("a", { class: "button primary", href: `#/p/${encodeURIComponent(key)}/map/${encodeURIComponent(r.id)}` }, t("Otwórz mapę")) : null,
         r.problem ? null : make)));
   };
   show(
@@ -748,7 +748,7 @@ async function showLiteProcess(key) {
     problems,
     found.length
       ? h("div", { class: "table-wrap" }, h("table", {},
-          h("thead", {}, h("tr", {}, ["Kiedy", "Notatka", "Działania", "Mapa"].map((head) => h("th", {}, t(head))))),
+          h("thead", {}, h("tr", {}, ["Data", "Uwagi", "Działania", "Mapa"].map((head) => h("th", {}, t(head))))),
           h("tbody", {}, found.map(row))))
       : h("p", {}, t("Ten proces nie ma jeszcze nagrań.")));
 }
@@ -851,25 +851,25 @@ async function showLiteMap(key, recording) {
   const found = await load(`/api/recordings/${encodeURIComponent(key)}`);
   const r = found.find((item) => item.id === recording);
   if (!r || !r.map) {
-    show(problemsBox([t("Ta mapa jeszcze nie powstała.")]), h("p", {}, h("a", { href: `#/p/${encodeURIComponent(key)}` }, t("Wróć do procesu"))));
+    show(problemsBox([t("Mapa nie została jeszcze utworzona.")]), h("p", {}, h("a", { href: `#/p/${encodeURIComponent(key)}` }, t("Wróć do procesu"))));
     return;
   }
   const files = r.map;
   const named = titleOf(found, key);
-  const sop = h("div", {}, h("p", { class: "muted" }, t("Wczytuję instrukcję…")));
+  const sop = h("div", {}, h("p", { class: "muted" }, t("Wczytywanie instrukcji…")));
   if (files["sop.md"]) {
     const folder = files["sop.md"].slice(0, files["sop.md"].lastIndexOf("/") + 1);
     fetch(fileUrl(files["sop.md"]))
       .then((answer) => { if (!answer.ok) throw new Error(String(answer.status)); return answer.text(); })
       .then((text) => fill(sop, sopPage(text, folder)))
-      .catch(() => fill(sop, h("p", { class: "muted" }, t("Nie udało się wczytać instrukcji: otwórz raport albo folder z plikami."))));
+      .catch(() => fill(sop, h("p", { class: "muted" }, t("Nie udało się wczytać instrukcji. Otwórz raport lub folder z plikami."))));
   }
   const problems = h("div");
   const again = h("button", { type: "button", onclick: async () => {
     again.disabled = true;
     try { await makeMap(key, recording); await showLiteMap(key, recording); }
     catch (error) { fill(problems, problemsBox(error.problems || [error.message])); again.disabled = false; }
-  } }, t("Zrób mapę ponownie"));
+  } }, t("Utwórz mapę ponownie"));
   const when = r.started ? new Date(r.started).toLocaleString(locale(), { dateStyle: "medium", timeStyle: "short" }) : recording;
   show(
     h("div", { class: "head" }, h("div", { class: "titles" },
@@ -883,7 +883,7 @@ async function showLiteMap(key, recording) {
     problems,
     files["process.svg"] ? h("div", { class: "card diagram" }, h("img", { src: fileUrl(files["process.svg"]), alt: t("Diagram procesu {}", named) })) : null,
     h("div", { class: "card" },
-      h("div", { class: "head" }, h("h2", {}, t("Instrukcja krok po kroku (SOP)")),
+      h("div", { class: "head" }, h("h2", {}, t("Instrukcja stanowiskowa (SOP)")),
         h("div", { class: "actions" },
           files["sop.md"] ? h("a", { class: "button", href: fileUrl(files["sop.md"]), download: "" }, "SOP (Markdown)") : null,
           files["process.bpmn"] ? h("a", { class: "button", href: fileUrl(files["process.bpmn"]), download: "" }, "BPMN") : null,
@@ -925,7 +925,7 @@ async function route() {
     }
     return;
   }
-  show(problemsBox([t("Nie ma takiej strony.")]), h("p", {}, h("a", { href: "#/" }, t("Wróć do procesów"))));
+  show(problemsBox([t("Strona nie istnieje.")]), h("p", {}, h("a", { href: "#/" }, t("Wróć do procesów"))));
 }
 
 async function watchState() {

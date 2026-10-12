@@ -42,6 +42,6 @@ def test_every_connection_carries_the_context(monkeypatch: pytest.MonkeyPatch) -
 def test_a_summary_in_both_languages() -> None:
     fine = [Check("ok", "browsers", "Edge")]
     broken = [*fine, Check("FAIL", "loopback", "x"), Check("FAIL", "loopback", "y")]
-    assert summary_line(fine) == "ready: nothing failed"
-    assert summary_line(fine, "pl") == "gotowe: nic nie zawiodło"
+    assert summary_line(fine) == "ready: all checks passed"
+    assert summary_line(fine, "pl") == "gotowe: wszystkie sprawdzenia zakończone powodzeniem"
     assert summary_line(broken, "pl") == "niegotowe: loopback"

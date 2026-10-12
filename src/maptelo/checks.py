@@ -33,5 +33,7 @@ class Check:
 def summary_line(checks: list[Check], lang: Lang = "en") -> str:
     failed = [c.what for c in checks if c.verdict == "FAIL"]
     if not failed:
-        return say(lang, "ready: nothing failed", "gotowe: nic nie zawiodło")
+        return say(
+            lang, "ready: all checks passed", "gotowe: wszystkie sprawdzenia zakończone powodzeniem"
+        )
     return say(lang, "not ready: ", "niegotowe: ") + ", ".join(dict.fromkeys(failed))

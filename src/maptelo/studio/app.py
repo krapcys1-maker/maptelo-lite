@@ -133,7 +133,7 @@ def _problems(problems: list[str], status: int = 400, lang: Lang = "pl") -> JSON
 
 LITE_WORDS = [
     ("can be recorded and run", "can be recorded"),
-    ("można nagrywać i uruchamiać", "można nagrywać"),
+    ("mogą być nagrywane i uruchamiane", "mogą być nagrywane"),
     ("Studio", "Maptelo Lite"),
 ]
 """What the look at this computer says of Studio and of runs, as Maptelo Lite (it records)."""

@@ -63,16 +63,16 @@ polish.WorkFolder=Procesy
 english.WorkFolder=Processes
 polish.Uninstall=Odinstaluj Maptelo Lite
 english.Uninstall=Uninstall Maptelo Lite
-polish.Shortcuts=Skróty poza folderem programu (w nim skrót „Maptelo Lite” jest zawsze):
-english.Shortcuts=Shortcuts outside the program's folder (it always has its own “Maptelo Lite”):
+polish.Shortcuts=Skróty poza folderem programu (skrót „Maptelo Lite” jest zawsze tworzony w folderze programu):
+english.Shortcuts=Shortcuts outside the program folder (the “Maptelo Lite” shortcut is always created in the program folder):
 polish.DesktopIcon=Skrót na pulpicie
-english.DesktopIcon=A shortcut on the Desktop
+english.DesktopIcon=Desktop shortcut
 polish.StartMenuIcon=Skrót w menu Start
-english.StartMenuIcon=A shortcut in the Start menu
+english.StartMenuIcon=Start menu shortcut
 polish.Launch=Uruchom Maptelo Lite
 english.Launch=Start Maptelo Lite
-polish.About=Zrób proces raz i dostań jego mapę
-english.About=Do a process once and get its map
+polish.About=Dokumentacja procesu z jednego nagrania
+english.About=Process documentation from a single recording
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:DesktopIcon}"; GroupDescription: "{cm:Shortcuts}"; Flags: unchecked

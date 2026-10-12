@@ -35,7 +35,7 @@ def test_the_first_page_of_the_bare_address_is_slash() -> None:
 
 
 def test_the_note_and_the_sentence_after_it_are_two_sentences() -> None:
-    """„Nowa cena do akceptacji Zmapowano automatycznie…” (the clean-Windows Lite test of
+    """„Nowa cena do akceptacji Mapę utworzono automatycznie…” (the clean-Windows Lite test of
     12.10: a note typed without a period)."""
     r = Recording()
     form = r.state(f"{ERP}/pricing", FORM)
@@ -44,8 +44,8 @@ def test_the_note_and_the_sentence_after_it_are_two_sentences() -> None:
     r.add("fill", f"{ERP}/pricing", target=box, value="48212-B", state_before=form)
     recorded = r.trace()
     for note, said in [
-        ("Nowa cena do akceptacji", "Nowa cena do akceptacji. Zmapowano automatycznie"),
-        ("Cena z rabatem.", "Cena z rabatem. Zmapowano automatycznie"),
+        ("Nowa cena do akceptacji", "Nowa cena do akceptacji. Mapę utworzono automatycznie"),
+        ("Cena z rabatem.", "Cena z rabatem. Mapę utworzono automatycznie"),
     ]:
         header = recorded.header.model_copy(update={"note": note})
         trace = Trace(header=header, events=recorded.events, states=recorded.states)

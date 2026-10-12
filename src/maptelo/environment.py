@@ -224,14 +224,14 @@ def _browser_checks(machine: Machine, lang: Lang) -> list[Check]:
                 "browsers",
                 say(
                     lang,
-                    "no browser Maptelo can drive: no Edge, no Chrome, no Chromium from Playwright",
-                    "nie ma przeglądarki, którą Maptelo może prowadzić: ani Edge, ani Chrome, "
-                    "ani Chromium z Playwrightem",
+                    "no browser Maptelo can control (Edge, Chrome or Chromium from Playwright)",
+                    "brak przeglądarki, którą Maptelo może sterować (Edge, Chrome lub Chromium "
+                    "z Playwright)",
                 ),
                 say(
                     lang,
-                    "install Edge or Chrome, or: playwright install chromium",
-                    "zainstaluj Edge albo Chrome, albo: playwright install chromium",
+                    "install Edge or Chrome, or run: playwright install chromium",
+                    "zainstaluj Edge lub Chrome albo uruchom: playwright install chromium",
                 ),
             )
         ]
@@ -246,8 +246,9 @@ def _browser_checks(machine: Machine, lang: Lang) -> list[Check]:
                     "driving",
                     say(
                         lang,
-                        f"{browser.name}: the policy RemoteDebuggingAllowed forbids driving it",
-                        f"{browser.name}: zasada RemoteDebuggingAllowed nie pozwala go prowadzić",
+                        f"{browser.name}: the RemoteDebuggingAllowed policy blocks browser control",
+                        f"{browser.name}: zasada RemoteDebuggingAllowed blokuje sterowanie "
+                        "przeglądarką",
                     ),
                     say(
                         lang,
@@ -259,8 +260,8 @@ def _browser_checks(machine: Machine, lang: Lang) -> list[Check]:
                         lang,
                         "ask IT to allow RemoteDebuggingAllowed for the company browser, "
                         "or to allow Chromium from Playwright",
-                        "poproś IT o zgodę RemoteDebuggingAllowed dla firmowej przeglądarki "
-                        "albo o dopuszczenie Chromium z Playwrightem",
+                        "poproś dział IT o ustawienie RemoteDebuggingAllowed dla firmowej "
+                        "przeglądarki albo o dopuszczenie Chromium z Playwright",
                     ),
                 )
             )
@@ -271,8 +272,8 @@ def _browser_checks(machine: Machine, lang: Lang) -> list[Check]:
                 "driving",
                 say(
                     lang,
-                    "no policy forbids driving the browsers",
-                    "żadna zasada nie blokuje prowadzenia przeglądarek",
+                    "no policy blocks browser control",
+                    "żadne zasady nie blokują sterowania przeglądarką",
                 ),
             )
         )
@@ -291,8 +292,8 @@ def _browser_checks(machine: Machine, lang: Lang) -> list[Check]:
                 ),
                 say(
                     lang,
-                    "recording works; importing from Chrome DevTools Recorder does not",
-                    "nagrywanie działa; import z Chrome DevTools Recorder nie",
+                    "recording works; importing from Chrome DevTools Recorder is unavailable",
+                    "nagrywanie działa; import z Chrome DevTools Recorder jest niedostępny",
                 ),
             )
         )
@@ -310,7 +311,7 @@ def _window_check(machine: Machine, lang: Lang) -> Check:
             say(
                 lang,
                 "no Edge or Chrome: Studio opens in the default browser",
-                "brak Edge i Chrome: Studio otwiera się w domyślnej przeglądarce",
+                "brak przeglądarek Edge i Chrome: Studio otwiera się w przeglądarce domyślnej",
             ),
         )
     return Check(
@@ -318,8 +319,8 @@ def _window_check(machine: Machine, lang: Lang) -> Check:
         "window",
         say(
             lang,
-            f"Studio opens in its own window ({shown[0].name} in app mode)",
-            f"Studio otwiera się we własnym oknie ({shown[0].name} w trybie aplikacji)",
+            f"Studio runs in its own window ({shown[0].name} in app mode)",
+            f"Studio działa we własnym oknie ({shown[0].name} w trybie aplikacji)",
         ),
     )
 
@@ -332,7 +333,9 @@ def _java_check(machine: Machine, lang: Lang) -> Check:
             "info",
             "java",
             say(
-                lang, "Java programs are recorded on Windows", "programy Java nagrywa się w Windows"
+                lang,
+                "Java programs can be recorded on Windows",
+                "nagrywanie programów Java jest dostępne w systemie Windows",
             ),
         )
     found = machine.java_bridge()
@@ -342,19 +345,19 @@ def _java_check(machine: Machine, lang: Lang) -> Check:
             "java",
             say(
                 lang,
-                "no Java Access Bridge in this computer's Java nor in an open Java program: "
-                "Java programs cannot be recorded or run here yet (browser applications can)",
-                "brak mostu Java (Java Access Bridge) w Javie komputera i w otwartych programach "
-                "Java: programów Java nie da się tu na razie nagrać ani uruchomić (aplikacje "
-                "w przeglądarce działają)",
+                "no Java Access Bridge in this computer's Java or in any open Java program: Java "
+                "programs cannot be recorded or run yet (browser applications work)",
+                "brak Java Access Bridge w środowisku Java komputera i w otwartych programach "
+                "Java: nagrywanie i uruchamianie programów Java nie jest na razie możliwe "
+                "(aplikacje przeglądarkowe działają)",
             ),
             say(
                 lang,
-                "it comes with Java: open the Java program and look again, Maptelo also "
-                "looks in the program's own Java; a 32-bit Java needs Maptelo for 32 bits",
-                "most przychodzi z Javą: otwórz program Java i sprawdź ponownie, Maptelo "
-                "szuka go też w Javie samego programu; 32-bitowa Java wymaga Maptelo "
-                "w wersji 32-bitowej",
+                "the bridge is part of Java: start the Java program and check again (Maptelo also "
+                "looks in the program's own Java); a 32-bit Java requires the 32-bit Maptelo",
+                "Java Access Bridge jest częścią środowiska Java: uruchom program Java i sprawdź "
+                "ponownie (Maptelo szuka go również w środowisku Java programu); 32-bitowa Java "
+                "wymaga 32-bitowej wersji Maptelo",
             ),
         )
     return Check(
@@ -363,14 +366,14 @@ def _java_check(machine: Machine, lang: Lang) -> Check:
         say(
             lang,
             f"Java programs can be recorded and run (Java Access Bridge: {found})",
-            f"programy Java można nagrywać i uruchamiać (Java Access Bridge: {found})",
+            f"programy Java mogą być nagrywane i uruchamiane (Java Access Bridge: {found})",
         ),
         say(
             lang,
-            "a program missing from the list when recording has the bridge off: IT turns it on "
-            "with jabswitch -enable",
-            "program, którego nie ma na liście przy nagrywaniu, ma wyłączony most: dział IT "
-            "włącza go poleceniem jabswitch -enable",
+            "if a program is missing from the list when recording, its Java Access Bridge is off; "
+            "IT can enable it with jabswitch -enable",
+            "jeśli programu nie ma na liście przy nagrywaniu, Java Access Bridge jest w nim "
+            "wyłączony; dział IT może go włączyć poleceniem jabswitch -enable",
         ),
     )
 
@@ -387,7 +390,7 @@ def _network_checks(machine: Machine, lang: Lang) -> list[Check]:
                 say(
                     lang,
                     f"connections go through a proxy ({through})",
-                    f"połączenia idą przez proxy ({through})",
+                    f"połączenia przechodzą przez proxy ({through})",
                 ),
             )
         )
@@ -407,13 +410,15 @@ def _network_checks(machine: Machine, lang: Lang) -> list[Check]:
                 "proxy script",
                 say(
                     lang,
-                    f"Windows picks the proxy with a script ({script}), which Maptelo cannot run",
-                    f"Windows wybiera proxy skryptem ({script}), którego Maptelo nie uruchamia",
+                    f"Windows selects the proxy with a script ({script}), which Maptelo cannot run",
+                    f"Windows wybiera proxy za pomocą skryptu ({script}), którego Maptelo "
+                    "nie uruchamia",
                 ),
                 say(
                     lang,
                     "if AI repairs cannot connect, set HTTPS_PROXY to the company proxy",
-                    "jeśli naprawy AI nie mogą się połączyć, ustaw HTTPS_PROXY na firmowe proxy",
+                    "jeśli naprawy AI nie mogą nawiązać połączenia, ustaw HTTPS_PROXY na adres "
+                    "firmowego proxy",
                 ),
             )
         )
@@ -424,8 +429,8 @@ def _network_checks(machine: Machine, lang: Lang) -> list[Check]:
                 "certificates",
                 say(
                     lang,
-                    "HTTPS certificates are checked by the system, as in the browser",
-                    "certyfikaty HTTPS sprawdza system, tak jak w przeglądarce",
+                    "HTTPS certificates are verified by the system, as in the browser",
+                    "certyfikaty HTTPS weryfikuje system, tak jak w przeglądarce",
                 ),
             )
         )
@@ -436,13 +441,13 @@ def _network_checks(machine: Machine, lang: Lang) -> list[Check]:
                 "certificates",
                 say(
                     lang,
-                    "HTTPS certificates are checked by Python, not by the system",
-                    "certyfikaty HTTPS sprawdza Python, nie system",
+                    "HTTPS certificates are verified by Python, not by the system",
+                    "certyfikaty HTTPS weryfikuje Python, a nie system",
                 ),
                 say(
                     lang,
-                    "behind a proxy that inspects TLS, install truststore",
-                    "za proxy, które zagląda w TLS, zainstaluj truststore",
+                    "behind a TLS-inspecting proxy, install truststore",
+                    "za proxy z inspekcją TLS zainstaluj pakiet truststore",
                 ),
             )
         )
@@ -456,8 +461,8 @@ def _machine_checks(machine: Machine, workspace: Path | None, lang: Lang) -> lis
             "rights",
             say(
                 lang,
-                "administrator (Maptelo does not need it)",
-                "administrator (Maptelo tego nie potrzebuje)",
+                "administrator (Maptelo does not require these rights)",
+                "administrator (Maptelo nie wymaga tych uprawnień)",
             ),
         )
         if machine.is_admin()
@@ -466,8 +471,8 @@ def _machine_checks(machine: Machine, workspace: Path | None, lang: Lang) -> lis
             "rights",
             say(
                 lang,
-                "a normal user: enough, nothing needs administrator",
-                "zwykły użytkownik: wystarczy, nic nie wymaga administratora",
+                "standard user: sufficient, administrator rights are not required",
+                "konto standardowe: wystarcza, uprawnienia administratora nie są wymagane",
             ),
         )
     ]
@@ -496,8 +501,9 @@ def _machine_checks(machine: Machine, workspace: Path | None, lang: Lang) -> lis
                 ),
                 say(
                     lang,
-                    "a security program may block local ports: ask IT to allow it for Maptelo",
-                    "program ochrony może blokować lokalne porty: poproś IT o zgodę dla Maptelo",
+                    "security software may block local ports: ask IT for an exception for Maptelo",
+                    "oprogramowanie zabezpieczające może blokować porty lokalne: poproś dział IT "
+                    "o wyjątek dla Maptelo",
                 ),
             )
         )
@@ -517,8 +523,9 @@ def _policy_check(machine: Machine, lang: Lang) -> Check:
             str(exc),
             say(
                 lang,
-                "ask IT to fix it: until then Maptelo runs nothing and asks no AI",
-                "poproś IT o poprawkę: do tego czasu Maptelo niczego nie uruchomi i nie zapyta AI",
+                "ask IT to correct the policy: until then Maptelo will not run processes or use AI",
+                "poproś dział IT o poprawienie zasad: do tego czasu Maptelo nie uruchomi procesów "
+                "ani nie skorzysta z AI",
             ),
         )
     if found.source is None:
@@ -527,8 +534,8 @@ def _policy_check(machine: Machine, lang: Lang) -> Check:
             "policy",
             say(
                 lang,
-                "no policy from IT: the defaults apply",
-                "brak zasad od IT: obowiązują ustawienia domyślne",
+                "no IT policy: default settings apply",
+                "brak zasad działu IT: obowiązują ustawienia domyślne",
             ),
         )
     return Check(
@@ -537,7 +544,7 @@ def _policy_check(machine: Machine, lang: Lang) -> Check:
         say(
             lang,
             f"IT's policy applies ({found.source}): {found.describe(lang)}",
-            f"obowiązują zasady od IT ({found.source}): {found.describe(lang)}",
+            f"obowiązują zasady działu IT ({found.source}): {found.describe(lang)}",
         ),
     )
 
@@ -550,8 +557,8 @@ def _workspace_check(machine: Machine, workspace: Path, lang: Lang) -> Check:
             "workspace",
             say(
                 lang,
-                f"cannot write in {workspace}: {problem}",
-                f"nie da się zapisywać w {workspace}: {problem}",
+                f"cannot write to {workspace}: {problem}",
+                f"brak możliwości zapisu w {workspace}: {problem}",
             ),
             say(
                 lang,
@@ -566,8 +573,9 @@ def _workspace_check(machine: Machine, workspace: Path, lang: Lang) -> Check:
         notes.append(
             say(
                 lang,
-                f"only {gigabytes:.1f} GB free (screenshots of runs need room)",
-                f"tylko {gigabytes:.1f} GB wolnego miejsca (zrzuty z przebiegów zajmują miejsce)",
+                f"only {gigabytes:.1f} GB free (screenshots of runs require space)",
+                f"tylko {gigabytes:.1f} GB wolnego miejsca (zrzuty ekranu z przebiegów "
+                "wymagają miejsca)",
             )
         )
     synced = [machine.environ.get(k) for k in ("OneDrive", "OneDriveCommercial")]
@@ -575,16 +583,17 @@ def _workspace_check(machine: Machine, workspace: Path, lang: Lang) -> Check:
         notes.append(
             say(
                 lang,
-                "synced by OneDrive: runs and their screenshots go to the cloud too",
-                "synchronizowany przez OneDrive: przebiegi i zrzuty trafiają też do chmury",
+                "synchronised by OneDrive: runs and screenshots are also uploaded to the cloud",
+                "folder synchronizowany przez OneDrive: przebiegi i zrzuty ekranu są przesyłane "
+                "również do chmury",
             )
         )
     if len(str(workspace)) > 120:
         notes.append(
             say(
                 lang,
-                "a long path: files deep inside may pass Windows' 260 characters",
-                "długa ścieżka: pliki głęboko w środku mogą przekroczyć 260 znaków Windows",
+                "long path: file paths may exceed the 260-character Windows limit",
+                "długa ścieżka: ścieżki plików mogą przekroczyć limit 260 znaków systemu Windows",
             )
         )
     if notes:
@@ -595,7 +604,7 @@ def _workspace_check(machine: Machine, workspace: Path, lang: Lang) -> Check:
         say(
             lang,
             f"{workspace}: writable, {gigabytes:.0f} GB free",
-            f"{workspace}: zapis działa, {gigabytes:.0f} GB wolnego miejsca",
+            f"{workspace}: zapis możliwy, {gigabytes:.0f} GB wolnego miejsca",
         ),
     )
 

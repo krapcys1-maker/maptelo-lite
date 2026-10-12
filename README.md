@@ -4,86 +4,90 @@
 [![Wydanie / Release](https://img.shields.io/github/v/release/krapcys1-maker/maptelo-lite?label=release)](https://github.com/krapcys1-maker/maptelo-lite/releases/latest)
 [![Licencja / License](https://img.shields.io/badge/license-Apache--2.0-01687a)](LICENSE)
 
-**Zrób proces raz, tak jak zwykle — dostaniesz jego mapę:** kroki po ludzku, instrukcję krok po
-kroku (SOP) ze zrzutami ekranu, diagram, BPMN i raport. Bez robota, bez AI, nic nie wychodzi
-z Twojego komputera.
+**Dokumentacja procesu z jednego nagrania.** Maptelo Lite rejestruje proces wykonywany
+w przeglądarce lub w programie Java i przygotowuje instrukcję stanowiskową (SOP) ze zrzutami
+ekranu, diagram procesu, model BPMN oraz raport. Program działa lokalnie i nie korzysta ze sztucznej
+inteligencji.
 
-**[Pobierz dla Windows](https://maptelo.dev/pobierz/)** · [Jak działa](https://maptelo.dev/lite/) ·
-[English below](#english)
-
-[![Film: Maptelo Lite w minutę. Kliknij, aby obejrzeć na maptelo.dev](docs/img/film-pl.jpg)](https://maptelo.dev/lite/)
+**[Pobierz dla Windows](https://maptelo.dev/pobierz/)** · [Opis programu](https://maptelo.dev/lite/) ·
+[English](#english)
 
 ![Mapa procesu „Zmiana ceny klienta” w oknie Maptelo Lite: siedem kroków, krok zapisu wyróżniony](docs/img/map-pl.png)
 
-## Co robi
+## Funkcje
 
-- **Nagrywa proces** zrobiony w przeglądarce (Edge, Chrome albo Chromium) albo w programie Java
-  na Windows (przez Java Access Bridge, także gdy program ma własną Javę).
-- **Od razu robi mapę** jednego nagrania, w folderze `maps/<proces>/<nagranie>/`:
-  - `sop.md` — instrukcja krok po kroku: dane wejściowe, kroki („Wybierz z menu „Ceny” pozycję
-    „Cennik klienta””, „Wpisz Indeks”, „W oknie „Nowa wersja ceny” kliknij „Zapisz””), oczekiwane
-    wyniki, zrzut ekranu każdego kroku z zaznaczonym elementem;
-  - `process.svg` i `process.mmd` — diagram (SVG i Mermaid);
-  - `process.bpmn` — BPMN 2.0 do narzędzi do modelowania procesów;
-  - `report.html` — raport w jednym pliku, gotowy do wysłania;
+- **Nagrywanie procesu** w przeglądarce (Microsoft Edge, Google Chrome lub Chromium) albo
+  w programie okienkowym Java na Windows (przez Java Access Bridge, także gdy program ma własne
+  środowisko Java).
+- **Mapa procesu z jednego nagrania**, zapisywana w folderze `maps/<proces>/<nagranie>/`:
+  - `sop.md` — instrukcja stanowiskowa: dane wejściowe, kolejne kroki (np. „Wybierz z menu „Ceny”
+    pozycję „Cennik klienta””, „W oknie „Nowa wersja ceny” kliknij „Zapisz””), oczekiwane wyniki
+    oraz zrzut ekranu każdego kroku z oznaczonym elementem;
+  - `process.svg` i `process.mmd` — diagram procesu (SVG i Mermaid);
+  - `process.bpmn` — model BPMN 2.0 do narzędzi do modelowania procesów;
+  - `report.html` — pełna dokumentacja w jednym pliku;
   - `model.yaml` — opis procesu w formacie Maptelo (schemat: `schemas/`).
-- **Okno Maptelo Lite** prowadzi przez wszystko: nowy proces, nagranie, mapa, „Gotowość”
-  (co ten komputer pozwala nagrać i czego brakuje). Po polsku albo po angielsku: przełącznik
-  jest na dole panelu po lewej (na początek język komputera), a instrukcja i raport powstają
-  w wybranym języku.
+- **Interfejs w języku polskim i angielskim.** Język zmienia przełącznik w lewym dolnym rogu okna,
+  domyślnie używany jest język systemu. Instrukcja i raport powstają w wybranym języku.
+- **Zakładka „Gotowość”** pokazuje, co można nagrać na danym komputerze i czego brakuje.
 
-| Nowy proces: nazwa, adres i nagrywanie | Instrukcja: krok ze zrzutem i zaznaczonym miejscem |
+| Nowy proces: nazwa, adres aplikacji, nagrywanie | Krok instrukcji: zrzut ekranu z oznaczonym elementem |
 | --- | --- |
 | ![Formularz nowego procesu w Maptelo Lite](docs/img/new-process-pl.png) | ![Krok instrukcji: wybór wiersza tabeli, w którym Status = Active](docs/img/sop-step-pl.png) |
 
-## Czego nie robi
+## Zakres
 
-Nie uruchamia procesów i nie używa AI. Robot, który wykonuje zmapowany proces i potwierdza wynik
-niezależnym odczytem, to pełne Maptelo: [maptelo.dev](https://maptelo.dev).
+Maptelo Lite dokumentuje procesy; nie wykonuje ich i nie korzysta ze sztucznej inteligencji.
+Automatyczne wykonanie procesu z potwierdzeniem wyniku niezależnym odczytem z systemu zapewnia
+pełne Maptelo: [maptelo.dev](https://maptelo.dev).
 
 ## Programy Java
 
-Lite czyta okna programu Java tak jak czytniki ekranu: przez Java Access Bridge. Most musi być
-włączony (`jabswitch -enable` z folderu `bin` Javy albo przez dział IT); Lite znajduje go także
-w Javie dołączonej do programu, a „Gotowość” pokazuje, czy działa. Sprawdzone na programach
-Swing, również na czystym Windows z programem, który ma tylko własną Javę. Oracle Forms też
-korzysta z Java Access Bridge, ale na nim Lite nie był jeszcze sprawdzany.
+Maptelo Lite odczytuje okna programów Java przez Java Access Bridge, mechanizm, z którego
+korzystają również czytniki ekranu. Mechanizm musi być włączony (polecenie `jabswitch -enable`
+z folderu `bin` środowiska Java lub konfiguracja przez dział IT). Program wykrywa go także
+w środowisku Java dołączonym do aplikacji, a zakładka „Gotowość” pokazuje jego stan. Działanie
+sprawdzono na programach Swing, w tym na czystym systemie Windows z programem dysponującym
+wyłącznie własnym środowiskiem Java. Oracle Forms korzysta z tego samego mechanizmu, ale nie był
+jeszcze testowany z Maptelo Lite.
 
 ## Prywatność
 
-- Wszystko zostaje na tym komputerze, w folderze Maptelo Lite. Lite sam nie łączy się z żadnym
-  serwerem: otwiera tylko aplikację, w której nagrywasz proces. Okno działa pod adresem
-  127.0.0.1 z kluczem, który powstaje przy każdym uruchomieniu.
-- Hasła nigdy nie są zapisywane.
-- Tryb prywatny zakrywa na zrzutach wpisane wartości i zawartość tabel, a mapa nie przechowuje
-  wartości jako przykładów.
+- Dane pozostają na komputerze, w folderze Maptelo Lite. Program nie łączy się z żadnym serwerem
+  i otwiera wyłącznie nagrywaną aplikację. Okno działa pod adresem 127.0.0.1 i przyjmuje tylko
+  żądania z kluczem tworzonym przy każdym uruchomieniu.
+- Hasła nie są zapisywane.
+- Tryb prywatny zasłania na zrzutach ekranu wprowadzone wartości i zawartość tabel; mapa nie
+  przechowuje ich jako przykładów.
 
 ## Instalacja
 
-<img src="docs/img/installer-pl.jpg" alt="Instalator Maptelo Lite pyta o folder: domyślnie Pulpit\Maptelo Lite" width="480" align="right">
+<img src="docs/img/installer-pl.jpg" alt="Instalator Maptelo Lite: wybór folderu, domyślnie Pulpit\Maptelo Lite" width="480" align="right">
 
-- **Instalator** (Windows 10/11, 64-bit, bez uprawnień administratora):
+- **Instalator** (Windows 10 i 11, 64-bit, bez uprawnień administratora):
   [Maptelo-Lite-Setup.exe](https://github.com/krapcys1-maker/maptelo-lite/releases/latest/download/Maptelo-Lite-Setup.exe)
-  albo [maptelo.dev/pobierz](https://maptelo.dev/pobierz/) (z sumami SHA-256). Pyta, gdzie
-  zainstalować (domyślnie `Pulpit\Maptelo Lite`), i nie zapisuje niczego w folderach ani
-  rejestrze Windows: w folderze programu są też Twoje procesy (`Procesy`) i zapamiętane
-  logowania (`data`). Skróty w menu Start i na pulpicie są do wyboru. Odinstalowanie:
-  „Odinstaluj Maptelo Lite” w folderze programu (procesy zostają) albo po prostu usunięcie
-  folderu.
-- **To prototyp bez podpisu kodu**, więc Edge może zapytać, czy zachować plik, a Windows
-  SmartScreen ostrzec przy uruchomieniu: „Więcej informacji”, potem „Uruchom mimo to”.
+  lub [maptelo.dev/pobierz](https://maptelo.dev/pobierz/) (z sumami kontrolnymi SHA-256).
+  Instalator pozwala wybrać folder docelowy (domyślnie `Pulpit\Maptelo Lite`) i nie zapisuje
+  danych w folderach systemowych ani w rejestrze Windows. W folderze programu znajdują się również
+  procesy (`Procesy`) i zapamiętane sesje logowania (`data`). Skróty w menu Start i na pulpicie są
+  opcjonalne. Odinstalowanie: „Odinstaluj Maptelo Lite” w folderze programu (procesy pozostają)
+  lub usunięcie całego folderu.
+- **Brak podpisu kodu.** Wersje 0.x nie są jeszcze podpisane, dlatego Edge może poprosić
+  o potwierdzenie pobrania, a Windows SmartScreen o potwierdzenie uruchomienia („Więcej
+  informacji”, a następnie „Uruchom mimo to”).
 - **Wersja przenośna**
   ([Maptelo-Lite-portable.zip](https://github.com/krapcys1-maker/maptelo-lite/releases/latest/download/Maptelo-Lite-portable.zip)):
-  rozpakuj w dowolne miejsce i uruchom `Maptelo Lite.cmd`; wszystko zostaje w jej folderze.
-- **Z kodu** (Python 3.12):
+  należy rozpakować archiwum w wybranym miejscu i uruchomić `Maptelo Lite.cmd`; wszystkie dane
+  pozostają w jego folderze.
+- **Ze źródeł** (Python 3.12):
 
   ```bash
   pip install ".[studio]"
   maptelo-lite
   ```
 
-  Nagrywanie w przeglądarce używa Edge albo Chrome z komputera; Chromium dla Playwright można
-  doinstalować: `python -m playwright install chromium`.
+  Nagrywanie w przeglądarce korzysta z zainstalowanej przeglądarki Edge lub Chrome; Chromium dla
+  Playwright można zainstalować poleceniem `python -m playwright install chromium`.
 
 ## Wiersz poleceń
 
@@ -102,8 +106,8 @@ uv run playwright install chromium   # testy end-to-end nagrywają w MiniERP, ap
 uv run pytest
 ```
 
-Maptelo Lite to otwarta część Maptelo: ten kod powstaje w repozytorium pełnego Maptelo i jest
-stamtąd eksportowany. Zgłoszenia i propozycje zmian są mile widziane — trafiają do obu.
+Maptelo Lite jest otwartą częścią Maptelo: kod powstaje w repozytorium pełnego Maptelo i jest
+z niego eksportowany. Zgłoszenia błędów i propozycje zmian są mile widziane.
 
 ## Licencja
 
@@ -114,57 +118,61 @@ Apache License 2.0 — zob. [LICENSE](LICENSE) i [NOTICE](NOTICE). Fonty w
 
 ## English
 
-**Do a process once, the way you always do — get its map:** the steps in plain words, a
-step-by-step instruction (SOP) with screenshots, a diagram, BPMN and a report. No robot, no AI,
-nothing leaves your computer.
+**Process documentation from a single recording.** Maptelo Lite records a process performed in
+a browser or a Java program and produces a work instruction (SOP) with screenshots, a process
+diagram, a BPMN model and a report. It runs locally and uses no AI.
 
 **[Download for Windows](https://maptelo.dev/en/download/)** ·
-[How it works](https://maptelo.dev/en/lite/)
-
-[![Film: Maptelo Lite in a minute. Click to watch it on maptelo.dev](docs/img/film-en.jpg)](https://maptelo.dev/en/lite/)
+[Product page](https://maptelo.dev/en/lite/)
 
 ![The map of the process "Customer price change" in the Maptelo Lite window: seven steps, the saving step marked](docs/img/map-en.png)
 
-- **Records** a process done in a browser (Edge, Chrome or Chromium) or in a Java desktop program
-  on Windows (through the Java Access Bridge, also when the program brings its own Java).
-- **Maps one recording** into `maps/<process>/<recording>/`: `sop.md` (inputs, steps, expected
-  results, a screenshot of each step with the element marked), `process.svg` and `process.mmd`
-  (diagram), `process.bpmn` (BPMN 2.0), `report.html` (one file, ready to send) and `model.yaml`.
-- **The Maptelo Lite window** guides you: a new process, the recording, its map, and
-  "Readiness" (what this computer can record and what is missing). In English or Polish: the
-  switch is at the foot of the left panel (at first, the computer's own language).
+- **Recording** in a browser (Microsoft Edge, Google Chrome or Chromium) or in a Java desktop
+  program on Windows (through the Java Access Bridge, including programs that ship their own Java
+  runtime).
+- **A process map from a single recording**, saved in `maps/<process>/<recording>/`: `sop.md`
+  (inputs, steps, expected results and a screenshot of every step with the element marked),
+  `process.svg` and `process.mmd` (process diagram), `process.bpmn` (BPMN 2.0 model),
+  `report.html` (the complete documentation in one file) and `model.yaml`.
+- **English and Polish interface**, switched in the lower-left corner of the window (the system
+  language by default); the instruction and the report follow the chosen language. The
+  **Readiness** tab shows what can be recorded on the computer and what is missing.
 
-| A new process: its name, its address, record | The instruction: a step with its screenshot, the place marked |
+| A new process: name, application address, recording | An instruction step: a screenshot with the element marked |
 | --- | --- |
 | ![The new process form in Maptelo Lite](docs/img/new-process-en.png) | ![An instruction step: pick the table row where Status = Active](docs/img/sop-step-en.png) |
 
-- **Java programs** are read the way screen readers read them, through the Java Access Bridge
-  (enable it with `jabswitch -enable`, or ask IT). Tested with Swing programs, also on a clean
-  Windows with a program that has only its own Java; Oracle Forms uses the bridge too, but Lite
-  has not been tested on it yet.
-- **Does not run processes and uses no AI.** The robot that runs a mapped process and confirms
-  the result by an independent read is the full Maptelo: [maptelo.dev](https://maptelo.dev).
-- **Private by design:** everything stays on this computer, in Maptelo Lite's folder; Lite itself
-  connects to no server, it only opens the application you record in. The window listens on
-  127.0.0.1 with a key made at each start, passwords are never stored, and private mode covers
-  typed values and tables on screenshots.
+- **Java programs** are read through the Java Access Bridge, the mechanism screen readers use
+  (enabled with `jabswitch -enable` or by IT). Tested with Swing programs, including on a clean
+  Windows with a program that ships only its own Java runtime. Oracle Forms uses the same
+  mechanism but has not yet been tested with Maptelo Lite.
+- **Scope:** Maptelo Lite documents processes; it does not execute them and uses no AI. Automatic
+  execution with every result confirmed by an independent read from the system is the full
+  Maptelo: [maptelo.dev](https://maptelo.dev).
+- **Privacy:** data stays on the computer, in the Maptelo Lite folder. The program connects to no
+  server and opens only the application being recorded. The window runs at 127.0.0.1 and accepts
+  only requests carrying a key generated at each start. Passwords are not stored; private mode
+  masks entered values and table contents on screenshots.
 
-<img src="docs/img/installer-en.jpg" alt="The Maptelo Lite installer asks for a folder: Desktop\Maptelo Lite first" width="480" align="right">
+<img src="docs/img/installer-en.jpg" alt="The Maptelo Lite installer: choosing the folder, Desktop\Maptelo Lite by default" width="480" align="right">
 
-**Install** with
+**Installation:**
 [Maptelo-Lite-Setup.exe](https://github.com/krapcys1-maker/maptelo-lite/releases/latest/download/Maptelo-Lite-Setup.exe)
-(Windows 10/11, 64-bit; checksums on [maptelo.dev/en/download](https://maptelo.dev/en/download/)):
-it asks where (the Desktop first), needs no administrator rights and writes nothing to Windows'
-folders or registry; your processes (`Processes`) and remembered sign-ins (`data`) stay in that
-folder, the Start menu and Desktop shortcuts are your choice, and deleting the folder removes
-everything. A prototype, not code-signed yet: Edge may ask whether to keep the file and Windows
-SmartScreen may warn when it starts ("More info", then "Run anyway"). A
+(Windows 10 and 11, 64-bit; SHA-256 checksums on
+[maptelo.dev/en/download](https://maptelo.dev/en/download/)). The installer lets you choose the
+destination folder (`Desktop\Maptelo Lite` by default), requires no administrator rights and
+writes nothing to system folders or the Windows registry. Processes (`Processes`) and saved
+sign-in sessions (`data`) are kept in the same folder, Start menu and Desktop shortcuts are
+optional, and deleting the folder removes everything. Versions 0.x are not yet code-signed, so
+Edge may ask you to confirm the download and Windows SmartScreen may ask you to confirm running it
+("More info", then "Run anyway"). A
 [portable zip](https://github.com/krapcys1-maker/maptelo-lite/releases/latest/download/Maptelo-Lite-portable.zip)
-is there too; or from source with Python 3.12: `pip install ".[studio]"`, then `maptelo-lite`.
+is also available; to run from source with Python 3.12: `pip install ".[studio]"`, then
+`maptelo-lite`.
 
-For development: `uv sync`, `uv run playwright install chromium`, `uv run pytest`. Maptelo Lite is
-the open part of Maptelo, exported from the full Maptelo's repository; issues and pull requests
-are welcome.
+Development: `uv sync`, `uv run playwright install chromium`, `uv run pytest`. Maptelo Lite is the
+open part of Maptelo, exported from the full Maptelo repository; bug reports and pull requests are
+welcome.
 
 Licensed under the Apache License 2.0 ([LICENSE](LICENSE), [NOTICE](NOTICE)); the bundled fonts
 are under the SIL Open Font License 1.1.

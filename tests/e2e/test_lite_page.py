@@ -24,7 +24,7 @@ WRITTEN = """# Zmiana ceny <b>klienta</b>
 
 *Proces: `zmiana_ceny` v1 · aplikacja: MiniERP*
 
-> Zmapowano automatycznie.
+> Mapę utworzono automatycznie.
 
 ## Dane wejściowe
 
@@ -69,7 +69,7 @@ def test_the_sop_is_a_document_with_its_screenshots(browser: Browser, tmp_path: 
         page = context.new_page()
         page.goto(f"{base}/?t={TOKEN}")
         page.evaluate(f"() => {{ location.hash = '#/p/{PROCESS}'; }}")
-        page.get_by_role("button", name="Zrób mapę").click()
+        page.get_by_role("button", name="Utwórz mapę").click()
         expect(page.get_by_role("heading", name="Kroki")).to_be_visible()
         sop = page.locator(".sop")
         expect(sop.locator("table")).to_contain_text("valid_from")
@@ -115,8 +115,8 @@ def test_lite_speaks_english_once_chosen_and_keeps_it(browser: Browser, tmp_path
         expect(page.get_by_role("link", name="Readiness")).to_be_visible()
         expect(page.locator("html")).to_have_attribute("lang", "en")
         page.evaluate(f"() => {{ location.hash = '#/p/{PROCESS}'; }}")
-        page.get_by_role("button", name="Make the map", exact=True).click()
-        expect(page.get_by_role("heading", name="Step-by-step instruction (SOP)")).to_be_visible()
+        page.get_by_role("button", name="Create the map", exact=True).click()
+        expect(page.get_by_role("heading", name="Work instruction (SOP)")).to_be_visible()
         sop = page.locator(".sop")
         expect(sop.get_by_role("heading", name="Steps", exact=True)).to_be_visible()  # the SOP too
         expect(page.get_by_text("The map is ready:")).to_be_visible()

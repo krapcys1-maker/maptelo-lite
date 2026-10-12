@@ -1,6 +1,6 @@
 [project]
 name = "maptelo-lite"
-version = "0.1.0"
+version = "0.1.1"
 description = "Do a process once, in a browser or a Java program, and get its map: steps, a step-by-step SOP with screenshots, BPMN, a diagram and a report."
 readme = "README.md"
 requires-python = ">=3.12"

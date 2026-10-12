@@ -154,7 +154,7 @@ def test_behind_a_proxy_with_a_script_and_without_windows_trust() -> None:
     [
         ({"writable": lambda p: "Access is denied"}, "FAIL", "cannot write"),
         ({"free_space": lambda p: 1024**3}, "info", "only 1.0 GB free"),
-        ({}, "info", "synced by OneDrive"),
+        ({}, "info", "synchronised by OneDrive"),
     ],
 )
 def test_the_workspace(answers: dict[str, object], verdict: str, words: str) -> None:
@@ -183,7 +183,7 @@ def test_rights_loopback_and_it_policy(tmp_path: Path) -> None:
     broken = next(c for c in probe(None, computer, lang="pl") if c.what == "policy")
     assert broken.verdict == "FAIL"
     assert broken.detail.startswith(f"IT's policy {rules} is not valid: ai.allowed:")
-    assert "niczego nie uruchomi" in broken.hint
+    assert "nie uruchomi procesów" in broken.hint
 
 
 def test_this_computer_answers_quickly_and_without_errors(tmp_path: Path) -> None:
@@ -201,6 +201,6 @@ def test_java_programs_need_the_bridge_that_comes_with_java() -> None:
     without = machine(java_bridge=lambda: None)
     missing = {c.what: c for c in probe(Path("D:/Robot"), without, lang="pl")}["java"]
     assert missing.verdict == "info"
-    assert missing.detail.startswith("brak mostu Java")
+    assert missing.detail.startswith("brak Java Access Bridge")
     elsewhere = machine(windows=False)
     assert {c.what: c for c in probe(Path("D:/Robot"), elsewhere)}["java"].verdict == "info"

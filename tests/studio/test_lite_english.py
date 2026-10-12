@@ -76,7 +76,7 @@ WORD_LISTS = [
     ("const CHECKS = {", "};"),
     ("const BROWSERS = [", "];"),
     ('[["processes", "Procesy"]', "]]"),
-    ('["Kiedy", "Notatka"', "]"),
+    ('["Data", "Uwagi"', "]"),
 ]
 """Words the page gives to t() where it uses them: the names of the checks of this computer
 and of the browsers, the side panel's links, the headings of a process's recordings."""
