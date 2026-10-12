@@ -235,10 +235,15 @@ def type_name(lang: Lang, kind: InputType) -> str:
     return word(lang, kind.value)
 
 
-def locator_text(locator: Locator) -> str:
-    if locator.role is not None:
-        return f"{locator.role} „{locator.name}”" if locator.name else locator.role
-    return locator.describe()
+def locator_text(locator: Locator, lang: Lang = "pl") -> str:
+    if locator.role is not None and locator.name:
+        return f"{locator.role} {quoted(locator.name, lang)}"
+    return locator.role if locator.role is not None else locator.describe()
+
+
+def quoted(text: str, lang: Lang) -> str:
+    """A name from the application, quoted as each language does: „Zapisz” / “Save”."""
+    return f"„{text}”" if lang == "pl" else f"“{text}”"
 
 
 def state_name(model: ProcessModel, state_id: str) -> str:
@@ -388,17 +393,19 @@ def element_appears(locator: Locator, lang: Lang) -> str:
 
 def predicate_text(predicate: Predicate, model: ProcessModel, lang: Lang) -> str:
     if predicate.state is not None:
-        return f"{word(lang, 'screen')} „{state_name(model, predicate.state)}”"
+        name = state_name(model, predicate.state)
+        return f"{word(lang, 'screen')} „{name}”" if lang == "pl" else f"the “{name}” screen"
     if predicate.visible is not None:
         target = predicate.visible
         if target.role == "status":
             return word(lang, "message_appears")
         if target.role in ("dialog", "alertdialog"):
-            return (
-                f"{word(lang, 'dialog_appears')} „{human_title(target.name)}”"
-                if target.name
-                else word(lang, "dialog_appears")
-            )
+            if not target.name:
+                return word(lang, "dialog_appears")
+            title = human_title(target.name)
+            if lang == "pl":
+                return f"{word(lang, 'dialog_appears')} „{title}”"
+            return f"the “{title}” dialog appears"
         if target.role == "alert":
             return word(lang, "message_appears")
         return element_appears(target, lang)

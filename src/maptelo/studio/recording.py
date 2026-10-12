@@ -8,6 +8,7 @@ Each does what the command line does (``record``, ``map``) over the same folders
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 from collections.abc import Callable, Mapping
@@ -238,6 +239,7 @@ def recordings_view(workspace: Workspace, key: str) -> list[dict[str, Any]]:
         found.append(
             {
                 "id": folder.name,
+                "title": header.title,
                 "note": header.note,
                 "started": header.started_at.isoformat(timespec="seconds"),
                 "url": header.start_url,
@@ -250,6 +252,21 @@ def recordings_view(workspace: Workspace, key: str) -> list[dict[str, Any]]:
             }
         )
     return found
+
+
+def process_title(workspace: Workspace, key: str) -> str | None:
+    """The process's name as the person typed it („Customer price change”), from its newest
+    recording that has one: only the first line of each is read."""
+    for folder in reversed(workspace.recording_folders(key)):
+        try:
+            with (folder / "trace.jsonl").open(encoding="utf-8") as file:
+                header = json.loads(file.readline())
+        except (OSError, ValueError):
+            continue
+        title = header.get("title") if isinstance(header, dict) else None
+        if isinstance(title, str) and title.strip():
+            return title.strip()
+    return None
 
 
 def map_files(workspace: Workspace, key: str, recording: str) -> dict[str, str] | None:

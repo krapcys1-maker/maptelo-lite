@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+from urllib.parse import urlparse
 
 from PIL import Image, ImageDraw
 
 from maptelo.mapping.build import MapResult
-from maptelo.model.schema import ProcessModel
-from maptelo.trace.schema import Trace
+from maptelo.model.schema import Action, ProcessModel
+from maptelo.trace.schema import Trace, TraceState
 
 _MARK = (220, 38, 38)
 
@@ -32,6 +33,20 @@ def annotate(
     return target
 
 
+def _path(address: str) -> str:
+    return urlparse(address).path.rstrip("/") or "/"
+
+
+def _opened(trace: Trace, address: str, since: float) -> TraceState | None:
+    """The screen a step opens by its address, as it showed. An application may first ask to
+    sign in (the person does, then it opens what was asked: the clean-Windows Lite test of
+    12.10 showed the sign-in under "Open the Customer prices screen"): the picture is of the
+    screen the step opens."""
+    wanted = _path(address)
+    shown = sorted(trace.states.values(), key=lambda state: state.t)
+    return next((s for s in shown if s.t >= since and _path(s.url) == wanted), None)
+
+
 def screenshots_for(
     model: ProcessModel,
     sources: Mapping[str, tuple[Trace, Sequence[int]]],
@@ -49,6 +64,10 @@ def screenshots_for(
             continue
         navigate = event.type == "navigate"
         state = trace.state(event.state_after if navigate else event.state_before)
+        if step.action == Action.NAVIGATE and step.value:
+            first = next((e for e in trace.events if e.seq == seqs[0]), event)
+            state = _opened(trace, str(step.value), first.t) or state
+            navigate = True  # a whole screen: no element to mark
         if state is None or state.screenshot is None:
             continue
         if state.screenshot_t is not None:

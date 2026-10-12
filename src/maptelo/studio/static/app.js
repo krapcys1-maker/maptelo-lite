@@ -396,13 +396,15 @@ function sessionField() {
 // --- recording a demonstration --------------------------------------------------------------
 
 async function showRecordForm(key) {
-  let address = "", program = "";
+  let address = "", program = "", named = key || "";
   if (key) {
     try {
       if (lite) {  // Lite has no model: where the last demonstration began
-        const last = (await load(`/api/recordings/${encodeURIComponent(key)}`)).slice(-1)[0] || {};
+        const found = await load(`/api/recordings/${encodeURIComponent(key)}`);
+        const last = found.slice(-1)[0] || {};
         address = last.url || "";
         program = last.program || "";
+        named = titleOf(found, key);
       } else address = (await load(`/api/processes/${encodeURIComponent(key)}`)).application || "";
     }
     catch (error) {
@@ -411,7 +413,7 @@ async function showRecordForm(key) {
     }
   }
   const state = { sheet: null, sheets: [], java: address.startsWith("java:") };
-  const name = h("input", { type: "text", value: key || "", placeholder: t("np. Zmiana cen klientów"), readonly: Boolean(key) });
+  const name = h("input", { type: "text", value: named, placeholder: t("np. Zmiana cen klientów"), readonly: Boolean(key) });
   const url = h("input", { type: "text", value: address.startsWith("http") ? address : "", placeholder: t("https://… adres, od którego zaczyna się proces") });
   const note = h("input", { type: "text", placeholder: t("np. klient bez cen, cena z rabatem") });
   const priv = h("input", { type: "checkbox" });
@@ -494,7 +496,7 @@ async function showRecordForm(key) {
   setWhere(state.java);
   show(
     h("div", { class: "head" }, h("div", { class: "titles" },
-      h("div", { class: "crumbs" }, h("a", { href: "#/" }, t("Procesy")), " / ", key ? h("a", { href: lite ? `#/p/${encodeURIComponent(key)}` : `#/p/${encodeURIComponent(key)}/recordings` }, key) : t("nowy proces"), t(" / pokaz")),
+      h("div", { class: "crumbs" }, h("a", { href: "#/" }, t("Procesy")), " / ", key ? h("a", { href: lite ? `#/p/${encodeURIComponent(key)}` : `#/p/${encodeURIComponent(key)}/recordings` }, named) : t("nowy proces"), t(" / pokaz")),
       h("h1", {}, key ? (lite ? t("Nagraj proces ponownie") : t("Kolejny pokaz procesu")) : t("Nowy proces: nagraj pokaz")))),
     h("div", { class: "card" },
       h("div", { class: "actions" }, h("span", { class: "muted" }, t("Gdzie robisz proces:")), where),
@@ -695,6 +697,12 @@ async function makeMap(key, recording) {
   location.hash = `#/p/${encodeURIComponent(key)}/map/${encodeURIComponent(recording)}`;
 }
 
+/* The name the person gave the process (its newest recording keeps it), else its folder's. */
+function titleOf(recordings, key) {
+  const named = recordings.map((r) => r.title).filter(Boolean);
+  return named.length ? named[named.length - 1] : key;
+}
+
 async function showLiteProcesses() {
   const drafts = await load("/api/drafts");
   show(
@@ -705,7 +713,7 @@ async function showLiteProcesses() {
     takeFlash(),
     drafts.length
       ? h("div", { class: "grid" }, drafts.map((d) => h("a", { class: "card", href: `#/p/${encodeURIComponent(d.process)}` },
-          h("h2", {}, d.process),
+          h("h2", {}, d.title || d.process),
           h("div", { class: "facts" }, h("span", {}, plural(d.recordings, "nagranie", "nagrania", "nagrań"))))))
       : h("div", { class: "card empty" },
           h("h2", {}, t("Tu pojawią się Twoje procesy")),
@@ -715,6 +723,7 @@ async function showLiteProcesses() {
 
 async function showLiteProcess(key) {
   const found = await load(`/api/recordings/${encodeURIComponent(key)}`);
+  const named = titleOf(found, key);
   const problems = h("div");
   const row = (r) => {
     const make = h("button", { type: "button", class: r.map ? "link" : "primary", onclick: async () => {
@@ -732,8 +741,8 @@ async function showLiteProcess(key) {
   };
   show(
     h("div", { class: "head" }, h("div", { class: "titles" },
-      h("div", { class: "crumbs" }, h("a", { href: "#/" }, t("Procesy")), " / ", key),
-      h("h1", {}, key)),
+      h("div", { class: "crumbs" }, h("a", { href: "#/" }, t("Procesy")), " / ", named),
+      h("h1", {}, named)),
       h("div", { class: "actions" }, h("a", { class: "button primary", href: `#/new/${encodeURIComponent(key)}` }, t("Nagraj ponownie")))),
     takeFlash(),
     problems,
@@ -846,6 +855,7 @@ async function showLiteMap(key, recording) {
     return;
   }
   const files = r.map;
+  const named = titleOf(found, key);
   const sop = h("div", {}, h("p", { class: "muted" }, t("Wczytuję instrukcję…")));
   if (files["sop.md"]) {
     const folder = files["sop.md"].slice(0, files["sop.md"].lastIndexOf("/") + 1);
@@ -863,15 +873,15 @@ async function showLiteMap(key, recording) {
   const when = r.started ? new Date(r.started).toLocaleString(locale(), { dateStyle: "medium", timeStyle: "short" }) : recording;
   show(
     h("div", { class: "head" }, h("div", { class: "titles" },
-      h("div", { class: "crumbs" }, h("a", { href: "#/" }, t("Procesy")), " / ", h("a", { href: `#/p/${encodeURIComponent(key)}` }, key), t(" / mapa")),
-      h("h1", {}, key),
+      h("div", { class: "crumbs" }, h("a", { href: "#/" }, t("Procesy")), " / ", h("a", { href: `#/p/${encodeURIComponent(key)}` }, named), t(" / mapa")),
+      h("h1", {}, named),
       h("div", { class: "facts" }, h("span", {}, t("nagranie {}", when)), h("span", {}, plural(r.actions || 0, "działanie", "działania", "działań")), r.note ? h("span", {}, r.note) : null)),
       h("div", { class: "actions" },
         h("a", { class: "button primary", href: fileUrl(files["report.html"]), target: "_blank", rel: "noopener" }, t("Otwórz raport")),
         h("button", { type: "button", onclick: () => openPath(`maps/${key}/${recording}`) }, t("Folder z plikami")))),
     takeFlash(),
     problems,
-    files["process.svg"] ? h("div", { class: "card diagram" }, h("img", { src: fileUrl(files["process.svg"]), alt: t("Diagram procesu {}", key) })) : null,
+    files["process.svg"] ? h("div", { class: "card diagram" }, h("img", { src: fileUrl(files["process.svg"]), alt: t("Diagram procesu {}", named) })) : null,
     h("div", { class: "card" },
       h("div", { class: "head" }, h("h2", {}, t("Instrukcja krok po kroku (SOP)")),
         h("div", { class: "actions" },

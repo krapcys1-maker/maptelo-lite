@@ -126,4 +126,4 @@ def test_a_demonstration_is_recorded_from_studio(
     assert (folder / "trace.jsonl").is_file()
     assert done["result"]["actions"] >= 1  # at least the opening of the start page
     assert [(r["note"], r["ended"]) for r in listed] == [("pokaz z testu", "stopped")]
-    assert drafts == [{"process": "ceny", "recordings": 1}]
+    assert drafts == [{"process": "ceny", "title": None, "recordings": 1}]

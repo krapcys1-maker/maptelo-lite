@@ -121,8 +121,9 @@ jobs:
           retention-days: 30
 
   release:
-    # A tag v*: the installer and the portable zip as a release, marked as a prerelease
-    # while they are not code-signed. Only this job may write to the repository.
+    # A tag v*: the installer and the portable zip as the latest release, also under names
+    # that stay (maptelo.dev links to releases/latest/download/<name>; a prerelease is never
+    # "latest"), with their checksums. Only this job may write to the repository.
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     needs: windows
@@ -136,16 +137,43 @@ jobs:
           merge-multiple: true
           path: dist
 
+      - name: Names that stay, and checksums
+        working-directory: dist
+        run: |
+          cp Maptelo-Lite-Setup-*.exe Maptelo-Lite-Setup.exe
+          cp Maptelo-Lite-portable-*.zip Maptelo-Lite-portable.zip
+          sha256sum *.exe *.zip > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
       - name: Release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
-          gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --prerelease \
+          gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --latest \
             --title "Maptelo Lite ${TAG#v}" --notes-file - <<'NOTES'
-          Prototyp: instalator dla jednego użytkownika (bez uprawnień administratora) i wersja
-          przenośna (zip). Bez podpisu kodu, więc Windows może ostrzec przy instalacji.
+          **Maptelo Lite**: zrób proces raz i dostań jego mapę: kroki, instrukcję (SOP) ze zrzutami
+          ekranu, diagram BPMN i raport. Po polsku i po angielsku. Więcej: https://maptelo.dev/lite/
 
-          A prototype: a per-user installer (no administrator rights) and a portable zip. Not
-          code-signed yet, so Windows may warn when installing.
+          - `Maptelo-Lite-Setup.exe`: instalator. Pyta, gdzie zainstalować (domyślnie pulpit), nie
+            wymaga uprawnień administratora i nie zapisuje niczego w folderach ani rejestrze Windows.
+          - `Maptelo-Lite-portable.zip`: wersja przenośna. Rozpakuj i uruchom `Maptelo Lite.cmd`.
+          - `SHA256SUMS.txt`: sumy kontrolne plików.
+
+          To prototyp bez podpisu kodu, więc Windows SmartScreen może ostrzec: kliknij „Więcej
+          informacji”, a potem „Uruchom mimo to”.
+
+          ---
+
+          **Maptelo Lite**: do a process once and get its map: the steps, an instruction (SOP) with
+          screenshots, a BPMN diagram and a report. In English and Polish. More:
+          https://maptelo.dev/en/lite/
+
+          - `Maptelo-Lite-Setup.exe`: the installer. It asks where to install (the Desktop first),
+            needs no administrator rights and writes nothing to Windows' folders or registry.
+          - `Maptelo-Lite-portable.zip`: portable. Unzip it and run `Maptelo Lite.cmd`.
+          - `SHA256SUMS.txt`: the files' checksums.
+
+          A prototype, not code-signed yet, so Windows SmartScreen may warn: click "More info",
+          then "Run anyway".
           NOTES

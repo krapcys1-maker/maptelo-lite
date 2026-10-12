@@ -62,10 +62,13 @@
 
 * { box-sizing: border-box; }
 html, body { height: 100%; }
-body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(--body);
-       border-top: 4px solid var(--stripe-1);  /* the logo's three stripes, once, at the top */
-       border-image: linear-gradient(90deg, var(--stripe-1) 0 33.4%, var(--stripe-2) 0 66.7%,
-                                     var(--stripe-3) 0) 1; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(--body); }
+/* the logo's three stripes, once, at the top: over the page, not above it (as a border it made
+   the page 4 px taller than the window, and a scroll bar showed with nothing to scroll) */
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: 4px; z-index: 30;
+               pointer-events: none;
+               background: linear-gradient(90deg, var(--stripe-1) 0 33.4%, var(--stripe-2) 0 66.7%,
+                                           var(--stripe-3) 0); }
 a { color: var(--accent); }
 :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
 h1, h2, h3 { margin: 0; line-height: 1.2; text-wrap: balance; }

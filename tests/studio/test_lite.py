@@ -4,6 +4,7 @@ answers that the full Maptelo does that."""
 
 from __future__ import annotations
 
+import json
 import shutil
 from collections.abc import Iterator
 from pathlib import Path
@@ -112,3 +113,16 @@ def test_lite_speaks_of_itself_not_of_studio(lite: httpx2.Client) -> None:
         assert "Studio" not in said
         assert "and run" not in said
         assert "i uruchamiać" not in said
+
+
+def test_a_process_is_shown_by_the_name_it_was_given(
+    lite: httpx2.Client, workspace: Workspace
+) -> None:
+    newest = workspace.recording_folders(PROCESS)[-1] / "trace.jsonl"
+    header, rest = newest.read_text(encoding="utf-8").split("\n", 1)
+    named = json.loads(header) | {"title": "Zmiana ceny klienta"}
+    newest.write_text(json.dumps(named) + "\n" + rest, encoding="utf-8")
+    (shown,) = lite.get("/api/drafts").json()
+    assert (shown["process"], shown["title"]) == (PROCESS, "Zmiana ceny klienta")
+    titles = [r["title"] for r in lite.get(f"/api/recordings/{PROCESS}").json()]
+    assert titles[-1] == "Zmiana ceny klienta"

@@ -299,7 +299,11 @@ def create_app(
     def drafts(request: Request) -> JSONResponse:
         return JSONResponse(
             [
-                {"process": key, "recordings": len(workspace.recording_folders(key))}
+                {
+                    "process": key,
+                    "title": recording.process_title(workspace, key),
+                    "recordings": len(workspace.recording_folders(key)),
+                }
                 for key in workspace.drafts()
             ]
         )

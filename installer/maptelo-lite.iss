@@ -30,6 +30,8 @@ VersionInfoProductName=Maptelo Lite
 VersionInfoDescription=Maptelo Lite
 ; where the person says, the Desktop first; for this person only, no administrator
 DefaultDirName={userdesktop}\Maptelo Lite
+; not the folder of an earlier install (an older Lite kept it in the registry)
+UsePreviousAppDir=no
 DisableDirPage=no
 AppendDefaultDirName=yes
 DirExistsWarning=no

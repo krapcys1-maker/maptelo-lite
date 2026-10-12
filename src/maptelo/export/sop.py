@@ -10,6 +10,7 @@ from maptelo.export.describe import (
     evidence_note,
     input_source,
     predicate_text,
+    quoted,
     read_in,
     records_text,
     rejection_lead,
@@ -175,7 +176,7 @@ def render_sop(
         out += [f"## {w('interrupts')}", ""]
         for interrupt in model.interrupts:
             actions = ", ".join(
-                f"{w('click')} „{a.target[0].name or a.target[0].describe()}”"
+                f"{w('click')} {quoted(a.target[0].name or a.target[0].describe(), lang)}"
                 if a.target
                 else a.action.value
                 for a in interrupt.do
