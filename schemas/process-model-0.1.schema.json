@@ -1,0 +1,2422 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:maptelo:process-model:0.1",
+  "$defs": {
+    "Action": {
+      "enum": [
+        "navigate",
+        "click",
+        "fill",
+        "select_option",
+        "check",
+        "uncheck",
+        "press",
+        "read",
+        "wait",
+        "choose",
+        "upload",
+        "download",
+        "pick_date"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "Application": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "kind": {
+          "default": "web",
+          "enum": [
+            "web",
+            "java"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "window": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "For a Java program: a part of its main window's title, to find it ('SRK', 'Oracle Applications').",
+          "title": "Window"
+        },
+        "base_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Url"
+        },
+        "api_base_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Api Base Url"
+        },
+        "timezone": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Time zone the process is done in (IANA, e.g. Europe/Warsaw); runs use it, so a date typed on screen means the same as when people type it.",
+          "title": "Timezone"
+        },
+        "locale": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Browser language the process is done in, e.g. pl-PL.",
+          "title": "Locale"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "Application",
+      "type": "object"
+    },
+    "Calendar": {
+      "additionalProperties": false,
+      "description": "How a calendar shows its days and months and how it moves, for 'pick_date'.",
+      "properties": {
+        "day": {
+          "description": "How a day is named: '{d} {month} {yyyy}' for '24 listopada 2026', '{d}' for days that are only numbers (fields of maptelo.dates).",
+          "title": "Day",
+          "type": "string"
+        },
+        "days": {
+          "$ref": "#/$defs/Locator",
+          "description": "What a day of the calendar is: a role (gridcell, button) or a CSS selector, without a name."
+        },
+        "month": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How the month shown over the days is named ('{Month_en} {yyyy}' for 'October 2026'), when the days do not say their month and year.",
+          "title": "Month"
+        },
+        "box": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/Locator"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The calendar: where its days, its month and its arrows are.",
+          "title": "Box"
+        },
+        "next": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/Locator"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What moves it to the next month.",
+          "title": "Next"
+        },
+        "previous": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/Locator"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What moves it a month back.",
+          "title": "Previous"
+        },
+        "opens": {
+          "default": true,
+          "description": "The step's target opens the calendar (it is clicked first); false for a calendar always shown, the step's target being the calendar itself.",
+          "title": "Opens",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "day"
+      ],
+      "title": "Calendar",
+      "type": "object"
+    },
+    "CountCheck": {
+      "additionalProperties": false,
+      "properties": {
+        "eq": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Eq"
+        },
+        "gt": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gt"
+        },
+        "gte": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gte"
+        },
+        "lt": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lt"
+        },
+        "lte": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lte"
+        }
+      },
+      "title": "CountCheck",
+      "type": "object"
+    },
+    "DayShift": {
+      "additionalProperties": false,
+      "description": "A date the record does not give, counted from another of its dates (the old price\nline ends the day before the new one starts: ``{from: start_date, days: -1}``).",
+      "properties": {
+        "from": {
+          "description": "The date input it is counted from.",
+          "maxLength": 64,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "From",
+          "type": "string"
+        },
+        "days": {
+          "description": "Days after that date; negative: before it.",
+          "title": "Days",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "from",
+        "days"
+      ],
+      "title": "DayShift",
+      "type": "object"
+    },
+    "DialogAnswer": {
+      "additionalProperties": false,
+      "description": "How a dialog of the browser itself, brought up by the step, is answered: as the\nperson answered it in the recording („Zapisać zmiany?” OK, „Podaj powód” with a value).",
+      "properties": {
+        "kind": {
+          "enum": [
+            "alert",
+            "confirm",
+            "prompt"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "message": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Its words, as recorded.",
+          "title": "Message"
+        },
+        "accept": {
+          "default": true,
+          "title": "Accept",
+          "type": "boolean"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "For a prompt: what to type ('$inputs.x' for the data's).",
+          "title": "Value"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "DialogAnswer",
+      "type": "object"
+    },
+    "DocumentField": {
+      "additionalProperties": false,
+      "description": "For 'read' of a document image (a scan, a photo): the field read with a model that sees\nimages, checked by the rules of its kind before it is used (the full Maptelo reads them).",
+      "properties": {
+        "field": {
+          "description": "The field as the document and the form name it.",
+          "minLength": 1,
+          "title": "Field",
+          "type": "string"
+        },
+        "kind": {
+          "default": "text",
+          "enum": [
+            "text",
+            "code",
+            "nip",
+            "date",
+            "amount",
+            "iban",
+            "number"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "enum": [
+                "net",
+                "vat",
+                "gross"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Which amount it is, for the document's net + VAT = gross check.",
+          "title": "Role"
+        },
+        "typed_as": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How the form writes it: a date's pattern (%d.%m.%Y) or the value's shape with 9 for every digit (9 999,99); without it the value is typed as printed.",
+          "title": "Typed As"
+        },
+        "compare_with": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/Locator"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The field on the screen holding another reading of the same value (what OCR put in the form). A value no rule checks (a number, a date) is taken only when the two readings agree; a tax number or an account the picture does not give is taken from it when it passes its check.",
+          "title": "Compare With"
+        }
+      },
+      "required": [
+        "field"
+      ],
+      "title": "DocumentField",
+      "type": "object"
+    },
+    "Effect": {
+      "additionalProperties": false,
+      "description": "A change in the system of record that defines 'done'.",
+      "properties": {
+        "id": {
+          "maxLength": 64,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "description": {
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "verifier": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HttpVerifier"
+            },
+            {
+              "$ref": "#/$defs/ScreenVerifier"
+            },
+            {
+              "$ref": "#/$defs/PageVerifier"
+            }
+          ],
+          "title": "Verifier"
+        }
+      },
+      "required": [
+        "id",
+        "description",
+        "verifier"
+      ],
+      "title": "Effect",
+      "type": "object"
+    },
+    "Evidence": {
+      "additionalProperties": false,
+      "description": "Where a step or rule came from: recordings that support it and who confirmed it.",
+      "properties": {
+        "traces": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Traces",
+          "type": "array"
+        },
+        "confirmed_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confirmed By"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        }
+      },
+      "title": "Evidence",
+      "type": "object"
+    },
+    "ExceptionKind": {
+      "enum": [
+        "business",
+        "system"
+      ],
+      "title": "ExceptionKind",
+      "type": "string"
+    },
+    "ExceptionSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/ExceptionKind"
+        },
+        "description": {
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "retryable": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Default: system exceptions yes, business exceptions no.",
+          "title": "Retryable"
+        }
+      },
+      "required": [
+        "kind",
+        "description"
+      ],
+      "title": "ExceptionSpec",
+      "type": "object"
+    },
+    "Executor": {
+      "enum": [
+        "deterministic",
+        "agent",
+        "human"
+      ],
+      "title": "Executor",
+      "type": "string"
+    },
+    "FieldCheck": {
+      "additionalProperties": false,
+      "description": "Value of a form field, found by label or by a target ladder.",
+      "properties": {
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/Locator"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target"
+        },
+        "equals": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Equals"
+        },
+        "contains": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Contains"
+        },
+        "empty": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Empty"
+        },
+        "gt": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The number it shows is greater.",
+          "title": "Gt"
+        },
+        "gte": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The number it shows is at least this.",
+          "title": "Gte"
+        },
+        "lt": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The number it shows is smaller.",
+          "title": "Lt"
+        },
+        "lte": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The number it shows is at most this.",
+          "title": "Lte"
+        }
+      },
+      "title": "FieldCheck",
+      "type": "object"
+    },
+    "HttpVerifier": {
+      "additionalProperties": false,
+      "description": "Reads the system of record through a channel other than the screen that wrote it.",
+      "properties": {
+        "kind": {
+          "const": "http",
+          "default": "http",
+          "title": "Kind",
+          "type": "string"
+        },
+        "url": {
+          "description": "Absolute URL or path relative to application.api_base_url; {inputs.name} placeholders allowed.",
+          "minLength": 1,
+          "title": "Url",
+          "type": "string"
+        },
+        "expect": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "description": "Response JSON field -> expected value ($inputs.name allowed).",
+          "minProperties": 1,
+          "title": "Expect",
+          "type": "object"
+        }
+      },
+      "required": [
+        "url",
+        "expect"
+      ],
+      "title": "HttpVerifier",
+      "type": "object"
+    },
+    "Idempotency": {
+      "additionalProperties": false,
+      "description": "If these effects already hold before a run, the work is done: skip instead of redo.",
+      "properties": {
+        "skip_if_effects": {
+          "items": {
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Skip If Effects",
+          "type": "array"
+        }
+      },
+      "required": [
+        "skip_if_effects"
+      ],
+      "title": "Idempotency",
+      "type": "object"
+    },
+    "InputSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "$ref": "#/$defs/InputType"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "required": {
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "pattern": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Full-match regex (strings only).",
+          "title": "Pattern"
+        },
+        "min": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Min"
+        },
+        "max": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max"
+        },
+        "choices": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Choices"
+        },
+        "example": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Example"
+        },
+        "column": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Header of the column in the records file (a sheet or CSV) that holds this value, when people take it from a table.",
+          "title": "Column"
+        },
+        "typed_as": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How people type the value on screen: a date pattern such as %d.%m.%Y or %m/%d/%Y %H:%M:%S, 0.00 / 0,00 for an amount with two decimals, or zeros (000000000) for a number typed to that width with its leading zeros.",
+          "title": "Typed As"
+        },
+        "secret": {
+          "default": false,
+          "description": "A password or a key: never shown nor kept (results, logs, messages show it masked).",
+          "title": "Secret",
+          "type": "boolean"
+        },
+        "per_line": {
+          "default": false,
+          "description": "One value for each line of the record (the products of an order): the steps that use it are done once per line.",
+          "title": "Per Line",
+          "type": "boolean"
+        },
+        "derived": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DayShift"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A date counted from another date of the record (the day before it: days -1); the records file needs no column for it."
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "InputSpec",
+      "type": "object"
+    },
+    "InputType": {
+      "enum": [
+        "string",
+        "integer",
+        "decimal",
+        "date",
+        "boolean"
+      ],
+      "title": "InputType",
+      "type": "string"
+    },
+    "Interrupt": {
+      "additionalProperties": false,
+      "description": "A state that may appear at any moment (popup, session warning) and its handler.",
+      "properties": {
+        "id": {
+          "maxLength": 64,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "when": {
+          "$ref": "#/$defs/Predicate"
+        },
+        "do": {
+          "items": {
+            "$ref": "#/$defs/InterruptAction"
+          },
+          "minItems": 1,
+          "title": "Do",
+          "type": "array"
+        },
+        "max_per_run": {
+          "default": 10,
+          "minimum": 1,
+          "title": "Max Per Run",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "when",
+        "do"
+      ],
+      "title": "Interrupt",
+      "type": "object"
+    },
+    "InterruptAction": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/Action"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/Locator"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "title": "InterruptAction",
+      "type": "object"
+    },
+    "Locator": {
+      "additionalProperties": false,
+      "description": "One rung of a target ladder. Exactly one strategy is set.",
+      "properties": {
+        "role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ARIA role, e.g. button, textbox.",
+          "title": "Role"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Accessible name; only with 'role'.",
+          "title": "Name"
+        },
+        "column": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Header of the table column the element is in (for a definition: its term, as in 'Numer rachunku: PL61...'); only with 'role'.",
+          "title": "Column"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label"
+        },
+        "field": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The name a form sends the value under (name attribute), on the control or on the one element around a lone control; it rarely changes when the words do.",
+          "title": "Field"
+        },
+        "submits": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The button that sends the form holding the field of this name (its only submit button); an update renames the button more often than what it sends.",
+          "title": "Submits"
+        },
+        "placeholder": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Placeholder"
+        },
+        "testid": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Testid"
+        },
+        "action": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A button by the name of what it does in the application (<button name=\"action_confirm\">, as Odoo writes them): it stays when the words change or are translated.",
+          "title": "Action"
+        },
+        "text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text"
+        },
+        "css": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Css"
+        }
+      },
+      "title": "Locator",
+      "type": "object"
+    },
+    "OutcomeHandler": {
+      "additionalProperties": false,
+      "properties": {
+        "raise": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Raise"
+        },
+        "goto": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Goto"
+        },
+        "continue": {
+          "anyOf": [
+            {
+              "const": true,
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Continue"
+        }
+      },
+      "title": "OutcomeHandler",
+      "type": "object"
+    },
+    "PageVerifier": {
+      "additionalProperties": false,
+      "description": "Reads the record again on a page of the web application itself, opened afresh by its\naddress after the work, as a person reloads a list to see the new row: a fresh page shows\nwhat the system stored, not what the screen said after saving. The same application, so\nweaker than an API of its own; proposed from the recordings and confirmed by a person,\nnever assumed (the clean-Windows test of 11.10: a person who knows no API).",
+      "properties": {
+        "kind": {
+          "const": "page",
+          "default": "page",
+          "title": "Kind",
+          "type": "string"
+        },
+        "url": {
+          "description": "The page: a path on the application (its base_url) or an absolute address; {inputs.name} placeholders allowed.",
+          "minLength": 1,
+          "title": "Url",
+          "type": "string"
+        },
+        "table": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The table's name, when one is shown.",
+          "title": "Table"
+        },
+        "row": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "description": "Column -> the value that names the record's row ($inputs.name allowed).",
+          "minProperties": 1,
+          "title": "Row",
+          "type": "object"
+        },
+        "expect": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "description": "Column -> the value the record's row shows ($inputs.name allowed).",
+          "title": "Expect",
+          "type": "object"
+        }
+      },
+      "required": [
+        "url",
+        "row"
+      ],
+      "title": "PageVerifier",
+      "type": "object"
+    },
+    "Predicate": {
+      "additionalProperties": false,
+      "description": "An observable condition. Exactly one kind is set; all/any/not combine others.",
+      "properties": {
+        "visible": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Locator"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "hidden": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Locator"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Glob matched against the page path; a #part (key=glob&...) must match too.",
+          "title": "Url"
+        },
+        "state": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "State"
+        },
+        "field": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FieldCheck"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "value": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ValueCheck"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "rows": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RowsCheck"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "all": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/Predicate"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "All"
+        },
+        "any": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/Predicate"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Any"
+        },
+        "not": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Predicate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "Predicate",
+      "type": "object"
+    },
+    "RecordsSpec": {
+      "additionalProperties": false,
+      "description": "Where the rows of a batch come from when people work from a table (a sheet of a\nworkbook or a CSV file): one run per row. Inputs name their ``column``; other columns\nof the table are left alone.",
+      "properties": {
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "sheet": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Sheet of the workbook (default: the first one).",
+          "title": "Sheet"
+        },
+        "one_run_per": {
+          "description": "Columns that name one record when several rows make it (an order and its products): rows with the same values are one run, each row one of its lines.",
+          "items": {
+            "type": "string"
+          },
+          "title": "One Run Per",
+          "type": "array"
+        }
+      },
+      "title": "RecordsSpec",
+      "type": "object"
+    },
+    "RiskClass": {
+      "enum": [
+        "read",
+        "draft",
+        "commit",
+        "irreversible"
+      ],
+      "title": "RiskClass",
+      "type": "string"
+    },
+    "RowsCheck": {
+      "additionalProperties": false,
+      "properties": {
+        "table": {
+          "items": {
+            "$ref": "#/$defs/Locator"
+          },
+          "minItems": 1,
+          "title": "Table",
+          "type": "array"
+        },
+        "where": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Where",
+          "type": "object"
+        },
+        "count": {
+          "$ref": "#/$defs/CountCheck"
+        }
+      },
+      "required": [
+        "table",
+        "count"
+      ],
+      "title": "RowsCheck",
+      "type": "object"
+    },
+    "ScreenVerifier": {
+      "additionalProperties": false,
+      "description": "Reads the record again in the program itself, on a screen other than the one that\nwrote it, as a person checks a list after saving: a desktop program has no API. The\nscreen is opened from the menu, the record's row is found in its table by the values that\nname it, and the row's cells are compared.",
+      "properties": {
+        "kind": {
+          "const": "screen",
+          "default": "screen",
+          "title": "Kind",
+          "type": "string"
+        },
+        "menu": {
+          "description": "The menu, then its item: ['Ceny', 'Wnioski cenowe'].",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 2,
+          "title": "Menu",
+          "type": "array"
+        },
+        "row": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "description": "Column -> the value that names the record's row ($inputs.name allowed).",
+          "minProperties": 1,
+          "title": "Row",
+          "type": "object"
+        },
+        "expect": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "description": "Column -> the value the record's row shows ($inputs.name allowed).",
+          "title": "Expect",
+          "type": "object"
+        }
+      },
+      "required": [
+        "menu",
+        "row"
+      ],
+      "title": "ScreenVerifier",
+      "type": "object"
+    },
+    "State": {
+      "additionalProperties": false,
+      "description": "A screen the process can be on, recognised by its fingerprint.",
+      "properties": {
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Glob matched against the page path; a #part (key=glob&...) must match too.",
+          "title": "Url"
+        },
+        "visible": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/Locator"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "All of these must be visible.",
+          "title": "Visible"
+        }
+      },
+      "title": "State",
+      "type": "object"
+    },
+    "Step": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 64,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "intent": {
+          "description": "What the step achieves, in business terms.",
+          "minLength": 1,
+          "title": "Intent",
+          "type": "string"
+        },
+        "action": {
+          "$ref": "#/$defs/Action"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/Locator"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target"
+        },
+        "within": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WithinRow"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        },
+        "document": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DocumentField"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "For 'read' with a target that is a document's image: which field of the document to read (with a model that sees images; the run needs --vision)."
+        },
+        "save_as": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Variable set by 'read' (the text) or 'download' (where the file is kept).",
+          "title": "Save As"
+        },
+        "after": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "For 'read' without a target: the words the value follows in what the screen says, in the page or a frame of it („Zgłoszono szkodę” SZK/2026/0001., „Termin dostawy:” 2026-10-20); the value is the word after them.",
+          "title": "After"
+        },
+        "looks_like": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "With 'after': what the value looks like, letters A and digits 9 (A-9 for PO-10001, 9-9-9 for a date); a word after the same words shaped otherwise is not it.",
+          "title": "Looks Like"
+        },
+        "rest": {
+          "default": false,
+          "description": "With 'after': the value is the whole rest of the message the words label („Kontrole: Kwota poza tolerancją…”), not the one word after them.",
+          "title": "Rest",
+          "type": "boolean"
+        },
+        "match": {
+          "anyOf": [
+            {
+              "const": "words",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "For 'select_option': the option is the one whose name's words all stand in the value (the customer an e-mail names), and no other with as many; without it the value is the option's value or label.",
+          "title": "Match"
+        },
+        "in_state": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "In State"
+        },
+        "window": {
+          "default": 0,
+          "description": "The window the step is done in: 0 the process's first, 1 the first one a step opened (a chooser, an approval), and so on.",
+          "minimum": 0,
+          "title": "Window",
+          "type": "integer"
+        },
+        "opens_window": {
+          "default": false,
+          "description": "The step opens a new window; the steps after it in the next window number are done there.",
+          "title": "Opens Window",
+          "type": "boolean"
+        },
+        "closes_window": {
+          "default": false,
+          "description": "The step closes its window (a chooser, once something is chosen): its result shows in the window under it.",
+          "title": "Closes Window",
+          "type": "boolean"
+        },
+        "dialogs": {
+          "description": "Dialogs of the browser itself the step brings up, in order, and how to answer them; one that was not recorded stops the run.",
+          "items": {
+            "$ref": "#/$defs/DialogAnswer"
+          },
+          "title": "Dialogs",
+          "type": "array"
+        },
+        "when": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Predicate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Guard: skip the step if false."
+        },
+        "otherwise": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The other way the process goes: the step is done only when the step this names was not (forward the invoice, or hold it with a reason); its 'when' is checked after that.",
+          "title": "Otherwise"
+        },
+        "requires": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Predicate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What every recording showed before this step (the order's lines table still empty). When the screen shows otherwise, work left from before may be on it: the run stops before the step."
+        },
+        "expect": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Predicate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "outcomes": {
+          "anyOf": [
+            {
+              "minProperties": 2,
+              "patternProperties": {
+                "^[a-z][a-z0-9_]*$": {
+                  "$ref": "#/$defs/Predicate"
+                }
+              },
+              "propertyNames": {
+                "maxLength": 64
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Outcomes"
+        },
+        "on_outcome": {
+          "anyOf": [
+            {
+              "patternProperties": {
+                "^[a-z][a-z0-9_]*$": {
+                  "$ref": "#/$defs/OutcomeHandler"
+                }
+              },
+              "propertyNames": {
+                "maxLength": 64
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "On Outcome"
+        },
+        "verify_effects": {
+          "items": {
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "type": "string"
+          },
+          "title": "Verify Effects",
+          "type": "array"
+        },
+        "risk": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RiskClass"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "executor": {
+          "$ref": "#/$defs/Executor",
+          "default": "deterministic"
+        },
+        "fallback": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Executor"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "per_line": {
+          "default": false,
+          "description": "Done once for each line of the record (an order's products): steps in a row marked so are one block, repeated line by line.",
+          "title": "Per Line",
+          "type": "boolean"
+        },
+        "calendar": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Calendar"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "For 'pick_date': how the calendar names days and months."
+        },
+        "control": {
+          "default": false,
+          "description": "A check a person makes before confirming (four eyes: compares a request with its document, then approves it). Done by a person (executor 'human') unless the company lets the robot make it.",
+          "title": "Control",
+          "type": "boolean"
+        },
+        "no_suggestion": {
+          "anyOf": [
+            {
+              "const": "keep_typed",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "For 'choose': when no suggestion contains the value, leave it typed and go on, as people did when the application had no such entry (the next step's result tells, e.g. a message that it was not found). Without it the run stops there.",
+          "title": "No Suggestion"
+        },
+        "timeout_s": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 600,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timeout S"
+        },
+        "evidence": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Evidence"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "intent",
+        "action"
+      ],
+      "title": "Step",
+      "type": "object"
+    },
+    "ValueCheck": {
+      "additionalProperties": false,
+      "description": "A value of the record (or one read earlier on a screen) compared: a decision made from\nthe data, as people make it from their sheet (\"Faktura zbiorcza: tak\" ticks the box).",
+      "properties": {
+        "of": {
+          "description": "The value: '$inputs.x' (the record) or '$vars.x' (read).",
+          "title": "Of",
+          "type": "string"
+        },
+        "equals": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Compared as text, any case.",
+          "title": "Equals"
+        },
+        "one_of": {
+          "anyOf": [
+            {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "format": "date",
+                    "type": "string"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "One Of"
+        },
+        "empty": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Empty"
+        },
+        "gt": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The number it shows is greater.",
+          "title": "Gt"
+        },
+        "gte": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The number it shows is at least this.",
+          "title": "Gte"
+        },
+        "lt": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The number it shows is smaller.",
+          "title": "Lt"
+        },
+        "lte": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The number it shows is at most this.",
+          "title": "Lte"
+        }
+      },
+      "required": [
+        "of"
+      ],
+      "title": "ValueCheck",
+      "type": "object"
+    },
+    "WithinRow": {
+      "additionalProperties": false,
+      "description": "Restricts a step's target to one table row. 'only' refuses to guess between rows.",
+      "properties": {
+        "table": {
+          "items": {
+            "$ref": "#/$defs/Locator"
+          },
+          "minItems": 1,
+          "title": "Table",
+          "type": "array"
+        },
+        "where": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Where",
+          "type": "object"
+        },
+        "pick": {
+          "default": "only",
+          "enum": [
+            "only",
+            "first",
+            "last"
+          ],
+          "title": "Pick",
+          "type": "string"
+        }
+      },
+      "required": [
+        "table"
+      ],
+      "title": "WithinRow",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "An executor-independent description of one business process.",
+  "properties": {
+    "schema_version": {
+      "const": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "id": {
+      "maxLength": 64,
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "title": "Id",
+      "type": "string"
+    },
+    "version": {
+      "description": "Revision of this process model.",
+      "minimum": 1,
+      "title": "Version",
+      "type": "integer"
+    },
+    "title": {
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    },
+    "description": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Description"
+    },
+    "application": {
+      "$ref": "#/$defs/Application"
+    },
+    "preconditions": {
+      "description": "What must hold before the process starts.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Preconditions",
+      "type": "array"
+    },
+    "inputs": {
+      "patternProperties": {
+        "^[a-z][a-z0-9_]*$": {
+          "$ref": "#/$defs/InputSpec"
+        }
+      },
+      "propertyNames": {
+        "maxLength": 64
+      },
+      "title": "Inputs",
+      "type": "object"
+    },
+    "records": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RecordsSpec"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "The table people take the inputs from, row by row."
+    },
+    "private": {
+      "default": false,
+      "description": "Screens show personal or confidential data: screenshots cover what is typed and what tables hold, and the model keeps no values from recordings.",
+      "title": "Private",
+      "type": "boolean"
+    },
+    "effects": {
+      "items": {
+        "$ref": "#/$defs/Effect"
+      },
+      "title": "Effects",
+      "type": "array"
+    },
+    "idempotency": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Idempotency"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "states": {
+      "patternProperties": {
+        "^[a-z][a-z0-9_]*$": {
+          "$ref": "#/$defs/State"
+        }
+      },
+      "propertyNames": {
+        "maxLength": 64
+      },
+      "title": "States",
+      "type": "object"
+    },
+    "interrupts": {
+      "items": {
+        "$ref": "#/$defs/Interrupt"
+      },
+      "title": "Interrupts",
+      "type": "array"
+    },
+    "exceptions": {
+      "patternProperties": {
+        "^[a-z][a-z0-9_]*$": {
+          "$ref": "#/$defs/ExceptionSpec"
+        }
+      },
+      "propertyNames": {
+        "maxLength": 64
+      },
+      "title": "Exceptions",
+      "type": "object"
+    },
+    "steps": {
+      "items": {
+        "$ref": "#/$defs/Step"
+      },
+      "minItems": 1,
+      "title": "Steps",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "id",
+    "version",
+    "title",
+    "application",
+    "steps"
+  ],
+  "title": "ProcessModel",
+  "type": "object"
+}

@@ -1,0 +1,145 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_EMBED: python-3.12.10-embed-amd64.zip
+  PYTHON_EMBED_URL: https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip
+  PYTHON_EMBED_MD5: fe8ef205f2e9c3ba44d0cf9954e1abd3  # as python.org lists it for 3.12.10
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10.2.0  # no floating major tag upstream
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --locked
+
+      - name: Lint
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: Type check
+        run: uv run mypy
+
+      - name: Dependency licenses
+        run: uv run python tools/check_licenses.py
+
+      - name: Browser for end-to-end tests
+        run: |
+          for attempt in 1 2 3; do
+            timeout 420 uv run playwright install --with-deps chromium && exit 0
+            echo "::warning::installing the browser failed or hung (try $attempt of 3)"
+            sleep 15
+          done
+          exit 1
+
+      - name: Tests
+        run: uv run pytest
+
+  windows:
+    # The portable Maptelo Lite (a zip) and its installer for one person, without
+    # administrator rights. A prototype: not code-signed yet.
+    runs-on: windows-latest
+    needs: checks
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Wheel
+        run: uv build --wheel --out-dir dist
+
+      - name: Python's embeddable build (checked)
+        shell: pwsh
+        run: |
+          Invoke-WebRequest $env:PYTHON_EMBED_URL -OutFile $env:PYTHON_EMBED
+          $md5 = (Get-FileHash $env:PYTHON_EMBED -Algorithm MD5).Hash.ToLower()
+          if ($md5 -ne $env:PYTHON_EMBED_MD5) { throw "unexpected checksum: $md5" }
+
+      - name: Portable Maptelo Lite
+        shell: pwsh
+        run: |
+          $wheel = (Get-ChildItem dist\maptelo_lite-*.whl).FullName
+          python tools/package/build_portable.py `
+            --python-zip $env:PYTHON_EMBED --wheel $wheel --out build\MapteloLite --lite
+
+      - name: Maptelo Lite starts, and ships only licenses the policy allows
+        shell: pwsh
+        run: |
+          $env:PYTHONIOENCODING = "utf-8"
+          & build\MapteloLite\python\python.exe -m maptelo.lite studio --help > lite-help.txt
+          if ($LASTEXITCODE -ne 0) { throw "maptelo.lite studio --help failed" }
+          if (-not (Select-String -Path lite-help.txt -Pattern "--workspace" -SimpleMatch -Quiet)) { throw "no --workspace" }
+          & build\MapteloLite\python\python.exe -c "import maptelo.studio.app; print('the window imports')"
+          if ($LASTEXITCODE -ne 0) { throw "imports failed" }
+          & build\MapteloLite\python\python.exe tools/check_licenses.py | Tee-Object -FilePath build\MapteloLite\LICENSES.txt
+          if ($LASTEXITCODE -ne 0) { throw "a shipped dependency is outside the license policy" }
+
+      - name: Zip and installer
+        shell: pwsh
+        run: |
+          $version = (& build\MapteloLite\python\python.exe -c "import maptelo; print(maptelo.__version__)").Trim()
+          "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Compress-Archive -Path build\MapteloLite -DestinationPath "build\Maptelo-Lite-portable-$version.zip"
+          choco install innosetup --no-progress -y
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$version" `
+            "/DSource=$PWD\build\MapteloLite" "/DOutput=$PWD\build" installer\maptelo-lite.iss
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: maptelo-lite-windows-${{ env.VERSION }}
+          path: |
+            build/Maptelo-Lite-portable-*.zip
+            build/Maptelo-Lite-Setup-*.exe
+          retention-days: 30
+
+  release:
+    # A tag v*: the installer and the portable zip as a release, marked as a prerelease
+    # while they are not code-signed. Only this job may write to the repository.
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    needs: windows
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: maptelo-lite-windows-*
+          merge-multiple: true
+          path: dist
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --prerelease \
+            --title "Maptelo Lite ${TAG#v}" --notes-file - <<'NOTES'
+          Prototyp: instalator dla jednego użytkownika (bez uprawnień administratora) i wersja
+          przenośna (zip). Bez podpisu kodu, więc Windows może ostrzec przy instalacji.
+
+          A prototype: a per-user installer (no administrator rights) and a portable zip. Not
+          code-signed yet, so Windows may warn when installing.
+          NOTES

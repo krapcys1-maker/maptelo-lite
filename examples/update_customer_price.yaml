@@ -1,0 +1,216 @@
+# Zmiana ceny klienta w MiniERP (układ A).
+# Model napisany ręcznie w M0 jako wzorzec formatu; od M2 takie modele powstają z nagrań.
+schema_version: "0.1"
+id: update_customer_price
+version: 1
+title: Zmiana ceny klienta
+description: >-
+  Ustawia nową cenę produktu (CPN) klienta od wskazanej daty w module Pricing.
+  Gdy produkt ma kilka wersji ceny, zmienia się wersję aktywną.
+application:
+  name: MiniERP
+  kind: web
+  base_url: http://127.0.0.1:8000
+  api_base_url: http://127.0.0.1:8000/api
+
+inputs:
+  customer:
+    type: string
+    description: Kod klienta
+    pattern: "^C[0-9]{3}$"
+    example: C001
+  cpn:
+    type: string
+    description: Customer part number
+    pattern: "^[0-9]{5}-[A-Z]$"
+    example: 48212-B
+  new_price:
+    type: decimal
+    description: Nowa cena w walucie produktu
+    min: 0.01
+    example: "135.00"
+  valid_from:
+    type: date
+    description: Od kiedy obowiązuje nowa cena
+    example: 2026-12-01
+
+effects:
+  - id: price_set
+    description: Od dnia valid_from obowiązuje nowa cena
+    verifier:
+      kind: http
+      url: "/prices?customer={inputs.customer}&cpn={inputs.cpn}&on={inputs.valid_from}"
+      expect:
+        price: $inputs.new_price
+        matches: 1
+
+idempotency:
+  skip_if_effects: [price_set]
+
+states:
+  search:
+    url: /pricing*
+    visible: {role: textbox, name: CPN}
+  product:
+    url: /pricing/product/*
+    visible: {role: table, name: Price versions}
+
+interrupts:
+  - id: session_expiring
+    description: Ostrzeżenie o wygasającej sesji może pojawić się na każdym ekranie
+    when: {visible: {role: dialog, name: Session expiring}}
+    do:
+      - action: click
+        target: {role: button, name: Continue}
+
+exceptions:
+  product_not_found:
+    kind: business
+    description: Klient nie ma produktu o podanym CPN
+  no_active_version:
+    kind: business
+    description: Produkt nie ma aktywnej wersji ceny (np. wycofany)
+  price_rejected:
+    kind: business
+    description: System odrzucił cenę lub datę (np. data z przeszłości)
+
+steps:
+  - id: open_pricing
+    intent: Otwórz moduł Pricing
+    action: navigate
+    value: /pricing
+    expect: {state: search}
+
+  - id: choose_customer
+    intent: Wybierz klienta
+    in_state: search
+    action: select_option
+    target:
+      - {role: combobox, name: Customer}
+      - {field: customer}
+    value: $inputs.customer
+
+  - id: enter_cpn
+    intent: Wpisz CPN produktu
+    in_state: search
+    action: fill
+    target:
+      - {role: textbox, name: CPN}
+      - {label: CPN}
+      - {field: cpn}
+      - {testid: cpn-input}
+    value: $inputs.cpn
+
+  - id: search_product
+    intent: Wyszukaj produkt
+    in_state: search
+    action: click
+    target:
+      - {role: button, name: Search}
+      - {testid: search-button}
+      - {submits: customer}
+      - {css: "#main > section > form > button"}
+    outcomes:
+      found: {state: product}
+      not_found: {visible: {role: alert}}
+    on_outcome:
+      not_found: {raise: product_not_found}
+
+  - id: check_versions
+    intent: Sprawdź, czy produkt ma aktywną wersję ceny
+    action: wait
+    outcomes:
+      single_version:
+        any:
+          - {visible: {role: textbox, name: Price}}
+          - {visible: {field: price}}
+      no_active:
+        any:
+          - {visible: {text: no active price version}}
+          - rows:
+              table: [{role: table, name: Price versions}, {role: table}]
+              where: {Status: Active}
+              count: {eq: 0}
+      several_versions:
+        any:
+          - {visible: {text: Select the active one}}
+          - rows:
+              table: [{role: table, name: Price versions}, {role: table}]
+              count: {gt: 1}
+    on_outcome:
+      no_active: {raise: no_active_version}
+
+  - id: pick_active_version
+    intent: Wybierz aktywną wersję ceny, gdy wersji jest kilka
+    when:
+      rows:
+        table: [{role: table, name: Price versions}, {role: table}]
+        count: {gt: 1}
+    action: click
+    target:
+      - {role: link, name: Select}
+      - {role: link}
+    within:
+      table: [{role: table, name: Price versions}, {role: table}]
+      where: {Status: Active}
+    expect:
+      any:
+        - {visible: {role: textbox, name: Price}}
+        - {visible: {field: price}}
+    evidence:
+      note: Reguła wpisana ręcznie w M0; od M4 odkrywana z kilku nagrań
+
+  - id: set_price
+    intent: Wpisz nową cenę
+    action: fill
+    target:
+      - {role: textbox, name: Price}
+      - {field: price}
+      - {testid: price-input}
+    value: $inputs.new_price
+    expect:
+      field:
+        target:
+          - {role: textbox, name: Price}
+          - {field: price}
+        equals: $inputs.new_price
+
+  - id: set_valid_from
+    intent: Ustaw datę obowiązywania nowej ceny
+    action: fill
+    target:
+      - {role: textbox, name: Valid from}
+      - {field: valid_from}
+      - {testid: valid-from-input}
+    value: $inputs.valid_from
+
+  - id: save
+    intent: Zapisz zmianę ceny
+    action: click
+    target:
+      - {role: button, name: Save}
+      - {testid: save-button}
+      - {submits: price}
+    risk: commit
+    outcomes:
+      saved: {visible: {role: status}}
+      needs_confirmation: {visible: {role: dialog, name: Confirm price change}}
+      rejected: {visible: {role: alert}}
+    on_outcome:
+      rejected: {raise: price_rejected}
+
+  - id: confirm_large_change
+    intent: Potwierdź zmianę ceny większą niż 20%
+    when: {visible: {role: dialog, name: Confirm price change}}
+    action: click
+    target:
+      - {role: button, name: Confirm}
+      - {submits: confirmed}
+    risk: commit
+    expect: {visible: {role: status}}
+
+  - id: check_result
+    intent: Upewnij się, że nowa cena naprawdę obowiązuje
+    action: wait
+    expect: {visible: {role: status}}
+    verify_effects: [price_set]

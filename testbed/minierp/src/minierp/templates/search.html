@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Customer prices · MiniERP{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>Customer prices</h1>
+  {% if error %}<div role="alert" class="banner error">{{ error }}</div>{% endif %}
+  <form method="get" action="/pricing/search" class="search">
+    <div class="field">
+      <label for="{{ L.ids.customer }}">{{ L.customer }}</label>
+      <select id="{{ L.ids.customer }}" name="customer"
+              {%- if L.testids %} data-testid="customer-select"{% endif %}>
+        {% for c in customers %}
+        <option value="{{ c.id }}"{% if c.id == customer %} selected{% endif %}>{{ c.id }} · {{ c.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="{{ L.ids.cpn }}">{{ L.cpn }}</label>
+      <input id="{{ L.ids.cpn }}" name="cpn" value="{{ cpn }}" autocomplete="off"
+             {%- if L.testids %} data-testid="cpn-input"{% endif %}>
+    </div>
+    <button type="submit"{% if L.testids %} data-testid="search-button"{% endif %}>{{ L.search }}</button>
+  </form>
+</section>
+{% endblock %}

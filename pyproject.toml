@@ -1,0 +1,92 @@
+[project]
+name = "maptelo-lite"
+version = "0.1.0"
+description = "Do a process once, in a browser or a Java program, and get its map: steps, a step-by-step SOP with screenshots, BPMN, a diagram and a report."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE", "src/maptelo/studio/static/fonts/OFL-*.txt"]
+authors = [{ name = "Maptelo authors" }]
+keywords = ["process mapping", "SOP", "BPMN", "process documentation", "Java Access Bridge", "Swing"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business",
+]
+dependencies = [
+    "pydantic>=2.9,<3",
+    "ruamel.yaml>=0.18,<0.20",
+    "typer>=0.12",
+    # recording in a browser: Edge or Chrome on the computer, or Playwright's Chromium
+    "playwright==1.62.*",
+    "pillow>=10",
+    # the workbook a person takes values from, kept with the recording
+    "openpyxl>=3.1,<4",
+    # HTTPS checked by the operating system, as in the browser (company proxies)
+    "truststore>=0.10",
+]
+
+[project.optional-dependencies]
+# the Maptelo Lite window: a page on this computer only
+studio = ["starlette>=1.0,<2", "uvicorn>=0.30"]
+
+[project.urls]
+Homepage = "https://maptelo.dev"
+Source = "https://github.com/krapcys1-maker/maptelo-lite"
+
+[project.scripts]
+maptelo-lite = "maptelo.lite:app"
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/maptelo"]
+
+[tool.uv.workspace]
+members = ["testbed/minierp"]
+
+[tool.uv.sources]
+minierp = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "minierp",
+    "httpx2>=2.13",
+    "pytest==9.1.1",
+    # the same versions as the full Maptelo: both repositories read the code alike
+    "ruff==0.16.10",
+    "mypy==2.4.0",
+    "tzdata>=2026.5",
+    "starlette>=1.0,<2",
+    "uvicorn>=0.30",
+    "types-openpyxl",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "testbed/minierp/src", "tests", "tools"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP", "SIM", "C4", "N", "PT", "RUF"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+files = ["src", "testbed/minierp/src", "tools"]
+
+[[tool.mypy.overrides]]
+module = ["ruamel", "ruamel.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = [
+    "e2e: end-to-end browser tests (need Playwright Chromium)",
+]

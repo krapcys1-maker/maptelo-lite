@@ -1,0 +1,632 @@
+"""Plain-language descriptions of model parts, shared by every document exporter."""
+
+from __future__ import annotations
+
+import re
+from urllib.parse import urlsplit
+
+from maptelo.mapping.naming import Lang, day_shift, human_title, rows_phrase
+from maptelo.model.schema import (
+    Application,
+    FieldCheck,
+    InputSpec,
+    InputType,
+    Locator,
+    Predicate,
+    ProcessModel,
+    Step,
+    ValueCheck,
+)
+
+WORDS: dict[Lang, dict[str, str]] = {
+    "pl": {
+        "process": "Proces",
+        "application": "aplikacja",
+        "source": "źródło",
+        "preconditions": "Wymagania wstępne",
+        "inputs": "Dane wejściowe",
+        "source_column": "Skąd",
+        "per_row": "Dla każdego wiersza arkusza „{sheet}” ({file}): jeden przebieg na wiersz.",
+        "from_column": "kolumna „{column}”",
+        "counted_from": "liczona z {base}: {shift}",
+        "typed_as": "wpisywana jako {pattern}",
+        "input": "Dana",
+        "type": "Typ",
+        "description": "Opis",
+        "example": "Przykład",
+        "steps": "Kroki",
+        "diagram": "Diagram",
+        "exceptions": "Sytuacje wyjątkowe",
+        "exception": "Wyjątek",
+        "kind": "Rodzaj",
+        "what_to_do": "Co zrobić",
+        "business": "biznesowy",
+        "system": "techniczny",
+        "stop_and_report": "przerwij i zgłoś",
+        "retry": "spróbuj ponownie",
+        "interrupts": "Przerwania (mogą pojawić się w dowolnym momencie)",
+        "to_confirm": "Do potwierdzenia",
+        "verification": "Jak sprawdzić wynik",
+        "no_effects": (
+            "Mapa nie określa jeszcze, jak niezależnie sprawdzić efekt (np. odczyt przez API). "
+            "Bez tego automatyzacja nie zgłosi wyniku VERIFIED."
+        ),
+        "expected": "Oczekiwany wynik",
+        "if_message": "Jeśli pojawi się komunikat",
+        "if_shown": "Jeśli widać",
+        "then_stop": "przerwij",
+        "value": "wartość",
+        "read_in_step": "odczytana w kroku",
+        "named_in_step": "opcja, którą wymienia tekst odczytany w kroku",
+        "from_picture": (
+            "Z obrazu dokumentu: wartość tak, jak jest wydrukowana; robot czyta ją modelem, który "
+            "widzi obrazy, i sprawdza regułami ({checks}); niepewny odczyt zostawia człowiekowi"
+        ),
+        "each_line": "Dla każdej pozycji rekordu (każdego jego wiersza w arkuszu):",
+        "per_line_input": "na pozycję",
+        "file": "plik",
+        "downloaded_in_step": "pobrany w kroku",
+        "keep_typed": "Gdy żadna podpowiedź nie pasuje: zostaw wpisaną wartość i przejdź dalej",
+        "address": "adres",
+        "only_if": "Tylko gdy",
+        "otherwise": "Tylko gdy nie zrobiono kroku {step} (druga droga procesu)",
+        "requires": "Przed krokiem, jak w każdym pokazie",
+        "or_stop": "inaczej przerwij",
+        "in_window": "W osobnym oknie",
+        "opens_window": "Otwiera osobne okno: kolejne kroki robi się w nim",
+        "closes_window": "Zamyka swoje okno: dalej w oknie pod nim",
+        "asks_confirm": "Przeglądarka pyta {message}: {answer}",
+        "asks_prompt": "Przeglądarka prosi {message}: wpisz {value} i OK",
+        "shows_alert": "Przeglądarka pokazuje {message}: OK",
+        "cancel": "Anuluj",
+        "other_question": "Inne pytanie przeglądarki: Anuluj i przerwij",
+        "commits": "zapisuje dane",
+        "by_person": "robi człowiek",
+        "control": "kontrola: osoba porównuje z dokumentem, zanim potwierdzi (cztery oczy)",
+        "screen": "ekran",
+        "message_appears": "pojawia się komunikat",
+        "dialog_appears": "pojawia się okno",
+        "field_appears": "pojawia się",
+        "no_error": "brak komunikatu błędu",
+        "or_else": "Albo",
+        "confirmed_by": "potwierdzenie",
+        "page_path": "adres strony pasuje do",
+        "start": "Start",
+        "end": "Koniec",
+        "result": "Wynik?",
+        "warnings": "Ostrzeżenia",
+        "model_source": "Model (YAML)",
+        "string": "tekst",
+        "integer": "liczba całkowita",
+        "decimal": "liczba",
+        "date": "data",
+        "boolean": "tak/nie",
+        "generated": "Wygenerowano przez Maptelo",
+        "click": "kliknij",
+    },
+    "en": {
+        "process": "Process",
+        "application": "application",
+        "source": "source",
+        "preconditions": "Preconditions",
+        "inputs": "Inputs",
+        "source_column": "Source",
+        "per_row": "For each row of the sheet “{sheet}” ({file}): one run per row.",
+        "from_column": "column “{column}”",
+        "counted_from": "counted from {base}: {shift}",
+        "typed_as": "typed as {pattern}",
+        "input": "Input",
+        "type": "Type",
+        "description": "Description",
+        "example": "Example",
+        "steps": "Steps",
+        "diagram": "Diagram",
+        "exceptions": "Exceptions",
+        "exception": "Exception",
+        "kind": "Kind",
+        "what_to_do": "What to do",
+        "business": "business",
+        "system": "technical",
+        "stop_and_report": "stop and report",
+        "retry": "retry",
+        "interrupts": "Interruptions (can appear at any time)",
+        "to_confirm": "To confirm",
+        "verification": "How to check the result",
+        "no_effects": (
+            "The map does not yet say how to check the result independently (e.g. an API read). "
+            "Without it an automation cannot report VERIFIED."
+        ),
+        "expected": "Expected result",
+        "if_message": "If the message appears",
+        "if_shown": "If the screen shows",
+        "then_stop": "stop",
+        "value": "value",
+        "read_in_step": "read in step",
+        "named_in_step": "the option named in the text read in step",
+        "from_picture": (
+            "From the document's picture: the value as printed; the robot reads it with a model "
+            "that sees images and checks it by rules ({checks}); an unsure reading is left to a "
+            "person"
+        ),
+        "each_line": "For each line of the record (each of its rows in the sheet):",
+        "per_line_input": "per line",
+        "file": "file",
+        "downloaded_in_step": "downloaded in step",
+        "keep_typed": "If no suggestion matches: leave the value typed and go on",
+        "address": "address",
+        "only_if": "Only if",
+        "otherwise": "Only if step {step} was not done (the other way the process goes)",
+        "requires": "Before the step, as in every recording",
+        "or_stop": "otherwise stop",
+        "in_window": "In a window of its own",
+        "opens_window": "Opens a window of its own: the next steps are done in it",
+        "closes_window": "Closes its window: the work goes on in the one under it",
+        "asks_confirm": "The browser asks {message}: {answer}",
+        "asks_prompt": "The browser asks {message}: type {value} and OK",
+        "shows_alert": "The browser shows {message}: OK",
+        "cancel": "Cancel",
+        "other_question": "Any other question of the browser: Cancel, and stop",
+        "commits": "saves data",
+        "by_person": "done by a person",
+        "control": "a check: a person compares with the document before confirming (four eyes)",
+        "screen": "screen",
+        "message_appears": "a message appears",
+        "dialog_appears": "the dialog appears",
+        "field_appears": "appears",
+        "no_error": "no error message",
+        "or_else": "Or",
+        "confirmed_by": "confirmed by",
+        "page_path": "page address matches",
+        "start": "Start",
+        "end": "End",
+        "result": "Result?",
+        "warnings": "Warnings",
+        "model_source": "Model (YAML)",
+        "string": "text",
+        "integer": "whole number",
+        "decimal": "number",
+        "date": "date",
+        "boolean": "yes/no",
+        "generated": "Generated by Maptelo",
+        "click": "click",
+    },
+}
+
+
+def records_text(model: ProcessModel, lang: Lang) -> str | None:
+    """The table the inputs come from, row by row (M7)."""
+    if model.records is None:
+        return None
+    sheet = model.records.sheet or "1"
+    return word(lang, "per_row").format(sheet=sheet, file=model.records.description or "—")
+
+
+def input_source(spec: InputSpec, lang: Lang) -> str:
+    """Where an input comes from: its column, and how it is typed on screen; a date counted
+    from another one says from which."""
+    if spec.derived is not None:
+        shift = day_shift(spec.derived.days, lang)
+        text = word(lang, "counted_from").format(base=spec.derived.from_, shift=shift)
+        if spec.typed_as:
+            text += ", " + word(lang, "typed_as").format(pattern=spec.typed_as)
+        return text
+    if spec.column is None:
+        return ""
+    text = word(lang, "from_column").format(column=spec.column)
+    if spec.typed_as:
+        text += ", " + word(lang, "typed_as").format(pattern=spec.typed_as)
+    return text
+
+
+def application_name(app: Application) -> str:
+    """The application as text: its name, or its address when the name is only the host
+    it was recorded on (its pages did not say what it is called)."""
+    host = urlsplit(app.base_url).hostname if app.base_url else None
+    if app.name in (host, "localhost", "application"):
+        return f"the application at {app.base_url}" if app.base_url else "the application"
+    return app.name
+
+
+def word(lang: Lang, key: str) -> str:
+    return WORDS[lang][key]
+
+
+def type_name(lang: Lang, kind: InputType) -> str:
+    return word(lang, kind.value)
+
+
+def locator_text(locator: Locator) -> str:
+    if locator.role is not None:
+        return f"{locator.role} „{locator.name}”" if locator.name else locator.role
+    return locator.describe()
+
+
+def state_name(model: ProcessModel, state_id: str) -> str:
+    state = model.states.get(state_id)
+    if state is None:
+        return state_id
+    if state.description:
+        return state.description
+    if state.visible:
+        first = state.visible[0]
+        return first.name or first.describe()
+    return state_id
+
+
+ROLE_NOUNS: dict[Lang, dict[str, str]] = {
+    "pl": {
+        "textbox": "pole",
+        "searchbox": "pole",
+        "spinbutton": "pole",
+        "combobox": "lista",
+        "listbox": "lista",
+        "list": "lista",
+        "listitem": "pozycja listy",
+        "option": "opcja",
+        "button": "przycisk",
+        "link": "link",
+        "checkbox": "pole wyboru",
+        "radio": "przycisk opcji",
+        "switch": "przełącznik",
+        "table": "tabela",
+        "grid": "tabela",
+        "cell": "komórka",
+        "gridcell": "komórka",
+        "columnheader": "nagłówek kolumny",
+        "heading": "nagłówek",
+        "row": "wiersz",
+        "tab": "karta",
+        "menuitem": "pozycja menu",
+        "status": "komunikat",
+        "alert": "komunikat",
+        "definition": "wartość",
+        "img": "obraz",
+        "paragraph": "tekst",
+        "region": "obszar",
+        "group": "grupa",
+    },
+    "en": {
+        "textbox": "field",
+        "searchbox": "field",
+        "spinbutton": "field",
+        "combobox": "list",
+        "listbox": "list",
+        "button": "button",
+        "link": "link",
+        "checkbox": "checkbox",
+        "table": "table",
+        "heading": "heading",
+        "row": "row",
+    },
+}
+
+STRATEGY_NOUNS: dict[Lang, dict[str, str]] = {
+    "pl": {
+        "field": "pole",
+        "label": "pole",
+        "placeholder": "pole",
+        "text": "tekst",
+        "submits": "przycisk",
+        "action": "przycisk",
+    },
+    "en": {"field": "field", "label": "field", "placeholder": "field", "submits": "button"},
+}
+"""What an element found by other means than its role is, in words (an element found by the
+name its form sends, „price”, is a field: never „pojawia się field” in a Polish SOP)."""
+
+
+_NOT_SEEN = {  # what is not seen, in Polish: "nie widać pola", "nie widać okna"
+    "pole": "pola",
+    "lista": "listy",
+    "pozycja listy": "pozycji listy",
+    "opcja": "opcji",
+    "przycisk": "przycisku",
+    "link": "linku",
+    "pole wyboru": "pola wyboru",
+    "przycisk opcji": "przycisku opcji",
+    "przełącznik": "przełącznika",
+    "tabela": "tabeli",
+    "komórka": "komórki",
+    "nagłówek kolumny": "nagłówka kolumny",
+    "nagłówek": "nagłówka",
+    "wiersz": "wiersza",
+    "karta": "karty",
+    "pozycja menu": "pozycji menu",
+    "komunikat": "komunikatu",
+    "wartość": "wartości",
+    "obraz": "obrazu",
+    "tekst": "tekstu",
+    "obszar": "obszaru",
+    "grupa": "grupy",
+    "element": "elementu",
+}
+
+
+def element_noun(locator: Locator, lang: Lang) -> str:
+    """What the element is, in words: by its role, else by how it is found (a field by the name
+    its form sends), else „element”."""
+    if locator.role is not None:
+        return ROLE_NOUNS[lang].get(locator.role, locator.role if lang == "en" else "element")
+    return STRATEGY_NOUNS[lang].get(locator.strategy, "element")
+
+
+def element_absent(locator: Locator, lang: Lang) -> str:
+    """'nie widać komunikatu „…”' / 'the message “…” is not shown'."""
+    if locator.text is not None:
+        if lang == "pl":
+            return f"nie widać komunikatu „{locator.text}”"
+        return f"the message “{locator.text}” is not shown"
+    if locator.role in ("dialog", "alertdialog", "status", "alert"):
+        kind = "okna" if locator.role in ("dialog", "alertdialog") else "komunikatu"
+        english = "dialog" if locator.role in ("dialog", "alertdialog") else "message"
+        named = human_title(locator.name) if locator.name else None
+        if lang == "pl":
+            return f"nie widać {kind} „{named}”" if named else f"nie widać {kind}"
+        return f"the “{named}” {english} is not shown" if named else f"no {english} is shown"
+    noun = element_noun(locator, lang)
+    name = locator.name or (getattr(locator, locator.strategy) if locator.role is None else "")
+    if lang == "pl":
+        whose = _NOT_SEEN.get(noun, noun)
+        return f"nie widać {whose} „{name}”" if name else f"nie widać {whose}"
+    return f"the “{name}” {noun} is not shown" if name else f"no {noun} is shown"
+
+
+def element_appears(locator: Locator, lang: Lang) -> str:
+    """'pojawia się pole „Price”' / 'the “Price” field appears'."""
+    if locator.text is not None:
+        return (
+            f"{word(lang, 'message_appears')} „{locator.text}”"
+            if lang == "pl"
+            else (f"the message “{locator.text}” appears")
+        )
+    noun = element_noun(locator, lang)
+    name = locator.name or (getattr(locator, locator.strategy) if locator.role is None else "")
+    if lang == "pl":
+        return f"pojawia się {noun} „{name}”" if name else f"pojawia się {noun}"
+    return f"the “{name}” {noun} appears" if name else f"the {noun} appears"
+
+
+def predicate_text(predicate: Predicate, model: ProcessModel, lang: Lang) -> str:
+    if predicate.state is not None:
+        return f"{word(lang, 'screen')} „{state_name(model, predicate.state)}”"
+    if predicate.visible is not None:
+        target = predicate.visible
+        if target.role == "status":
+            return word(lang, "message_appears")
+        if target.role in ("dialog", "alertdialog"):
+            return (
+                f"{word(lang, 'dialog_appears')} „{human_title(target.name)}”"
+                if target.name
+                else word(lang, "dialog_appears")
+            )
+        if target.role == "alert":
+            return word(lang, "message_appears")
+        return element_appears(target, lang)
+    if (
+        predicate.not_ is not None
+        and predicate.not_.visible
+        and predicate.not_.visible.role == "alert"
+    ):
+        return word(lang, "no_error")
+    if predicate.hidden is not None:
+        return element_absent(predicate.hidden, lang)
+    if predicate.url is not None:
+        return f"{word(lang, 'page_path')} {predicate.url}"
+    if predicate.rows is not None:
+        check = predicate.rows
+        table = check.table[0].name or ("tabela" if lang == "pl" else "table")
+        operator, count = next(
+            (name, value)
+            for name, value in (
+                ("gt", check.count.gt),
+                ("gte", check.count.gte),
+                ("lt", check.count.lt),
+                ("lte", check.count.lte),
+                ("eq", check.count.eq),
+            )
+            if value is not None
+        )
+        return rows_phrase(table, dict(check.where), operator, count, lang)
+    if predicate.field is not None:
+        return field_text(predicate.field, lang)
+    if predicate.value is not None:
+        return value_text(predicate.value, model, lang)
+    if predicate.not_ is not None:
+        inner = predicate.not_
+        if inner.field is not None and inner.field.equals is not None:
+            return field_text(inner.field, lang).replace(" = ", " ≠ ", 1)
+        if inner.value is not None and inner.value.equals is not None:
+            return value_text(inner.value, model, lang).replace(" = ", " ≠ ", 1)
+        said = predicate_text(inner, model, lang)
+        return f"nie ({said})" if lang == "pl" else f"not ({said})"
+    parts = [predicate_text(p, model, lang) for p in (predicate.all_ or predicate.any_ or [])]
+    if predicate.any_:  # each way in brackets when it is made of more than one thing
+        ways: list[str] = []
+        for way, part in zip(predicate.any_, parts, strict=True):
+            shown = f"({part})" if way.all_ else part
+            if shown.casefold() not in {w.casefold() for w in ways}:  # one element, two ways found
+                ways.append(shown)
+        return " / ".join(ways) or "?"
+    joiner = " i " if lang == "pl" else " and "
+    return joiner.join(parts) or "?"
+
+
+def field_text(check: FieldCheck, lang: Lang) -> str:
+    """'„Status VAT” = Zwolniony': a field or a value shown under a label, by its name."""
+    named = check.label or next(
+        (n for loc in check.target or [] if (n := loc.column or loc.label or loc.name)), None
+    )
+    called = named or ("pole" if lang == "pl" else "field")
+    quoted = f"„{called}”" if lang == "pl" else f"“{called}”"
+    bounds = bounds_text(check)
+    if bounds:
+        return f"{quoted} {bounds}"
+    if check.empty is not None:
+        if lang == "pl":
+            return f"{quoted} jest puste" if check.empty else f"{quoted} nie jest puste"
+        return f"{quoted} is empty" if check.empty else f"{quoted} is not empty"
+    if check.contains is not None:
+        contains = "zawiera" if lang == "pl" else "contains"
+        return f"{quoted} {contains} {check.contains}"
+    return f"{quoted} = {check.equals}"
+
+
+def bounds_text(check: FieldCheck | ValueCheck) -> str:
+    """'≤ 7', '> 20000', 'od 1 do 7': the comparison of the number, in signs."""
+    signs = [(check.gt, ">"), (check.gte, "≥"), (check.lt, "<"), (check.lte, "≤")]
+    return " i ".join(f"{sign} {_number(bound)}" for bound, sign in signs if bound is not None)
+
+
+def _number(value: float) -> str:
+    return str(int(value)) if float(value).is_integer() else str(value)
+
+
+def value_text(check: ValueCheck, model: ProcessModel, lang: Lang) -> str:
+    """'dana „Faktura zbiorcza” = tak': the record's value as the sheet names it."""
+    space, _, name = check.of.removeprefix("$").partition(".")
+    spec = model.inputs.get(name) if space == "inputs" else None
+    called = (spec.column or spec.description or name) if spec else name
+    what = (
+        (f"dana „{called}”" if space == "inputs" else f"wartość „{called}”")
+        if lang == "pl"
+        else (f"the value “{called}”")
+    )
+    bounds = bounds_text(check)
+    if bounds:
+        return f"{what} {bounds}"
+    if check.empty is not None:
+        empty = check.empty
+        if lang == "pl":
+            return f"{what} {'jest pusta' if empty else 'nie jest pusta'}"
+        return f"{what} is {'empty' if empty else 'not empty'}"
+    if check.one_of is not None:
+        joiner = " albo " if lang == "pl" else " or "
+        return f"{what} = " + joiner.join(str(v) for v in check.one_of)
+    return f"{what} = {check.equals}"
+
+
+_INPUT_IN_TEXT = re.compile(r"\{inputs\.([a-z][a-z0-9_]*)\}")
+"""A value of the record inside a question („Zapisać zmiany: Najem {inputs.numer}?”)."""
+
+
+def window_texts(step: Step, model: ProcessModel, lang: Lang) -> list[str]:
+    """Where the step is done and how the browser's own questions are answered ('W osobnym
+    oknie „Wybór kontrahenta”', 'Przeglądarka pyta „Zapisać zmiany?”: OK')."""
+    opening, closing = ("„", "”") if lang == "pl" else ("“", "”")
+
+    def quoted(text: str) -> str:
+        shown = _INPUT_IN_TEXT.sub(lambda match: "{" + match.group(1) + "}", text)
+        return f"{opening}{shown}{closing}"
+
+    texts = []
+    if step.window:
+        where = f" {quoted(state_name(model, step.in_state))}" if step.in_state else ""
+        texts.append(word(lang, "in_window") + where)
+    if step.opens_window:
+        texts.append(word(lang, "opens_window"))
+    if step.closes_window:
+        texts.append(word(lang, "closes_window"))
+    for dialog in step.dialogs:
+        message = quoted(dialog.message or "")
+        if dialog.kind == "alert":
+            texts.append(word(lang, "shows_alert").format(message=message))
+        elif dialog.kind == "prompt" and dialog.accept and dialog.value is not None:
+            value = str(dialog.value).removeprefix("$inputs.")
+            texts.append(word(lang, "asks_prompt").format(message=message, value=f"`{value}`"))
+        else:
+            answer = "OK" if dialog.accept else word(lang, "cancel")
+            texts.append(word(lang, "asks_confirm").format(message=message, answer=answer))
+    if any(d.kind != "alert" for d in step.dialogs):
+        texts.append(word(lang, "other_question"))
+    return texts
+
+
+def step_value(step: Step) -> str | None:
+    if isinstance(step.value, str) and step.value.startswith("$inputs."):
+        return step.value.removeprefix("$inputs.")
+    return None
+
+
+def read_in(step: Step, model: ProcessModel) -> int | None:
+    """The number of the step that read the value this step types (copied from a screen)."""
+    if not (isinstance(step.value, str) and step.value.startswith("$vars.")):
+        return None
+    name = step.value.removeprefix("$vars.")
+    return next((n for n, s in enumerate(model.steps, start=1) if s.save_as == name), None)
+
+
+def step_rejections(step: Step, model: ProcessModel) -> list[tuple[str, str]]:
+    """(exception id, description) raised by this step's outcomes."""
+    found = []
+    for handler in (step.on_outcome or {}).values():
+        if handler.raise_ and handler.raise_ in model.exceptions:
+            found.append((handler.raise_, model.exceptions[handler.raise_].description))
+    return found
+
+
+def rejection_lead(step: Step, exception_id: str, lang: Lang) -> str:
+    """'Jeśli pojawi się komunikat' before a message; 'Jeśli widać' before a value the screen
+    shows under a label („Status VAT”: Zwolniony), which is not a message."""
+    for name, handler in (step.on_outcome or {}).items():
+        shown = (step.outcomes or {}).get(name)
+        if handler.raise_ != exception_id or shown is None:
+            continue
+        if shown.field is not None or (shown.not_ is not None and shown.not_.field is not None):
+            return word(lang, "if_shown")
+    return word(lang, "if_message")
+
+
+def _good_outcomes(step: Step) -> dict[str, Predicate]:
+    raised = {name for name, h in (step.on_outcome or {}).items() if h.raise_}
+    return {name: p for name, p in (step.outcomes or {}).items() if name not in raised}
+
+
+def documented(model: ProcessModel) -> ProcessModel:
+    """The model as documents show it, without the robot's own check that the window a step
+    clicks in is open while the person is already working in it (the step before was done on
+    that screen and opened or closed no window): „pojawia się okno „Nowa wersja ceny”?” before
+    „Zapisz” in that very window is no decision of the process. A window that comes after a
+    step (a question after saving) keeps its condition."""
+    steps = list(model.steps)
+    changed = False
+    for index, step in enumerate(steps):
+        when = step.when
+        if index == 0 or when is None or when.visible is None:
+            continue
+        if when.visible.role not in ("dialog", "alertdialog"):
+            continue
+        before = steps[index - 1]
+        if before.in_state is None or before.in_state != step.in_state:
+            continue
+        if before.opens_window or before.closes_window:
+            continue
+        steps[index] = step.model_copy(update={"when": None})
+        changed = True
+    return model.model_copy(update={"steps": steps}) if changed else model
+
+
+def step_success(step: Step, model: ProcessModel, lang: Lang) -> str | None:
+    """The usual result: ``expect``, else the ``done`` outcome (or the first good one)."""
+    if step.expect is not None:
+        return predicate_text(step.expect, model, lang)
+    good = _good_outcomes(step)
+    if good:
+        return predicate_text(good.get("done", next(iter(good.values()))), model, lang)
+    return None
+
+
+def step_alternatives(step: Step, model: ProcessModel, lang: Lang) -> list[str]:
+    """Other results that let the process go on (e.g. a confirmation dialog)."""
+    good = _good_outcomes(step)
+    usual = "done" if "done" in good else next(iter(good), None)
+    return [predicate_text(p, model, lang) for name, p in good.items() if name != usual]
+
+
+def evidence_note(step: Step, lang: Lang) -> str | None:
+    """'⚠ note' while a person has not confirmed it, '✓ note (potwierdzenie: Ania)' after."""
+    evidence = step.evidence
+    if evidence is None or not evidence.note:
+        return None
+    if evidence.confirmed_by:
+        return f"✓ {evidence.note} ({word(lang, 'confirmed_by')}: {evidence.confirmed_by})"
+    return f"⚠ {evidence.note}"

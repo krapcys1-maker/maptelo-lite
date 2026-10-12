@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}MiniERP{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body class="layout-{{ layout }}"
+  {%- if chaos.load_delay_ms %} data-load-delay-ms="{{ chaos.load_delay_ms }}"{% endif %}
+  {%- if 'session_popup_ms' in chaos %} data-session-popup-ms="{{ chaos.session_popup_ms }}"{% endif %}>
+  <header class="topbar">
+    <span class="brand">MiniERP</span>
+    <span class="module">Pricing</span>
+    {% if user %}
+    <form method="post" action="/logout" class="signout">
+      <span class="user">{{ user }}</span>
+      <button type="submit" class="link">Sign out</button>
+    </form>
+    {% endif %}
+  </header>
+  <div id="loading" class="loading" role="progressbar" aria-label="Loading"
+       {%- if not chaos.load_delay_ms %} hidden{% endif %}>
+    <div class="spinner"></div>
+  </div>
+  <main id="main"{% if chaos.load_delay_ms %} hidden{% endif %}>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

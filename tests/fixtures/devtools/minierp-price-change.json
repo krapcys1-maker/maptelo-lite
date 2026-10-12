@@ -1,0 +1,93 @@
+{
+  "title": "MiniERP price change (DevTools Recorder)",
+  "selectorAttribute": "data-testid",
+  "steps": [
+    {
+      "type": "setViewport",
+      "width": 1280,
+      "height": 860,
+      "deviceScaleFactor": 1,
+      "isMobile": false,
+      "hasTouch": false,
+      "isLandscape": false
+    },
+    {
+      "type": "navigate",
+      "url": "http://127.0.0.1:8701/pricing",
+      "assertedEvents": [
+        {"type": "navigation", "url": "http://127.0.0.1:8701/pricing", "title": "Customer prices · MiniERP"}
+      ]
+    },
+    {
+      "type": "change",
+      "value": "C001",
+      "selectors": [["aria/Customer"], ["[data-testid='customer-select']"], ["xpath///*[@id=\"customer\"]"], ["pierce/[data-testid='customer-select']"]],
+      "target": "main"
+    },
+    {
+      "type": "click",
+      "target": "main",
+      "selectors": [["aria/CPN"], ["[data-testid='cpn-input']"], ["xpath///*[@id=\"cpn\"]"], ["pierce/[data-testid='cpn-input']"]],
+      "offsetX": 96,
+      "offsetY": 14
+    },
+    {
+      "type": "change",
+      "value": "48212-B",
+      "selectors": [["aria/CPN"], ["[data-testid='cpn-input']"], ["xpath///*[@id=\"cpn\"]"], ["pierce/[data-testid='cpn-input']"]],
+      "target": "main"
+    },
+    {
+      "type": "click",
+      "target": "main",
+      "selectors": [["aria/Search[role=\"button\"]"], ["[data-testid='search-button']"], ["xpath///html/body/main/section/form/button"], ["pierce/[data-testid='search-button']"], ["text/Search"]],
+      "offsetX": 31,
+      "offsetY": 16,
+      "assertedEvents": [
+        {"type": "navigation", "url": "http://127.0.0.1:8701/pricing/product/C001/48212-B", "title": "48212-B · MiniERP"}
+      ]
+    },
+    {
+      "type": "click",
+      "target": "main",
+      "selectors": [["tbody > tr:nth-of-type(3) a"], ["xpath///html/body/main/section/table/tbody/tr[3]/td[7]/a"], ["pierce/tbody > tr:nth-of-type(3) a"]],
+      "offsetX": 18,
+      "offsetY": 9,
+      "assertedEvents": [
+        {"type": "navigation", "url": "http://127.0.0.1:8701/pricing/product/C001/48212-B?version=4", "title": "48212-B · MiniERP"}
+      ]
+    },
+    {
+      "type": "click",
+      "target": "main",
+      "selectors": [["aria/Price"], ["[data-testid='price-input']"], ["xpath///*[@id=\"price\"]"]],
+      "offsetX": 120,
+      "offsetY": 14
+    },
+    {
+      "type": "change",
+      "value": "135.00",
+      "selectors": [["aria/Price"], ["[data-testid='price-input']"], ["xpath///*[@id=\"price\"]"]],
+      "target": "main"
+    },
+    {
+      "type": "change",
+      "value": "2026-12-01",
+      "selectors": [["aria/Valid from"], ["[data-testid='valid-from-input']"], ["xpath///*[@id=\"valid_from\"]"]],
+      "target": "main"
+    },
+    {
+      "type": "keyDown",
+      "target": "main",
+      "key": "Enter"
+    },
+    {
+      "type": "keyUp",
+      "target": "main",
+      "key": "Enter",
+      "assertedEvents": [
+        {"type": "navigation", "url": "http://127.0.0.1:8701/pricing/product/C001/48212-B?saved=V4", "title": "48212-B · MiniERP"}
+      ]
+    }
+  ]
+}

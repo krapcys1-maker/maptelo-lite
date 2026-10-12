@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}{{ product.cpn }} · MiniERP{% endblock %}
+
+{% block content %}
+{% macro versions_table() %}
+<table class="versions"{% if L.testids %} data-testid="versions-table"{% endif %}>
+  <caption>{{ L.table }}</caption>
+  <thead>
+    <tr>{% for key, header in L.columns %}<th scope="col">{{ header }}</th>{% endfor %}</tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+    <tr class="status-{{ row.status | lower }}{% if base and base.id == row.version.id %} selected{% endif %}">
+      {% for key, header in L.columns %}
+        {% if key == "version" %}<td>{{ row.version.label }}</td>
+        {% elif key == "price" %}<td class="num">{{ row.version.price }}</td>
+        {% elif key == "currency" %}<td>{{ product.currency }}</td>
+        {% elif key == "valid_from" %}<td>{{ row.version.valid_from.isoformat() }}</td>
+        {% elif key == "valid_to" %}<td>{{ row.valid_to.isoformat() if row.valid_to else "" }}</td>
+        {% elif key == "status" %}<td>{{ row.status }}</td>
+        {% elif key == "action" %}<td><a href="?version={{ row.version.id }}">{{ L.select }}</a></td>
+        {% endif %}
+      {% endfor %}
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endmacro %}
+
+{% macro price_form() %}
+{% if base %}
+<form method="post" action="{{ action }}" class="price-form">
+  <input type="hidden" name="base_version" value="{{ base.id }}">
+  <p class="current">{{ L.current_price }}: <output id="current-price">{{ base.price }}</output> {{ product.currency }} ({{ base.label }})</p>
+  <div class="field">
+    <label for="{{ L.ids.price }}">{{ L.price }}</label>
+    <input id="{{ L.ids.price }}" name="price" inputmode="decimal" autocomplete="off" value="{{ form.price or '' }}"
+           {%- if L.testids %} data-testid="price-input"{% endif %}>
+  </div>
+  <div class="field">
+    <label for="{{ L.ids.valid_from }}">{{ L.valid_from }}</label>
+    <input id="{{ L.ids.valid_from }}" name="valid_from" placeholder="YYYY-MM-DD" autocomplete="off" value="{{ form.valid_from or '' }}"
+           {%- if L.testids %} data-testid="valid-from-input"{% endif %}>
+  </div>
+  <button type="submit"{% if L.testids %} data-testid="save-button"{% endif %}>{{ L.save }}</button>
+</form>
+{% endif %}
+{% endmacro %}
+<nav class="crumbs"><a href="/pricing?customer={{ product.customer_id }}">{{ L.back }}</a></nav>
+<section class="card">
+  <h1>{{ product.cpn }} <small>{{ product.description }}</small></h1>
+  <p class="meta">{{ customer.id }} · {{ customer.name }} · {{ product.currency }}</p>
+  {% if saved %}<div role="status" class="banner ok">{{ L.saved.format(version=saved) }}</div>{% endif %}
+  {% if error %}<div role="alert" class="banner error">{{ error }}</div>{% endif %}
+  {% if info %}<p class="info">{{ info }}</p>{% endif %}
+  {% if L.form_first %}{{ price_form() }}{{ versions_table() }}{% else %}{{ versions_table() }}{{ price_form() }}{% endif %}
+</section>
+
+{% if confirm %}
+<div class="backdrop">
+  <div role="dialog" aria-modal="true" aria-labelledby="confirm-title" class="modal">
+    <h2 id="confirm-title">{{ L.confirm_title }}</h2>
+    <p>The new price {{ confirm.new }} differs by {{ confirm.pct }}% from the current price {{ confirm.old }}. Do you want to continue?</p>
+    <form method="post" action="{{ action }}" class="actions">
+      <input type="hidden" name="base_version" value="{{ base.id }}">
+      <input type="hidden" name="price" value="{{ form.price }}">
+      <input type="hidden" name="valid_from" value="{{ form.valid_from }}">
+      <input type="hidden" name="confirmed" value="1">
+      <button type="submit">{{ L.confirm }}</button>
+      <a class="button secondary" href="?version={{ base.id }}">{{ L.cancel }}</a>
+    </form>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

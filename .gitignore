@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+
+# what a person records and maps stays on their computer (never commit)
+/recordings/
+/maps/
+/sheets/
+/traces/
+/runs/
+
+# signed-in browser sessions and secrets (never commit)
+.env
+.env.*
+session.json
+*.session.json
+/sessions/
+*.sqlite
+*.db
+playwright-report/
+test-results/
