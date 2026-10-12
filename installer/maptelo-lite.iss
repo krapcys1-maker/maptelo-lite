@@ -36,6 +36,12 @@ UninstallDisplayName=Maptelo Lite {#AppVersion}
 Name: "polish"; MessagesFile: "compiler:Languages\Polish.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
+[InstallDelete]
+; An update starts from a clean Python: what the earlier version installed must not stay (an
+; old package's metadata would give its version, an old module would still import). The
+; person's work is in Documents, never here.
+Type: filesandordirs; Name: "{app}\python"
+
 [Files]
 Source: "{#Source}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
