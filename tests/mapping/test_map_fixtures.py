@@ -90,10 +90,38 @@ def test_english_intents() -> None:
     model = mapped(SCENARIOS[1], lang="en").model
     assert [s.intent for s in model.steps][:4] == [
         "Open the “Customer prices” screen",
-        "Choose Customer from the list",
-        "Enter CPN",
+        "Choose a value from the “Customer” list",
+        "Fill in the “CPN” field",
         "Click “Search”",
     ]
+
+
+def test_polish_intents_quote_the_screen_s_words() -> None:
+    """A field's name is the screen's own word, in quotes, never part of the sentence
+    („Wpisz Price”, „Wybierz Customer z listy”: what a work instruction must not say)."""
+    model = mapped(SCENARIOS[1]).model
+    assert [s.intent for s in model.steps][1:3] == [
+        "Wybierz wartość z listy „Customer”",
+        "Wypełnij pole „CPN”",
+    ]
+
+
+def test_a_map_s_documents_name_its_recording_by_its_day(tmp_path: Path) -> None:
+    """The documents of one recording's map are for the people who do the process: the day it
+    was recorded as their language writes it, the product that made them, and none of the
+    model file's English findings (those are for whoever edits the model)."""
+    from maptelo.export import write_map_bundle
+
+    files = write_map_bundle(mapped(SCENARIOS[0]), tmp_path / "pl", lang="pl")
+    sop = files["sop"].read_text(encoding="utf-8")
+    assert "· nagranie: 08.10.2026 (01-login-single-version)*" in sop
+    assert "na podstawie nagrania z 08.10.2026." in sop
+    assert "*Wygenerowano w programie Maptelo" in sop
+    report = files["report"].read_text(encoding="utf-8")
+    assert "Ostrzeżenia" not in report
+    assert "no effects declared" not in report
+    english = write_map_bundle(mapped(SCENARIOS[0], "en"), tmp_path / "en", lang="en")
+    assert "· recording: 8 October 2026 (" in english["sop"].read_text(encoding="utf-8")
 
 
 def test_notes_name_what_needs_confirming() -> None:

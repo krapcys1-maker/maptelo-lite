@@ -24,7 +24,7 @@ from maptelo.mapping.naming import Lang
 from maptelo.studio.common import BROWSERS, RunProblemError
 from maptelo.studio.jobs import Job
 from maptelo.studio.polish import polish
-from maptelo.studio.window import bring_forward, out_of_the_way
+from maptelo.studio.window import bring_forward, browser_windows, out_of_the_way
 from maptelo.studio.workspace import KEY, SHEET_SUFFIXES, Workspace, process_key
 from maptelo.trace import TraceError, load_trace, summarize
 
@@ -124,6 +124,13 @@ def record_work(workspace: Workspace, request: RecordRequest) -> Callable[[Job],
             sheet=request.sheet_name,
             private=request.private,
         )
+        before = set(browser_windows())  # Studio's own window, the person's browsers
+
+        def in_front() -> None:  # over a program the person had open (SRK), not behind it
+            opened = [window for window in browser_windows() if window not in before]
+            if opened:
+                bring_forward(opened[0])
+
         with out_of_the_way():  # the demonstration's window in front, Studio back after
             path = record_session(
                 request.url,
@@ -134,6 +141,7 @@ def record_work(workspace: Workspace, request: RecordRequest) -> Callable[[Job],
                 storage_state=session,
                 stop=lambda: job.stop_requested,
                 progress=lambda events: job.emit("progress", events=events),
+                on_open=in_front,
             )
         return _recorded(workspace, request, folder, path)
 

@@ -22,13 +22,13 @@ TOKEN = "klucz-e2e"
 
 WRITTEN = """# Zmiana ceny <b>klienta</b>
 
-*Proces: `zmiana_ceny` v1 · aplikacja: MiniERP*
+*Proces: `zmiana_ceny`, wersja 1 · aplikacja: MiniERP*
 
 > Mapę utworzono automatycznie.
 
 ## Dane wejściowe
 
-| Dana | Typ | Opis | Przykład |
+| Nazwa | Typ | Opis | Przykład |
 |---|---|---|---|
 | `cpn` | tekst | Kod \\| CPN | 48212-B |
 
@@ -42,7 +42,7 @@ WRITTEN = """# Zmiana ceny <b>klienta</b>
 2. **Kliknij „<img src=x onerror=window.zle=1>”** ⚑ *zapisuje dane*
    - Oczekiwany wynik: pojawia się komunikat
 
-*Wygenerowano przez Maptelo.*
+*Wygenerowano w programie Maptelo Lite.*
 """
 
 

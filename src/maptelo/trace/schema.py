@@ -242,6 +242,14 @@ class TraceState(_Record):
         "elements are the screen's (a Java window's picture is the window alone): marks on it "
         "are drawn this far back.",
     )
+    scale: float | None = Field(
+        default=None,
+        gt=0,
+        description="The picture's pixels per pixel of the elements' places, when the two "
+        "differ: a display scaled to 125 % shows a Java program that knows it in the screen's "
+        "pixels while the picture is in the scaled ones. ``origin`` is then in the elements' "
+        "places too.",
+    )
 
 
 class TraceEnd(_Record):

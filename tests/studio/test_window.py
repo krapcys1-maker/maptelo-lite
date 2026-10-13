@@ -24,6 +24,15 @@ EDGE = Path("C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe")
 CHROME = Path("C:/Program Files/Google/Chrome/Application/chrome.exe")
 
 
+def test_the_browsers_windows_are_found_on_windows_only() -> None:
+    """What a demonstration's browser is told apart by: the windows open before it."""
+    found = window.browser_windows()
+    assert all(isinstance(w, int) and w for w in found)
+    if sys.platform != "win32":
+        assert found == []
+    window.bring_forward(0)  # no window: nothing to bring, on any system
+
+
 def test_the_window_is_an_app_on_its_own_profile(tmp_path: Path) -> None:
     command = window_command(EDGE, "http://127.0.0.1:5000/?t=key", tmp_path / "profile")
     assert command[0] == str(EDGE)

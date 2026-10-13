@@ -7,6 +7,7 @@ from urllib.parse import urlsplit
 
 from maptelo.mapping.naming import Lang, day_shift, human_title, rows_phrase
 from maptelo.model.schema import (
+    Action,
     Application,
     FieldCheck,
     InputSpec,
@@ -22,7 +23,9 @@ WORDS: dict[Lang, dict[str, str]] = {
     "pl": {
         "process": "Proces",
         "application": "aplikacja",
-        "source": "źródło",
+        "source": "nagranie",
+        "sources": "nagrania",
+        "version": "wersja",
         "preconditions": "Wymagania wstępne",
         "inputs": "Dane wejściowe",
         "source_column": "Skąd",
@@ -30,7 +33,7 @@ WORDS: dict[Lang, dict[str, str]] = {
         "from_column": "kolumna „{column}”",
         "counted_from": "liczona z {base}: {shift}",
         "typed_as": "wpisywana jako {pattern}",
-        "input": "Dana",
+        "input": "Nazwa",
         "type": "Typ",
         "description": "Opis",
         "example": "Przykład",
@@ -48,8 +51,8 @@ WORDS: dict[Lang, dict[str, str]] = {
         "to_confirm": "Do potwierdzenia",
         "verification": "Jak sprawdzić wynik",
         "no_effects": (
-            "Mapa nie określa jeszcze sposobu niezależnej weryfikacji wyniku (np. odczytu "
-            "przez API). Bez niego automatyzacja nie zgłosi wyniku VERIFIED."
+            "Mapa nie określa jeszcze, jak niezależnie sprawdzić wynik procesu (np. odczytem "
+            "z systemu). Należy to ustalić przed automatyzacją procesu."
         ),
         "expected": "Oczekiwany wynik",
         "if_message": "Jeśli pojawi się komunikat",
@@ -69,13 +72,15 @@ WORDS: dict[Lang, dict[str, str]] = {
         "downloaded_in_step": "pobrany w kroku",
         "keep_typed": "Gdy żadna podpowiedź nie pasuje: zostaw wpisaną wartość i przejdź dalej",
         "address": "adres",
-        "only_if": "Tylko gdy",
-        "otherwise": "Tylko gdy nie wykonano kroku {step} (alternatywna ścieżka procesu)",
-        "requires": "Warunek wstępny kroku, spełniony we wszystkich pokazach",
+        "only_if": "Warunek",
+        "otherwise": "Wykonaj tylko wtedy, gdy nie wykonano kroku {step} (ścieżka alternatywna)",
+        "requires": "Warunek wstępny kroku (spełniony we wszystkich nagraniach)",
         "or_stop": "w przeciwnym razie przerwij",
         "in_window": "W osobnym oknie",
         "opens_window": "Otwiera osobne okno; kolejne kroki wykonuje się w nim",
         "closes_window": "Zamyka okno; kolejne kroki wykonuje się w oknie poniżej",
+        "opens_last": "Otwiera osobne okno",
+        "closes_last": "Zamyka okno",
         "asks_confirm": "Przeglądarka pyta {message}: {answer}",
         "asks_prompt": "Przeglądarka prosi {message}: wpisz {value} i kliknij OK",
         "shows_alert": "Przeglądarka wyświetla {message}: kliknij OK",
@@ -105,13 +110,15 @@ WORDS: dict[Lang, dict[str, str]] = {
         "decimal": "liczba",
         "date": "data",
         "boolean": "tak/nie",
-        "generated": "Wygenerowano w Maptelo",
+        "generated": "Wygenerowano w programie",
         "click": "kliknij",
     },
     "en": {
         "process": "Process",
         "application": "application",
-        "source": "source",
+        "source": "recording",
+        "sources": "recordings",
+        "version": "version",
         "preconditions": "Preconditions",
         "inputs": "Inputs",
         "source_column": "Source",
@@ -119,7 +126,7 @@ WORDS: dict[Lang, dict[str, str]] = {
         "from_column": "column “{column}”",
         "counted_from": "counted from {base}: {shift}",
         "typed_as": "typed as {pattern}",
-        "input": "Input",
+        "input": "Name",
         "type": "Type",
         "description": "Description",
         "example": "Example",
@@ -137,8 +144,9 @@ WORDS: dict[Lang, dict[str, str]] = {
         "to_confirm": "To confirm",
         "verification": "How to check the result",
         "no_effects": (
-            "The map does not yet define how to verify the result independently (e.g. an "
-            "API read). Without it, an automation cannot report VERIFIED."
+            "The map does not yet define how to check the result of the process "
+            "independently (e.g. by reading it back from the system). Define it before "
+            "automating the process."
         ),
         "expected": "Expected result",
         "if_message": "If the message appears",
@@ -160,11 +168,13 @@ WORDS: dict[Lang, dict[str, str]] = {
         "address": "address",
         "only_if": "Only if",
         "otherwise": "Only if step {step} was not performed (alternative path of the process)",
-        "requires": "Precondition of the step, met in all recordings",
+        "requires": "Precondition of the step (met in all recordings)",
         "or_stop": "otherwise stop",
-        "in_window": "In a separate window",
+        "in_window": "In the separate window",
         "opens_window": "Opens a separate window; the next steps are performed in it",
         "closes_window": "Closes the window; the next steps are performed in the window below",
+        "opens_last": "Opens a separate window",
+        "closes_last": "Closes the window",
         "asks_confirm": "The browser asks {message}: {answer}",
         "asks_prompt": "The browser asks {message}: enter {value} and click OK",
         "shows_alert": "The browser displays {message}: click OK",
@@ -178,7 +188,7 @@ WORDS: dict[Lang, dict[str, str]] = {
         ),
         "screen": "screen",
         "message_appears": "a message appears",
-        "dialog_appears": "the dialog appears",
+        "dialog_appears": "a window appears",
         "field_appears": "appears",
         "no_error": "no error message",
         "or_else": "Or",
@@ -194,7 +204,7 @@ WORDS: dict[Lang, dict[str, str]] = {
         "decimal": "number",
         "date": "date",
         "boolean": "yes/no",
-        "generated": "Generated by Maptelo",
+        "generated": "Generated with",
         "click": "click",
     },
 }
@@ -370,7 +380,7 @@ def element_absent(locator: Locator, lang: Lang) -> str:
         return f"the message “{locator.text}” is not shown"
     if locator.role in ("dialog", "alertdialog", "status", "alert"):
         kind = "okna" if locator.role in ("dialog", "alertdialog") else "komunikatu"
-        english = "dialog" if locator.role in ("dialog", "alertdialog") else "message"
+        english = "window" if locator.role in ("dialog", "alertdialog") else "message"
         named = human_title(locator.name) if locator.name else None
         if lang == "pl":
             return f"nie widać {kind} „{named}”" if named else f"nie widać {kind}"
@@ -412,7 +422,7 @@ def predicate_text(predicate: Predicate, model: ProcessModel, lang: Lang) -> str
             title = human_title(target.name)
             if lang == "pl":
                 return f"{word(lang, 'dialog_appears')} „{title}”"
-            return f"the “{title}” dialog appears"
+            return f"the “{title}” window appears"
         if target.role == "alert":
             return word(lang, "message_appears")
         return element_appears(target, lang)
@@ -496,15 +506,11 @@ def _number(value: float) -> str:
 
 
 def value_text(check: ValueCheck, model: ProcessModel, lang: Lang) -> str:
-    """'dana „Faktura zbiorcza” = tak': the record's value as the sheet names it."""
+    """'wartość „Faktura zbiorcza” = tak': the record's value as the sheet names it."""
     space, _, name = check.of.removeprefix("$").partition(".")
     spec = model.inputs.get(name) if space == "inputs" else None
     called = (spec.column or spec.description or name) if spec else name
-    what = (
-        (f"dana „{called}”" if space == "inputs" else f"wartość „{called}”")
-        if lang == "pl"
-        else (f"the value “{called}”")
-    )
+    what = f"wartość „{called}”" if lang == "pl" else f"the value “{called}”"
     bounds = bounds_text(check)
     if bounds:
         return f"{what} {bounds}"
@@ -533,13 +539,14 @@ def window_texts(step: Step, model: ProcessModel, lang: Lang) -> list[str]:
         return f"{opening}{shown}{closing}"
 
     texts = []
+    last = bool(model.steps) and step.id == model.steps[-1].id  # no steps come after it
     if step.window:
         where = f" {quoted(state_name(model, step.in_state))}" if step.in_state else ""
         texts.append(word(lang, "in_window") + where)
     if step.opens_window:
-        texts.append(word(lang, "opens_window"))
+        texts.append(word(lang, "opens_last" if last else "opens_window"))
     if step.closes_window:
-        texts.append(word(lang, "closes_window"))
+        texts.append(word(lang, "closes_last" if last else "closes_window"))
     for dialog in step.dialogs:
         message = quoted(dialog.message or "")
         if dialog.kind == "alert":
@@ -599,10 +606,13 @@ def documented(model: ProcessModel) -> ProcessModel:
     """The model as documents show it, without the robot's own check that the window a step
     clicks in is open while the person is already working in it (the step before was done on
     that screen and opened or closed no window): „pojawia się okno „Nowa wersja ceny”?” before
-    „Zapisz” in that very window is no decision of the process. A window that comes after a
-    step (a question after saving) keeps its condition."""
+    „Zapisz” in that very window is no decision of the process. Nor is the window a Java
+    program starts on (a navigator) before the first click in it: „the “Navigator” window
+    appears?” right after „Open the program” was a branch no recording had. A window that
+    comes after a step (a question after saving) keeps its condition."""
     steps = list(model.steps)
     changed = False
+    java = model.application.kind == "java"
     for index, step in enumerate(steps):
         when = step.when
         if index == 0 or when is None or when.visible is None:
@@ -610,9 +620,10 @@ def documented(model: ProcessModel) -> ProcessModel:
         if when.visible.role not in ("dialog", "alertdialog"):
             continue
         before = steps[index - 1]
-        if before.in_state is None or before.in_state != step.in_state:
+        started = java and index == 1 and before.action is Action.NAVIGATE  # its first window
+        if not started and (before.in_state is None or before.in_state != step.in_state):
             continue
-        if before.opens_window or before.closes_window:
+        if not started and (before.opens_window or before.closes_window):
             continue
         steps[index] = step.model_copy(update={"when": None})
         changed = True

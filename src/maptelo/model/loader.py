@@ -82,16 +82,22 @@ def dump_model(model: ProcessModel, header: str | None = None) -> str:
     text = _dump(data)
     if not _reads_back(text, data):
         text = _dump(_quote_risky(data))
+    if not _reads_back(text, data):  # a long one-line mapping folded inside a key of two words
+        text = _dump(_quote_risky(data), width=_UNFOLDED)  # („Product Value”: EBS's row rule)
         if not _reads_back(text, data):
             raise ValueError("the model's YAML does not read back as written")
     prefix = "".join(f"# {line}\n" for line in header.splitlines()) if header else ""
     return prefix + text
 
 
-def _dump(data: Any) -> str:
+_UNFOLDED = 1_000_000
+"""A line width no mapping reaches: nothing is folded onto a next line."""
+
+
+def _dump(data: Any, width: int = 110) -> str:
     yaml = YAML(typ="rt")
     yaml.default_flow_style = None
-    yaml.width = 110
+    yaml.width = width
     yaml.indent(mapping=2, sequence=4, offset=2)
     stream = io.StringIO()
     yaml.dump(data, stream)

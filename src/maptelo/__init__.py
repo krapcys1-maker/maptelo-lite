@@ -3,13 +3,14 @@
 from importlib.metadata import PackageNotFoundError, version
 
 
-def _version() -> str:
-    for name in ("maptelo", "maptelo-lite"):  # the full Maptelo, or Maptelo Lite's package
+def _installed() -> tuple[str, str]:
+    """The product's name and version: the full Maptelo, or Maptelo Lite's package."""
+    for name, product in (("maptelo", "Maptelo"), ("maptelo-lite", "Maptelo Lite")):
         try:
-            return version(name)
+            return product, version(name)
         except PackageNotFoundError:
             continue
-    return "0.0.0+unknown"  # running from a source tree without installation
+    return "Maptelo", "0.0.0+unknown"  # running from a source tree without installation
 
 
-__version__ = _version()
+PRODUCT, __version__ = _installed()

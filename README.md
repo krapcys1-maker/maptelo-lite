@@ -12,7 +12,7 @@ inteligencji.
 **[Pobierz dla Windows](https://maptelo.dev/pobierz/)** · [Opis programu](https://maptelo.dev/lite/) ·
 [English](#english)
 
-![Mapa procesu „Zmiana ceny klienta” w oknie Maptelo Lite: siedem kroków, krok zapisu wyróżniony](docs/img/map-pl.png)
+![Mapa procesu „Zmiana ceny produktu w MiniERP” w oknie Maptelo Lite: osiem kroków, krok zapisu wyróżniony](docs/img/map-pl.png)
 
 ## Funkcje
 
@@ -125,7 +125,7 @@ diagram, a BPMN model and a report. It runs locally and uses no AI.
 **[Download for Windows](https://maptelo.dev/en/download/)** ·
 [Product page](https://maptelo.dev/en/lite/)
 
-![The map of the process "Customer price change" in the Maptelo Lite window: seven steps, the saving step marked](docs/img/map-en.png)
+![The map of the process "Product price change in MiniERP" in the Maptelo Lite window: eight steps, the saving step marked](docs/img/map-en.png)
 
 - **Recording** in a browser (Microsoft Edge, Google Chrome or Chromium) or in a Java desktop
   program on Windows (through the Java Access Bridge, including programs that ship their own Java

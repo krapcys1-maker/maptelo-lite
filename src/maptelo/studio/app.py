@@ -320,7 +320,7 @@ def create_app(
             return _problems(exc.problems, lang=lang)
         try:
             named = wanted.title or wanted.process  # as the person named it
-            title = f"Recording: {named}" if lang == "en" else f"Pokaz: {named}"
+            title = f"Recording: {named}" if lang == "en" else f"Nagrywanie: {named}"
             job = jobs.start("record", title, work, process=wanted.process)
         except BusyError as exc:
             return _problems([_busy(exc, lang)], 409, lang)

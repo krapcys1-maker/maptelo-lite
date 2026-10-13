@@ -560,10 +560,12 @@ def record_session(
     storage_state: Path | None = None,
     stop: Callable[[], bool] | None = None,
     progress: Callable[[int], None] | None = None,
+    on_open: Callable[[], None] | None = None,
 ) -> Path:
     """Open a browser, record until the person closes it, and return the trace path.
     With ``profile`` it is the person's own browser profile, signed in already; with
-    ``storage_state`` a saved sign-in instead."""
+    ``storage_state`` a saved sign-in instead. ``on_open`` hears when the start page is open
+    (Studio brings the browser's window in front then)."""
     with sync_playwright() as playwright, contextlib.ExitStack() as opened:
         window: dict[str, Any] = {
             "viewport": {"width": 1280, "height": 860},
@@ -583,6 +585,8 @@ def record_session(
             )
         recorder = Recorder(context, out_dir, options)
         recorder.start(url, context.pages[0] if context.pages else None)
+        if on_open is not None:
+            on_open()
         try:
             reason = recorder.wait_until_closed(timeout_s=timeout_s, stop=stop, progress=progress)
         except KeyboardInterrupt:

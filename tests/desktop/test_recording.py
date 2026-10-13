@@ -206,6 +206,31 @@ def test_private_capture_never_reads_pixels(tmp_path, monkeypatch):
     assert written[0].screenshot is None
 
 
+def test_a_picture_without_the_invisible_borders_starts_where_its_frame_does(tmp_path, monkeypatch):
+    """The picture leaves out the window's invisible borders (``visible_inset``): marks on it
+    are drawn from its visible frame's corner, not from the rectangle's."""
+    from types import SimpleNamespace
+
+    from maptelo.capture.java import JavaRecorder, JavaRecorderOptions
+    from maptelo.desktop.jab import Node
+    from maptelo.desktop.screen import build_screen
+
+    rec = JavaRecorder(tmp_path, JavaRecorderOptions())
+    rec.bridge = SimpleNamespace(clock=lambda: 1.0)
+    written = []
+    rec.writer = SimpleNamespace(write=written.append)
+    shown = frozenset({"enabled", "showing", "visible"})
+    question = [Node("0", "dialog", "SRK pytanie", states=shown, box=(1081, 575, 391, 241))]
+    monkeypatch.setattr(rec, "_screen", lambda hwnd: build_screen("SRK pytanie", hwnd, question))
+    monkeypatch.setattr(rec, "_drain", lambda: None)
+    monkeypatch.setattr(
+        "maptelo.capture.java._screenshot",
+        lambda hwnd, path: (path, (1081, 575), (391, 241), (9, 0, 9, 9)),
+    )
+    rec._capture(2, 1.0)
+    assert (written[0].origin, written[0].scale) == ((1090, 575), None)
+
+
 def test_next_press_keeps_the_previous_result_in_its_window_before_new_dialog(
     tmp_path, monkeypatch
 ):
@@ -767,3 +792,38 @@ def test_a_button_that_closed_its_window_keeps_its_place_from_the_screen_before(
     assert element_info(seen, None).bbox is None
     here = Node("0/1", "push button", "Tak", box=(1231, 761, 50, 24))
     assert element_info(Seen(here, seen.chain, 2), before).bbox == (1231, 761, 50, 24)
+
+
+def test_a_menu_item_read_with_its_menu_open_is_not_the_button_at_its_path() -> None:
+    """EBS „File > Save” (the clean-Windows Lite film of 13.10): the screen read while the menu
+    was open has the menu first, so the item's path names a toolbar button there. The step is
+    still the menu's „Save” (it became „Click “element””, no step saving data), placed where
+    the open menu showed it."""
+    from maptelo.capture.java import Seen, element_info
+    from maptelo.desktop.jab import Node
+    from maptelo.desktop.screen import build_screen
+
+    shown = frozenset({"enabled", "showing", "visible"})
+    open_menu = build_screen(
+        "Wiorek Applications - WRK1",
+        1,
+        [
+            Node("0", "frame", "Wiorek Applications - WRK1", states=shown, box=(0, 0, 1920, 1040)),
+            Node("0/0", "popup menu", "", states=shown, box=(0, 56, 180, 140)),
+            Node("0/0/0", "menu item", "New", states=shown, box=(2, 60, 176, 24)),
+            Node("0/0/1", "menu item", "Save", states=shown, box=(2, 86, 176, 24)),
+            Node("0/1", "tool bar", "", states=shown, box=(0, 56, 1920, 40)),
+            Node("0/1/0", "push button", "", states=shown, box=(2, 59, 32, 35)),
+            Node("0/1/1", "push button", "", states=shown, box=(35, 59, 32, 35)),
+        ],
+    )
+    save = Node("0/1/1", "menu item", "Save", box=(-1, -1, -1, -1))  # its menu closed at once
+    info = element_info(Seen(save, [("menu", "File")], 1), open_menu)
+    assert (info.role, info.name, info.bbox) == ("menuitem", "Save", (2, 86, 176, 24))
+    button = Node("0/1/1", "push button", "", box=(35, 59, 32, 35))  # the button itself
+    assert element_info(Seen(button, [], 1), open_menu).role == "button"
+    gone = Node("0/1/1", "menu item", "Print", box=(-1, -1, -1, -1))  # not on that screen
+    assert (
+        element_info(Seen(gone, [], 1), open_menu).role,
+        element_info(Seen(gone, [], 1), open_menu).bbox,
+    ) == ("menuitem", None)

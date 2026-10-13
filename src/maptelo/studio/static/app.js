@@ -65,7 +65,7 @@ const EN = {
   // recording
   "np. Zmiana cen klientów": "e.g. Customer price change",
   "https://… adres, od którego zaczyna się proces": "https://… the address the process starts at",
-  "np. klient bez cen, cena z rabatem": "e.g. a customer without prices, a discounted price",
+  "np. klient bez cen, cena z rabatem": "e.g. a customer without prices",
   " Maptelo zapisze, z której kolumny pochodzi każda wartość.":
     " Maptelo records which column each value comes from.",
   "Wyszukiwanie otwartych programów Java…": "Looking for open Java programs…",
@@ -112,6 +112,7 @@ const EN = {
   "Tryb prywatny: zrzuty ekranu zasłaniają wprowadzone wartości i zawartość tabel":
     "Private mode: screenshots mask entered values and table contents",
   "Oczekiwanie na pierwsze kroki…": "Waiting for the first steps…",
+  "Uruchamianie nagrywania…": "Starting the recording…",
   "Okno przeglądarki jest otwarte (jeśli nie jest widoczne, kliknij jego ikonę na pasku zadań). Wykonaj w nim proces w zwykły sposób. Po zakończeniu zamknij okno lub kliknij „Zakończ nagrywanie”.":
     "The browser window is open (if it is not visible, click its icon on the taskbar). Perform the process in it as usual. When finished, close the window or click “Finish recording”.",
   "Zakończ nagrywanie": "Finish recording",
@@ -524,7 +525,7 @@ async function showRecordJob(id, first) {
   const status = h("div", { class: "chips" });
   const count = h("p", {}, t("Oczekiwanie na pierwsze kroki…"));
   const footer = h("div");
-  const what = h("p", {}, t("Okno przeglądarki jest otwarte (jeśli nie jest widoczne, kliknij jego ikonę na pasku zadań). Wykonaj w nim proces w zwykły sposób. Po zakończeniu zamknij okno lub kliknij „Zakończ nagrywanie”."));
+  const what = h("p", {}, t("Uruchamianie nagrywania…"));  // a browser or a Java program: its start says which
   const finish = h("button", { type: "button", class: "primary", onclick: async () => {
     finish.disabled = true;
     try { await api(`/api/jobs/${id}/stop`, { method: "POST" }); } catch (error) { alert(error.message); }
@@ -540,8 +541,10 @@ async function showRecordJob(id, first) {
     for (const event of job.events) {
       after = event.seq;
       if (event.type === "progress") events = event.events;
-      if (event.type === "start" && event.program) {  // a Java program: it has no window to close
-        fill(what, t("Trwa nagrywanie programu „{}”. Wykonaj w nim proces w zwykły sposób. Po zakończeniu wróć do tego okna ({} na pasku zadań) i kliknij „Zakończ nagrywanie”. Maptelo zapisuje wyłącznie działania w tym programie.", event.program, lite ? "Maptelo Lite" : "Studio"));
+      if (event.type === "start") {  // a Java program has no window to close
+        fill(what, event.program
+          ? t("Trwa nagrywanie programu „{}”. Wykonaj w nim proces w zwykły sposób. Po zakończeniu wróć do tego okna ({} na pasku zadań) i kliknij „Zakończ nagrywanie”. Maptelo zapisuje wyłącznie działania w tym programie.", event.program, lite ? "Maptelo Lite" : "Studio")
+          : t("Okno przeglądarki jest otwarte (jeśli nie jest widoczne, kliknij jego ikonę na pasku zadań). Wykonaj w nim proces w zwykły sposób. Po zakończeniu zamknij okno lub kliknij „Zakończ nagrywanie”."));
       }
     }
     if (events) fill(count, t("Zapisane kroki i zdarzenia: {}", events));
@@ -939,7 +942,11 @@ async function watchState() {
       lang = state.lang || computerLanguage();
       applyLite();
     }
-    document.getElementById("workspace").textContent = state.workspace;
+    const where = document.getElementById("workspace");
+    if (where.dataset.path !== state.workspace) {  // a long path wraps after a \ or /, not mid-name
+      where.dataset.path = state.workspace;
+      where.replaceChildren(...state.workspace.split(/(?<=[\\/])/).flatMap((part, i) => (i ? [h("wbr"), part] : [part])));
+    }
     document.getElementById("version").textContent = `Maptelo ${lite ? "Lite " : ""}${state.version}`;
     const job = state.job;
     const onIt = job && location.hash === `#/job/${job.id}`;

@@ -13,7 +13,7 @@ from maptelo.export.mermaid import render_mermaid
 from maptelo.export.sop import render_sop
 from maptelo.export.svg import render_svg
 from maptelo.mapping.build import MapResult
-from maptelo.mapping.naming import Lang
+from maptelo.mapping.naming import Lang, written_date
 from maptelo.model import ProcessModel, dump_model, lint
 from maptelo.trace.schema import Trace
 
@@ -35,10 +35,15 @@ def write_bundle(
     notes: Sequence[str] = (),
     sources: Mapping[str, tuple[Trace, Sequence[int]]] | None = None,
     source: str | None = None,
+    several_sources: bool = False,
     header: str | None = None,
+    warnings: bool = True,
 ) -> dict[str, Path]:
     """Write model.yaml, sop.md, process.mmd, process.svg, process.bpmn, report.html
-    (+ images/)."""
+    (+ images/). ``source`` names the recording(s) the model is made from (``several_sources``:
+    more than one); ``warnings``: the model's lint findings in the report, for whoever edits
+    the model (a single recording's map leaves them out: its report is for people doing the
+    process, and the findings are the model file's English)."""
     out_dir.mkdir(parents=True, exist_ok=True)
     images = screenshots_for(model, sources or {}, out_dir)
     yaml_text = dump_model(model, header=header)
@@ -52,7 +57,9 @@ def write_bundle(
     }
     contents = {
         "model": yaml_text,
-        "sop": render_sop(model, lang=lang, notes=notes, images=images, source=source),
+        "sop": render_sop(
+            model, lang=lang, notes=notes, images=images, source=source, sources=several_sources
+        ),
         "mermaid": render_mermaid(model, lang=lang),
         "svg": render_svg(model, lang=lang),
         "bpmn": render_bpmn(model, lang=lang),
@@ -60,9 +67,10 @@ def write_bundle(
             model,
             lang=lang,
             notes=notes,
-            issues=lint(model),
+            issues=lint(model) if warnings else (),
             images=_inline(images, out_dir),
             source=source,
+            sources=several_sources,
             yaml_text=yaml_text,
         ),
     }
@@ -81,11 +89,12 @@ def write_map_bundle(result: MapResult, out_dir: Path, *, lang: Lang = "pl") -> 
         lang=lang,
         notes=result.notes,
         sources={step_id: (trace, seqs) for step_id, seqs in result.step_events.items()},
-        source=f"{recording} ({trace.header.started_at.date().isoformat()})",
+        source=f"{written_date(trace.header.started_at.date(), lang)} ({recording})",
         header=(
             f"Maptelo process model, mapped from recording {recording}.\n"
             "Edit freely; check with: maptelo model validate <this file>"
         ),
+        warnings=False,
     )
 
 

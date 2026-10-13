@@ -38,6 +38,7 @@ TITLES = (TITLE, "Maptelo Lite")
 BROWSER_CLASS = "Chrome_WidgetWin_1"
 """The window class of Edge and Chrome, their app windows too."""
 SW_MINIMIZE, SW_RESTORE, SW_SHOWMAXIMIZED = 6, 9, 3
+GW_OWNER = 4
 
 
 def studio_window() -> int:
@@ -62,16 +63,51 @@ def show_window(window: int, how: int) -> None:
 
 
 def bring_forward(window: int) -> None:
-    """A window the person is to work in, in front (a Java program being recorded): shown
-    again if it was on the taskbar. Windows may refuse the front to a program in the
-    background; the window is then only restored."""
-    if sys.platform == "win32" and window:
-        import ctypes
+    """A window the person is to work in, in front (a Java program being recorded, the browser
+    of a demonstration): shown again if it was on the taskbar. Windows gives the front only to
+    the program the person used last, so Studio's thread shares that program's input while it
+    hands the front on (the clean-Windows Lite test of 12.10: with SRK open, the recording's
+    browser stayed behind it, only flashing on the taskbar)."""
+    if sys.platform != "win32" or not window:
+        return
+    import ctypes
 
-        user32 = ctypes.windll.user32
-        if user32.IsIconic(window):
-            user32.ShowWindow(window, SW_RESTORE)
+    user32, kernel32 = ctypes.windll.user32, ctypes.windll.kernel32
+    if user32.IsIconic(window):
+        user32.ShowWindow(window, SW_RESTORE)
+    front = user32.GetForegroundWindow()
+    theirs = user32.GetWindowThreadProcessId(front, None) if front else 0
+    mine = kernel32.GetCurrentThreadId()
+    joined = bool(theirs) and theirs != mine and bool(user32.AttachThreadInput(mine, theirs, 1))
+    try:
+        user32.BringWindowToTop(window)
         user32.SetForegroundWindow(window)
+    finally:
+        if joined:
+            user32.AttachThreadInput(mine, theirs, 0)
+
+
+def browser_windows() -> list[int]:
+    """The windows of Edge and Chrome open now, front first (Studio's own among them)."""
+    if sys.platform != "win32":
+        return []
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.windll.user32
+    found: list[int] = []
+    name = ctypes.create_unicode_buffer(64)
+
+    def each(window: int, _: int) -> bool:
+        if user32.IsWindowVisible(window) and not user32.GetWindow(window, GW_OWNER):
+            user32.GetClassNameW(window, name, len(name))
+            if name.value == BROWSER_CLASS and user32.GetWindowTextLengthW(window):
+                found.append(window)
+        return True
+
+    calls = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    user32.EnumWindows(calls(each), 0)
+    return found
 
 
 def is_maximized(window: int) -> bool:

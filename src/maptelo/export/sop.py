@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from maptelo import __version__
+from maptelo import PRODUCT, __version__
 from maptelo.export.describe import (
     documented,
     evidence_note,
@@ -61,7 +61,10 @@ def render_sop(
     notes: Sequence[str] = (),
     images: Mapping[str, str] | None = None,
     source: str | None = None,
+    sources: bool = False,
 ) -> str:
+    """``source``: the recording the map is made from („12.10.2026 (20261012T182653Z-f7b7)”);
+    ``sources``: it names several."""
     images = images or {}
     model = documented(model)
 
@@ -69,11 +72,11 @@ def render_sop(
         return word(lang, key)
 
     meta = [
-        f"{w('process')}: `{model.id}` v{model.version}",
+        f"{w('process')}: `{model.id}`, {w('version')} {model.version}",
         f"{w('application')}: {model.application.name}",
     ]
     if source:
-        meta.append(f"{w('source')}: {source}")
+        meta.append(f"{w('sources' if sources else 'source')}: {source}")
     out = [f"# {model.title}", "", "*" + " · ".join(meta) + "*", ""]
     if model.description:
         out += [f"> {model.description}", ""]
@@ -196,5 +199,5 @@ def render_sop(
         out += [f"## {w('to_confirm')}", ""]
         out += [f"- {note}" for note in notes] + [""]
 
-    out.append(f"*{w('generated')} {__version__}.*")
+    out.append(f"*{w('generated')} {PRODUCT} {__version__}.*")
     return "\n".join(out) + "\n"

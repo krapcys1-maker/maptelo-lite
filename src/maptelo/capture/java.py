@@ -612,15 +612,40 @@ def _placed(box: tuple[int, int, int, int]) -> bool:
     return box[2] > 0 and box[3] > 0
 
 
+_NAMED_CONTROLS = frozenset(
+    {"button", "menuitem", "menuitemcheckbox", "menuitemradio", "tab", "checkbox", "radio", "link"}
+)
+"""Controls named by what they say: another name is another control."""
+
+
+def _another(node: Node, element: Element) -> bool:
+    """Whether the element a screen has at a node's path is another one than the node: of
+    another kind, or a control saying something else."""
+    from maptelo.desktop.screen import aria_role
+
+    expected = aria_role(node)
+    if expected is not None and node.role != "label" and element.role != expected:
+        return True  # a label is text or a list's option, as its parent makes it
+    told = clean_name(node.name)
+    return bool(told) and expected in _NAMED_CONTROLS and element.name != told
+
+
 def element_info(
     seen: Seen, screen: Screen | None, *, toolbar_index: int | None = None
 ) -> ElementInfo:
     """What the trace keeps of an element: role and name as a person reads them, the frame,
     the row of a block, and the ways to find it again."""
-    node = seen.node
-    element: Element | None = screen.by_path(node.path) if screen is not None else None
     from maptelo.desktop.screen import aria_role
 
+    node = seen.node
+    element: Element | None = screen.by_path(node.path) if screen is not None else None
+    if screen is not None and element is not None and _another(node, element):
+        # the same path is another element in that screen: a menu open when it was read stands
+        # first in it (EBS „File > Save” read as a toolbar button without a name, the
+        # clean-Windows Lite film of 13.10); the element the bridge names, else none
+        told = clean_name(node.name)
+        alike = [e for e in screen.elements if e.role == aria_role(node) and e.name == told]
+        element = next((e for e in alike if _placed(e.node.box)), None) if told else None
     role = element.role if element is not None else (aria_role(node) or node.role)
     if node.role == "label" and (element is None or element.role == "option"):
         role = "option"
@@ -1200,10 +1225,15 @@ class JavaRecorder:
         shot = None
         shot_t = None
         origin = None
+        scale = None
         if self.options.screenshots and not self.options.private:
             taken = _screenshot(hwnd, self.folder / "screens" / f"{state_id}.png")
             if taken is not None:
-                shot, origin = taken
+                shot, origin, size, inset = taken
+                if screen.nodes:
+                    origin, scale = picture_place(screen.nodes[0].box, origin, size)
+                per = scale or 1.0  # the picture starts inside the invisible left and top borders
+                origin = (round(origin[0] + inset[0] / per), round(origin[1] + inset[1] / per))
                 if reverted:  # the picture shows the typing that came later
                     shot_t = self._time(self.bridge.clock())
         window = self._windows.get(hwnd)
@@ -1218,6 +1248,7 @@ class JavaRecorder:
                 screenshot_t=shot_t,
                 window=self._depth.get(hwnd, 0),
                 origin=origin,
+                scale=scale,
             )
         )
         return state_id
@@ -1369,9 +1400,47 @@ def _toolbar_index(screen: Screen, node: Node) -> int | None:
     return None
 
 
-def _screenshot(hwnd: int, path: Path) -> tuple[Path, tuple[int, int]] | None:
-    """The window as it is now (PrintWindow: it works off screen and on another desktop), and
-    where its top left corner is on the screen (the bridge tells elements' places on it)."""
+def picture_place(
+    window: tuple[int, int, int, int], corner: tuple[int, int], size: tuple[int, int]
+) -> tuple[tuple[int, int], float | None]:
+    """Where a window's picture starts among the places the bridge tells, and how many of the
+    picture's pixels make one of theirs (None: one). ``window`` is the window's place as the
+    bridge tells it; ``corner`` and ``size`` the picture's, as Windows tells them. The picture is
+    taken in the window's own pixels, so the two agree; should they not (a display scaled to
+    125 % read in other pixels than the program's: the clean-Windows Lite test of 12.10 framed
+    the field below the one typed into), the marks are drawn where the bridge says."""
+    width = window[2]
+    if width <= 0 or size[0] <= 0:
+        return corner, None
+    scale = size[0] / width
+    if abs(scale - 1) < 0.03:  # the same pixels: a frame's border or two is no scaling
+        return corner, None
+    return (window[0], window[1]), round(scale, 4)
+
+
+def visible_inset(
+    window: tuple[int, int, int, int], frame: tuple[int, int, int, int]
+) -> tuple[int, int, int, int]:
+    """How far a window's visible frame lies inside its rectangle: left, top, right, bottom.
+    Both are (left, top, right, bottom) on the screen. Windows 10 and 11 count invisible
+    resize borders into a window's rectangle, and its picture shows them black (the
+    clean-Windows Lite test of 12.10: black bars left, right and below SRK's question at
+    125 %). Nothing is left out unless the frame is a few pixels inside the rectangle: DWM
+    tells the screen's pixels, and a program that does not know the display is scaled has
+    its rectangle in other ones."""
+    inset = (frame[0] - window[0], frame[1] - window[1], window[2] - frame[2], window[3] - frame[3])
+    if frame[2] > frame[0] and frame[3] > frame[1] and all(0 <= side <= 40 for side in inset):
+        return inset
+    return (0, 0, 0, 0)
+
+
+def _screenshot(
+    hwnd: int, path: Path
+) -> tuple[Path, tuple[int, int], tuple[int, int], tuple[int, int, int, int]] | None:
+    """The window as it is now (PrintWindow: it works off screen and on another desktop), where
+    its top left corner is on the screen (the bridge tells elements' places on it) and its
+    size, all in the window's own pixels, and how much of its edges the picture leaves out
+    (``visible_inset``: the invisible borders)."""
     try:
         from PIL import Image
 
@@ -1408,25 +1477,66 @@ def _screenshot(hwnd: int, path: Path) -> tuple[Path, tuple[int, int]] | None:
         ]
         gdi32.DeleteObject.argtypes = [ctypes.c_void_p]
         gdi32.DeleteDC.argtypes = [ctypes.c_void_p]
-        rect = _R()
-        user32.GetWindowRect(hwnd, ctypes.byref(rect))
-        w, h = rect.r - rect.l, rect.b - rect.t
-        if w <= 0 or h <= 0:
-            return None
-        wdc = user32.GetWindowDC(hwnd)
-        mdc = gdi32.CreateCompatibleDC(wdc)
-        bmp = gdi32.CreateCompatibleBitmap(wdc, w, h)
-        gdi32.SelectObject(mdc, bmp)
-        user32.PrintWindow(hwnd, mdc, 2)
-        header = (ctypes.c_uint32 * 10)(40, w, (-h) & 0xFFFFFFFF, 1 | (32 << 16), 0, 0, 0, 0, 0, 0)
-        buf = ctypes.create_string_buffer(w * h * 4)
-        gdi32.GetDIBits(mdc, bmp, 0, h, buf, header, 0)
-        gdi32.DeleteObject(bmp)
-        gdi32.DeleteDC(mdc)
-        user32.ReleaseDC(hwnd, wdc)
+        # In the window's own pixels: on a display scaled to 125 % a program that knows it (Java
+        # 9 and later) is drawn, and told by the bridge, in the screen's pixels, one that does
+        # not (Java 8) in the scaled ones. Read in this process's, the window of the first was
+        # cut to four fifths (the clean-Windows Lite test of 12.10: „Zapisz” off its picture).
+        own = getattr(user32, "GetWindowDpiAwarenessContext", None)
+        use = getattr(user32, "SetThreadDpiAwarenessContext", None)
+        before = None
+        if own is not None and use is not None:
+            own.argtypes, own.restype = [ctypes.c_void_p], ctypes.c_void_p
+            use.argtypes, use.restype = [ctypes.c_void_p], ctypes.c_void_p
+            context = own(hwnd)
+            before = use(context) if context else None
+        try:
+            rect = _R()
+            user32.GetWindowRect(hwnd, ctypes.byref(rect))
+            w, h = rect.r - rect.l, rect.b - rect.t
+            if w <= 0 or h <= 0:
+                return None
+            wdc = user32.GetWindowDC(hwnd)
+            mdc = gdi32.CreateCompatibleDC(wdc)
+            bmp = gdi32.CreateCompatibleBitmap(wdc, w, h)
+            gdi32.SelectObject(mdc, bmp)
+            user32.PrintWindow(hwnd, mdc, 2)
+            header = (ctypes.c_uint32 * 10)(
+                40, w, (-h) & 0xFFFFFFFF, 1 | (32 << 16), 0, 0, 0, 0, 0, 0
+            )
+            buf = ctypes.create_string_buffer(w * h * 4)
+            gdi32.GetDIBits(mdc, bmp, 0, h, buf, header, 0)
+            gdi32.DeleteObject(bmp)
+            gdi32.DeleteDC(mdc)
+            user32.ReleaseDC(hwnd, wdc)
+            inset = (0, 0, 0, 0)
+            try:  # the frame as DWM draws it; none where nothing composes (another desktop)
+                dwmapi = getattr(ctypes, "WinDLL")("dwmapi")  # noqa: B009
+                dwmapi.DwmGetWindowAttribute.argtypes = [
+                    ctypes.c_void_p,
+                    ctypes.c_uint,
+                    ctypes.c_void_p,
+                    ctypes.c_uint,
+                ]
+                dwmapi.DwmGetWindowAttribute.restype = ctypes.c_long
+                frame = _R()
+                extended_frame_bounds = 9
+                told = dwmapi.DwmGetWindowAttribute(
+                    hwnd, extended_frame_bounds, ctypes.byref(frame), ctypes.sizeof(frame)
+                )
+                if told == 0:
+                    window = (rect.l, rect.t, rect.r, rect.b)
+                    inset = visible_inset(window, (frame.l, frame.t, frame.r, frame.b))
+            except Exception:
+                inset = (0, 0, 0, 0)
+        finally:
+            if before and use is not None:
+                use(before)
         path.parent.mkdir(parents=True, exist_ok=True)
-        Image.frombuffer("RGB", (w, h), bytes(buf.raw), "raw", "BGRX", 0, 1).save(path)
-        return path, (rect.l, rect.t)
+        picture = Image.frombuffer("RGB", (w, h), bytes(buf.raw), "raw", "BGRX", 0, 1)
+        if any(inset):
+            picture = picture.crop((inset[0], inset[1], w - inset[2], h - inset[3]))
+        picture.save(path)
+        return path, (rect.l, rect.t), (w, h), inset
     except Exception:
         return None
 

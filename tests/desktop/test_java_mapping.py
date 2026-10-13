@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from maptelo.mapping import map_trace
-from maptelo.model.schema import Action
+from maptelo.model.schema import Action, RiskClass
 from maptelo.trace import load_trace
 
 FIXTURE = Path(__file__).parents[1] / "fixtures" / "java" / "srk_wniosek_cenowy"
@@ -61,9 +61,92 @@ def test_its_screens_are_named_as_its_windows_are() -> None:
     # the robot checks each window it clicks in is open; a document shows it only for the
     # window that comes after a step (the question after saving), not for the one worked in
     assert sum(1 for step in model.steps if step.when is not None) == 3
-    assert [line for line in sop.splitlines() if "Tylko gdy" in line] == [
-        "   - Tylko gdy: pojawia się okno „SRK – pytanie”"
+    assert [line for line in sop.splitlines() if "Warunek:" in line] == [
+        "   - Warunek: pojawia się okno „SRK – pytanie”"
     ]
+    # the last step closes the question, and no steps come after it in the window below
+    assert model.steps[-1].closes_window
+    closing = [step for step in model.steps[:-1] if step.closes_window]
+    assert sop.count("kolejne kroki wykonuje się w oknie poniżej") == len(closing)
+    assert "   - Zamyka okno\n" in sop
+
+
+def test_a_yes_told_in_the_window_under_its_question_is_the_question_s() -> None:
+    """The bridge may tell the click on „Tak” in the window under the question, the only one
+    open once the question had closed (the clean-Windows Lite test of 12.10: „Kliknij „Tak””,
+    and no step marked as saving): the screen read before the click is the question, so the
+    step is the question's, as when the recorder tells it at once."""
+    told = map_trace(load_trace(FIXTURE), lang="pl").model.steps[-1]
+    trace = load_trace(FIXTURE)
+    late, main = trace.events[-1], trace.events[0]
+    assert late.target is not None
+    assert late.target.name == "Tak"
+    late.url, late.title, late.window = main.url, main.title, 0
+    late.target.dialog = None
+    step = map_trace(trace, lang="pl").model.steps[-1]
+    assert step.intent == told.intent == "W oknie „SRK – pytanie” kliknij „Tak”"
+    assert step.effective_risk is told.effective_risk is RiskClass.COMMIT
+    assert step.in_state == told.in_state
+    assert step.window == 2  # the question's depth when it was read: over „Nowa wersja ceny”
+
+
+STARTS_ON_A_NAVIGATOR = """
+schema_version: '0.1'
+id: price_list_update
+version: 1
+title: Price list update
+application: {name: Wiorek Applications, kind: KIND, window: Wiorek Applications, base_url: BASE}
+inputs:
+  name: {type: string, description: Name, example: WRK-K0010-2026}
+states:
+  navigator: {description: Navigator - Pricing Manager, url: /Navigator - Pricing Manager}
+  find: {description: Find Price Lists, url: /Find Price Lists}
+steps:
+  - id: open
+    intent: Open the “Wiorek Applications” program
+    action: navigate
+    value: /
+  - id: navigator_open
+    intent: In the “Navigator - Pricing Manager” window, click “Open”
+    action: click
+    target: [{role: button, name: Open}]
+    in_state: navigator
+    when: {visible: {role: dialog, name: Navigator - Pricing Manager}}
+  - id: enter_name
+    intent: Fill in the “Name” field
+    action: fill
+    target: [{role: textbox, name: Name}]
+    value: $inputs.name
+    in_state: find
+  - id: find
+    intent: In the “Find Price Lists” window, click “Find”
+    action: click
+    target: [{role: button, name: Find}]
+    in_state: find
+    when: {visible: {role: dialog, name: Find Price Lists}}
+"""
+
+
+def test_the_window_a_java_program_starts_on_is_no_decision_in_documents() -> None:
+    """The robot checks that the window it clicks in is open, also the navigator a Java
+    program starts on; documents leave that check out for the first click after „Open the
+    program” (the Lite film of 12.10 drew „the “Navigator - Pricing Manager” window
+    appears?” there, a branch no recording had). In a browser application a window right
+    after the first page keeps its condition: it may come only sometimes."""
+    from maptelo.export import render_sop, render_svg
+    from maptelo.export.describe import documented
+    from maptelo.model.loader import parse_model
+
+    java = STARTS_ON_A_NAVIGATOR.replace("KIND", "java").replace("BASE", "java://wiorek")
+    model = parse_model(java)
+    assert [s.id for s in model.steps if s.when is not None] == ["navigator_open", "find"]
+    assert not [s.id for s in documented(model).steps if s.when is not None]
+    assert "Only if:" not in render_sop(model, lang="en")
+    assert "appears?" not in render_svg(model, lang="en")
+
+    web = STARTS_ON_A_NAVIGATOR.replace("KIND", "web").replace("BASE", "http://wiorek.test")
+    kept = [s.id for s in documented(parse_model(web)).steps if s.when is not None]
+    assert kept == ["navigator_open"]
 
 
 def test_amounts_are_typed_as_people_type_them() -> None:

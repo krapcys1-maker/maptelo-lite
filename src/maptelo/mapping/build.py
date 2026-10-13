@@ -21,7 +21,7 @@ from maptelo import options, sentences
 from maptelo.data.tables import Table, TableError, read_table
 from maptelo.dates import read_day
 from maptelo.mapping import shown
-from maptelo.mapping.naming import Lang, human_title, say, slug, unique
+from maptelo.mapping.naming import Lang, human_title, say, slug, unique, written_date
 from maptelo.mapping.normalize import (
     Act,
     Normalized,
@@ -624,7 +624,8 @@ class _Builder:
         if once:  # new every time: never an example, a constant or a column of the sheet
             spec.pop("example", None)
             spec.update({"secret": True, "required": False})
-        if act.kind == "select" and act.event.option_label:
+        if act.kind == "select" and act.event.option_label and act.event.option_label != value:
+            # the list sends a code („fedex”): its words say what was chosen
             spec["description"] = f"{label} ({act.event.option_label})"
         self.inputs[name] = spec
         self.inputs_by_field.setdefault(label, name)
@@ -1940,8 +1941,8 @@ class _Builder:
                 "identifying constants requires several recordings.",
             )
 
-        start_iso = self.trace.header.started_at.date().isoformat()
-        description = say(self.lang, "mapped_from", recording=self.recording, date=start_iso)
+        started = written_date(self.trace.header.started_at.date(), self.lang)
+        description = say(self.lang, "mapped_from", date=started)
         note = (self.trace.header.note or "").strip()
         if note:  # „Nowa cena do akceptacji” and „Mapę utworzono…” are two sentences
             description = f"{note}{'' if note[-1] in '.!?…' else '.'} {description}"

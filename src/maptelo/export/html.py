@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from html import escape
 
-from maptelo import __version__
+from maptelo import PRODUCT, __version__
 from maptelo.export.describe import (
     documented,
     evidence_note,
@@ -148,6 +148,7 @@ def render_html(
     issues: Sequence[LintIssue] = (),
     images: Mapping[str, str] | None = None,
     source: str | None = None,
+    sources: bool = False,
     yaml_text: str | None = None,
 ) -> str:
     images = images or {}
@@ -158,17 +159,17 @@ def render_html(
 
     title = escape(model.title)
     meta = [
-        f"{w('process')}: {escape(model.id)} v{model.version}",
+        f"{w('process')}: {escape(model.id)}, {w('version')} {model.version}",
         f"{w('application')}: {escape(model.application.name)}",
     ]
     if source:
-        meta.append(f"{w('source')}: {escape(source)}")
+        meta.append(f"{w('sources' if sources else 'source')}: {escape(source)}")
     parts = [
         "<!doctype html>",
         f'<html lang="{lang}"><head><meta charset="utf-8">',
         '<meta name="viewport" content="width=device-width, initial-scale=1">',
-        f"<title>{title} · Maptelo</title><style>{_STYLE}</style></head><body>",
-        f'<header><div class="brand">MAPTELO</div><h1>{title}</h1>'
+        f"<title>{title} · {escape(PRODUCT)}</title><style>{_STYLE}</style></head><body>",
+        f'<header><div class="brand">{escape(PRODUCT.upper())}</div><h1>{title}</h1>'
         f'<p class="meta">{" · ".join(meta)}</p></header>',
         "<main>",
     ]
@@ -264,6 +265,8 @@ def render_html(
             f"<section><details><summary>{w('model_source')}</summary>"
             f'<pre class="yaml">{escape(yaml_text)}</pre></details></section>'
         )
-    parts.append(f"<footer>{w('generated')} {escape(__version__)}</footer></main>")
+    parts.append(
+        f"<footer>{w('generated')} {escape(PRODUCT)} {escape(__version__)}</footer></main>"
+    )
     parts.append("</body></html>")
     return "\n".join(parts) + "\n"

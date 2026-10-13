@@ -78,7 +78,13 @@ def screenshots_for(
         bbox = None if navigate or event.target is None else event.target.bbox
         if bbox is not None and state.origin is not None:  # the screen's place, on the picture
             x, y, width, height = bbox
-            bbox = (x - state.origin[0], y - state.origin[1], width, height)
+            scale = state.scale or 1.0
+            bbox = (
+                round((x - state.origin[0]) * scale),
+                round((y - state.origin[1]) * scale),
+                round(width * scale),
+                round(height * scale),
+            )
         relative = f"images/step-{index:02d}.jpg"
         annotate(source, bbox, out_dir / relative)
         images[step.id] = relative

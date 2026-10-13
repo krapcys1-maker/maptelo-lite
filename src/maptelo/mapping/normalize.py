@@ -814,7 +814,34 @@ def _merge_attempts(acts: list[Act]) -> None:
             break
 
 
+def _clicked_in_closed_question(trace: Trace) -> None:
+    """A desktop program's question closes as its button is clicked („Tak” to „Zapisać
+    wniosek?” after „Zapisz”); the bridge may then tell the click in the window under it, the
+    only one left open. The screen read just before the click is that question, with the one
+    button of that name: the click was in it, as the recorder tells it when it is quicker (its
+    step is „W oknie „SRK - pytanie” kliknij „Tak””, and the yes saves what „Zapisz” asked)."""
+    if trace.header.program is None:
+        return
+    for event in trace.events:
+        target = event.target
+        if event.type != "click" or target is None or target.dialog or not target.name:
+            continue
+        before = trace.states.get(event.state_before or "")
+        if before is None or before.window <= event.window or before.url == event.url:
+            continue
+        lines = before.aria.splitlines()
+        opened = re.fullmatch(r'- dialog "(.+)"', lines[0].strip()) if lines else None
+        if opened is None:
+            continue
+        button = f'- {target.role} "{target.name}"'
+        if sum(line.strip() == button for line in lines) != 1:
+            continue
+        event.url, event.title, event.window = before.url, before.title, before.window
+        target.dialog = opened.group(1)
+
+
 def normalize(trace: Trace) -> Normalized:
+    _clicked_in_closed_question(trace)
     acts = group_acts(trace)
     after_login = _mark_login(trace, acts)
     _mark_interrupts(trace, acts)

@@ -56,6 +56,40 @@ steps:
     assert again.inputs["minutes"].example == ":30"
 
 
+def test_a_long_row_rule_with_two_word_columns_reads_back() -> None:
+    """A row rule of a desktop table whose columns are named in two words (EBS's price list:
+    „Product Context”, „Product Attribute”, „Product Value”) made a one-line mapping longer than
+    a line, folded inside a key: the YAML did not read back and the map was not written (the
+    clean-Windows Lite test of 12.10, „Internal Server Error”)."""
+    from maptelo.model import dump_model
+
+    where = (
+        "{Product Context: $inputs.product_context, Product Attribute: "
+        "$inputs.product_attribute, Product Value: null}"
+    )
+    text = f"""
+schema_version: "0.1"
+id: demo
+version: 1
+title: Demo
+application: {{name: EBS, kind: java, window: EBS, base_url: "java://ebs"}}
+inputs:
+  product_context: {{type: string}}
+  product_attribute: {{type: string}}
+steps:
+  - id: enter_product_value
+    intent: Fill in the “Product Value” field
+    action: fill
+    target: {{label: Product Value}}
+    within: {{table: {{role: table}}, where: {where}}}
+    value: "26386-F"
+"""
+    model = parse_model(text)
+    written = dump_model(model)
+    assert parse_model(written, "written") == model
+    assert "Product Value: null}" in written  # the rule on one line, nothing folded inside it
+
+
 def test_duplicate_keys_are_rejected() -> None:
     with pytest.raises(ModelLoadError, match="invalid YAML"):
         parse_model("id: a\nid: b\n")
