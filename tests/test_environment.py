@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from maptelo.desktop.jab import BridgeLibrary, python_bits
 from maptelo.environment import (
     CHROME_POLICIES,
     EDGE_POLICIES,
@@ -59,7 +60,7 @@ def machine(
         loopback=lambda: None,
         writable=lambda p: None,
         free_space=lambda p: 500 * 1024**3,
-        java_bridge=lambda: JAB,
+        java_bridge=lambda: BridgeLibrary(JAB, python_bits()),
     )
     for name, answer in answers.items():
         setattr(made, name, answer)
@@ -204,3 +205,21 @@ def test_java_programs_need_the_bridge_that_comes_with_java() -> None:
     assert missing.detail.startswith("brak Java Access Bridge")
     elsewhere = machine(windows=False)
     assert {c.what: c for c in probe(Path("D:/Robot"), elsewhere)}["java"].verdict == "info"
+
+
+def test_a_32_bit_java_is_read_through_a_32_bit_python(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A computer with only a 32-bit Java (7 or 8) next to Maptelo's 64-bit Python: the bridge
+    works through a 32-bit Python (Maptelo Lite brings one); without one, the page says what
+    to do instead of saying the bridge is missing."""
+    monkeypatch.setattr("maptelo.desktop.jab.python_bits", lambda: 64)
+    library = Path(PF86) / "Java/jre8/bin/WindowsAccessBridge-32.dll"
+    helper = Path("C:/Users/ola/Desktop/Maptelo Lite/python32/python.exe")
+    through = machine(java_bridge=lambda: BridgeLibrary(library, 32, helper))
+    ready = {c.what: c for c in probe(Path("D:/Robot"), through)}["java"]
+    assert ready.verdict == "ok"
+    assert f"{library}, 32-bit, through the 32-bit Python {helper}" in ready.detail
+    lacking = machine(java_bridge=lambda: BridgeLibrary(library, 32, None))
+    stuck = {c.what: c for c in probe(Path("D:/Robot"), lacking, lang="pl")}["java"]
+    assert stuck.verdict == "FAIL"
+    assert stuck.detail.startswith("Java na tym komputerze jest 32-bitowa")
+    assert "folder python32" in stuck.hint

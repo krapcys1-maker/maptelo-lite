@@ -22,6 +22,7 @@ from maptelo.export import write_map_bundle
 from maptelo.mapping import map_trace
 from maptelo.mapping.naming import Lang
 from maptelo.studio.common import BROWSERS, RunProblemError
+from maptelo.studio.discard import discard
 from maptelo.studio.jobs import Job
 from maptelo.studio.polish import polish
 from maptelo.studio.window import bring_forward, browser_windows, out_of_the_way
@@ -177,8 +178,16 @@ def java_programs(lang: Lang = "pl") -> dict[str, Any]:
 
     windows = jab.java_frames()
     own = [jab.program_folder(w.pid) for w in windows]
-    bridge = jab.find_dll([folder for folder in own if folder is not None]) is not None
-    return {"windows": [{"title": w.title} for w in windows], "bridge": bridge, "problem": None}
+    library = jab.bridge_library([folder for folder in own if folder is not None])
+    trouble: str | None = None
+    if library is not None and not library.usable:  # a 32-bit Java, and no 32-bit Python
+        said = jab.no_helper(library)
+        trouble = said if lang == "en" else polish(said)
+    return {
+        "windows": [{"title": w.title} for w in windows],
+        "bridge": library is not None and library.usable,
+        "problem": trouble,
+    }
 
 
 def _java_work(
@@ -275,6 +284,33 @@ def process_title(workspace: Workspace, key: str) -> str | None:
         if isinstance(title, str) and title.strip():
             return title.strip()
     return None
+
+
+def forget_process(workspace: Workspace, key: str) -> list[str]:
+    """A process the person no longer wants, deleted whole: its recordings and maps (and in
+    the full Maptelo its runs and shadow checks). On Windows into the Recycle Bin."""
+    folders = [workspace.recordings, workspace.maps, workspace.runs, workspace.root / "shadow"]
+    present = [base / key for base in folders if KEY.fullmatch(key) and (base / key).exists()]
+    if not present:
+        raise RunProblemError([f"there is no process {key!r}"])
+    discard(present)
+    return [workspace.relative(folder) for folder in present]
+
+
+def forget_recording(workspace: Workspace, key: str, recording: str) -> list[str]:
+    """One demonstration deleted, with its own map (Maptelo Lite's); a process left without
+    recordings is deleted with it, as no list shows it any more."""
+    folders = {folder.name: folder for folder in workspace.recording_folders(key)}
+    folder = folders.get(recording)
+    if folder is None:
+        raise RunProblemError([f"there is no recording {recording!r} of {key!r}"])
+    own_map = workspace.maps / key / recording
+    present = [folder, *([own_map] if own_map.is_dir() else [])]
+    discard(present)
+    removed = [workspace.relative(path) for path in present]
+    if not workspace.recording_folders(key) and not (workspace.maps / key / "model.yaml").exists():
+        removed += forget_process(workspace, key)
+    return removed
 
 
 def map_files(workspace: Workspace, key: str, recording: str) -> dict[str, str] | None:

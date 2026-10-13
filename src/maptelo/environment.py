@@ -30,11 +30,14 @@ import urllib.request
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from maptelo import net
 from maptelo.checks import Check, Lang, say
 from maptelo.policy import Policy, PolicyError, load_policy, policy_path
+
+if TYPE_CHECKING:
+    from maptelo.desktop.jab import BridgeLibrary
 
 EDGE_POLICIES = r"SOFTWARE\Policies\Microsoft\Edge"
 CHROME_POLICIES = r"SOFTWARE\Policies\Google\Chrome"
@@ -91,13 +94,13 @@ def _loopback() -> str | None:
     return None
 
 
-def _java_bridge() -> Path | None:
-    """The Java Access Bridge's library for this Python, where Java keeps it: an installed
-    Java or the own Java of a program open now (Oracle Forms); None: none."""
-    from maptelo.desktop.jab import find_dll, java_frames, program_folder  # loaded when asked
+def _java_bridge() -> BridgeLibrary | None:
+    """The Java Access Bridge's library, where Java keeps it (an installed Java or the own
+    Java of a program open now, Oracle Forms), and the Python that loads it; None: none."""
+    from maptelo.desktop.jab import bridge_library, java_frames, program_folder  # when asked
 
     own = [program_folder(window.pid) for window in java_frames()]
-    return find_dll([folder for folder in own if folder is not None])
+    return bridge_library([folder for folder in own if folder is not None])
 
 
 def _writable(folder: Path) -> str | None:
@@ -128,7 +131,7 @@ class Machine:
     loopback: Callable[[], str | None] = _loopback
     writable: Callable[[Path], str | None] = _writable
     free_space: Callable[[Path], int] = lambda p: shutil.disk_usage(p).free
-    java_bridge: Callable[[], Path | None] = _java_bridge
+    java_bridge: Callable[[], BridgeLibrary | None] = _java_bridge
 
 
 @dataclass(frozen=True)
@@ -354,19 +357,50 @@ def _java_check(machine: Machine, lang: Lang) -> Check:
             say(
                 lang,
                 "the bridge is part of Java: start the Java program and check again (Maptelo also "
-                "looks in the program's own Java); a 32-bit Java requires the 32-bit Maptelo",
+                "looks in the program's own Java)",
                 "Java Access Bridge jest częścią środowiska Java: uruchom program Java i sprawdź "
-                "ponownie (Maptelo szuka go również w środowisku Java programu); 32-bitowa Java "
-                "wymaga 32-bitowej wersji Maptelo",
+                "ponownie (Maptelo szuka go również w środowisku Java programu)",
             ),
         )
+    bits = found.bits
+    if not found.usable:  # a library of the other bitness, and no Python of its bitness
+        own = 64 if bits == 32 else 32
+        return Check(
+            "FAIL",
+            "java",
+            say(
+                lang,
+                f"this computer's Java is {bits}-bit ({found.path}) and Maptelo's Python "
+                f"{own}-bit: Maptelo then reads Java programs through a {bits}-bit Python, and "
+                "none was found",
+                f"Java na tym komputerze jest {bits}-bitowa ({found.path}), a Python Maptelo "
+                f"{own}-bitowy: programy Java są wtedy odczytywane przez {bits}-bitowy Python, "
+                "którego nie znaleziono",
+            ),
+            say(
+                lang,
+                f"install Maptelo again: its current version brings a {bits}-bit Python along "
+                f"(the python{bits} folder); otherwise IT installs Python 3.12 ({bits}-bit) for "
+                "this user, which needs no administrator rights",
+                f"zainstaluj ponownie Maptelo: aktualna wersja zawiera {bits}-bitowy Python "
+                f"(folder python{bits}); w przeciwnym razie dział IT instaluje dla tego "
+                f"użytkownika Pythona 3.12 ({bits}-bitowego), co nie wymaga uprawnień "
+                "administratora",
+            ),
+        )
+    seen = str(found.path)
+    if found.python is not None:
+        seen_en = f"{seen}, {bits}-bit, through the {bits}-bit Python {found.python}"
+        seen_pl = f"{seen}, {bits}-bitowy, przez {bits}-bitowy Python {found.python}"
+    else:
+        seen_en = seen_pl = seen
     return Check(
         "ok",
         "java",
         say(
             lang,
-            f"Java programs can be recorded and run (Java Access Bridge: {found})",
-            f"programy Java mogą być nagrywane i uruchamiane (Java Access Bridge: {found})",
+            f"Java programs can be recorded and run (Java Access Bridge: {seen_en})",
+            f"programy Java mogą być nagrywane i uruchamiane (Java Access Bridge: {seen_pl})",
         ),
         say(
             lang,

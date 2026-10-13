@@ -311,6 +311,25 @@ def create_app(
     def recordings(request: Request) -> JSONResponse:
         return JSONResponse(recording.recordings_view(workspace, request.path_params["key"]))
 
+    def forget(request: Request) -> JSONResponse:
+        """A process deleted, or one of its recordings (never while it is being worked on)."""
+        lang = _lang(request)
+        key = request.path_params["key"]
+        busy = jobs.current
+        if busy is not None and busy.state == "running" and busy.process == key:
+            return _problems([_busy(BusyError(busy), lang)], 409, lang)
+        one = request.path_params.get("recording")
+        try:
+            if one is None:
+                removed = recording.forget_process(workspace, key)
+            else:
+                removed = recording.forget_recording(workspace, key, one)
+        except RunProblemError as exc:
+            return _problems(exc.problems, 404, lang)
+        except OSError as exc:
+            return _problems([str(exc)], 500, lang)
+        return JSONResponse({"process": key, "removed": removed})
+
     async def start_recording(request: Request) -> JSONResponse:
         lang = _lang(request)
         try:
@@ -381,6 +400,8 @@ def create_app(
         Route("/api/drafts", drafts),
         Route("/api/recordings", start_recording, methods=["POST"]),
         Route("/api/recordings/{key}", recordings),
+        Route("/api/recordings/{key}", forget, methods=["DELETE"]),
+        Route("/api/recordings/{key}/{recording}", forget, methods=["DELETE"]),
         Route("/api/java/windows", java_windows),
         Route("/api/maps", make_map, methods=["POST"]),
         Route("/api/profiles", profiles, methods=["GET"]),

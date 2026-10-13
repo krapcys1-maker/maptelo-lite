@@ -4,6 +4,7 @@ this computer) and the map of one recording. The same as the full Maptelo's ``st
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 from pathlib import Path
@@ -92,6 +93,11 @@ def _log_to_file() -> None:
     HOME.mkdir(parents=True, exist_ok=True)
     log = (HOME / "maptelo-lite.log").open("a", encoding="utf-8", buffering=1)
     sys.stdout = sys.stderr = log
+    # what Maptelo's modules tell there too: which Java Access Bridge, through which Python
+    told = logging.StreamHandler(log)
+    told.setFormatter(logging.Formatter("%(asctime)s %(name)s: %(message)s"))
+    logging.getLogger("maptelo").addHandler(told)
+    logging.getLogger("maptelo").setLevel(logging.INFO)
 
 
 @app.command("record")

@@ -19,6 +19,7 @@ SCANNED_FILES = [
     "policy.py",
     "calendars.py",
     "desktop/jab.py",
+    "desktop/jab_remote.py",
     "browser.py",
 ]
 
@@ -34,6 +35,9 @@ NOT_FOR_THE_PAGE = {
     "it must be a {}, like the element it replaces", "it must be a message text, like the old one",
     "scripted: not on the screen", "state {}, {}", "step {} (result {})", "no result named",
     "a condition: {}",
+    # the line the Java Access Bridge's helper Python runs (desktop/jab_remote.py)
+    "import sys; sys.path.append(sys.argv[1]); from maptelo.desktop.jab_remote import serve; "
+    "serve()",
     # a CSS selector the robot uses (the check box in a list's cell), never shown
     "input[type=checkbox], input[type=radio], [role=checkbox], [role=radio], [role=switch]",
     # what the model that reads a document's picture is told about a field

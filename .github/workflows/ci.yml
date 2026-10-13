@@ -14,6 +14,10 @@ env:
   PYTHON_EMBED: python-3.12.10-embed-amd64.zip
   PYTHON_EMBED_URL: https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip
   PYTHON_EMBED_MD5: fe8ef205f2e9c3ba44d0cf9954e1abd3  # as python.org lists it for 3.12.10
+  # its 32-bit build: a 32-bit Java's bridge library (Java 7 or 8) is loaded in it
+  PYTHON_EMBED32: python-3.12.10-embed-win32.zip
+  PYTHON_EMBED32_URL: https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-win32.zip
+  PYTHON_EMBED32_MD5: 93beb9042be23d7b5cd528fa15e8fea7  # as python.org lists it for 3.12.10
 
 jobs:
   checks:
@@ -76,13 +80,17 @@ jobs:
           Invoke-WebRequest $env:PYTHON_EMBED_URL -OutFile $env:PYTHON_EMBED
           $md5 = (Get-FileHash $env:PYTHON_EMBED -Algorithm MD5).Hash.ToLower()
           if ($md5 -ne $env:PYTHON_EMBED_MD5) { throw "unexpected checksum: $md5" }
+          Invoke-WebRequest $env:PYTHON_EMBED32_URL -OutFile $env:PYTHON_EMBED32
+          $md5 = (Get-FileHash $env:PYTHON_EMBED32 -Algorithm MD5).Hash.ToLower()
+          if ($md5 -ne $env:PYTHON_EMBED32_MD5) { throw "unexpected checksum (32-bit): $md5" }
 
       - name: Portable Maptelo Lite
         shell: pwsh
         run: |
           $wheel = (Get-ChildItem dist\maptelo_lite-*.whl).FullName
           python tools/package/build_portable.py `
-            --python-zip $env:PYTHON_EMBED --wheel $wheel --out build\MapteloLite --lite
+            --python-zip $env:PYTHON_EMBED --python32-zip $env:PYTHON_EMBED32 `
+            --wheel $wheel --out build\MapteloLite --lite
 
       - name: Maptelo Lite starts, and ships only licenses the policy allows
         shell: pwsh
@@ -94,11 +102,15 @@ jobs:
             if (-not (Select-String -Path lite-help.txt -Pattern $option -SimpleMatch -Quiet)) { throw "no $option" }
           }
           # the installer's shortcut starts it without a console, with its own icon
-          foreach ($file in "python\pythonw.exe", "maptelo-lite.ico", "Maptelo Lite.cmd") {
+          foreach ($file in "python\pythonw.exe", "python32\python.exe", "maptelo-lite.ico", "Maptelo Lite.cmd") {
             if (-not (Test-Path "build\MapteloLite\$file")) { throw "no $file" }
           }
           & build\MapteloLite\python\python.exe -c "import maptelo.studio.app; print('the window imports')"
           if ($LASTEXITCODE -ne 0) { throw "imports failed" }
+          # the 32-bit Python reads a 32-bit Java's bridge: it is 32-bit and imports the helper
+          $site = (Resolve-Path build\MapteloLite\python\Lib\site-packages).Path
+          $bits = & build\MapteloLite\python32\python.exe -I -c "import sys, struct; sys.path.append(sys.argv[1]); import maptelo.desktop.jab_remote; print(struct.calcsize('P') * 8)" $site
+          if ($LASTEXITCODE -ne 0 -or "$bits".Trim() -ne "32") { throw "the 32-bit Python does not import the bridge's helper ($bits)" }
           & build\MapteloLite\python\python.exe tools/check_licenses.py | Tee-Object -FilePath build\MapteloLite\LICENSES.txt
           if ($LASTEXITCODE -ne 0) { throw "a shipped dependency is outside the license policy" }
 

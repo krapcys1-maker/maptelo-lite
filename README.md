@@ -51,6 +51,11 @@ sprawdzono na programach Swing, w tym na czystym systemie Windows z programem dy
 wyłącznie własnym środowiskiem Java. Oracle Forms korzysta z tego samego mechanizmu, ale nie był
 jeszcze testowany z Maptelo Lite.
 
+Komputer, na którym jest tylko 32-bitowa Java (na przykład Java 7 lub 8 w wersji 32-bitowej), ma
+wyłącznie 32-bitową bibliotekę mostu (`WindowsAccessBridge-32.dll`). Maptelo Lite odczytuje
+wtedy program przez dołączony 32-bitowy Python (folder `python32`), bez uprawnień administratora
+i bez zmian w instalacji Javy. Działanie sprawdzono na 32-bitowej Javie 8 (Temurin 8u472).
+
 ## Prywatność
 
 - Dane pozostają na komputerze, w folderze Maptelo Lite. Program nie łączy się z żadnym serwerem
@@ -145,7 +150,11 @@ diagram, a BPMN model and a report. It runs locally and uses no AI.
 - **Java programs** are read through the Java Access Bridge, the mechanism screen readers use
   (enabled with `jabswitch -enable` or by IT). Tested with Swing programs, including on a clean
   Windows with a program that ships only its own Java runtime. Oracle Forms uses the same
-  mechanism but has not yet been tested with Maptelo Lite.
+  mechanism but has not yet been tested with Maptelo Lite. On a computer with only a 32-bit
+  Java (such as a 32-bit Java 7 or 8), whose bridge library is `WindowsAccessBridge-32.dll`,
+  Maptelo Lite reads the program through its bundled 32-bit Python (the `python32` folder), with
+  no administrator rights and no change to the Java installation. Tested on a 32-bit Java 8
+  (Temurin 8u472).
 - **Scope:** Maptelo Lite documents processes; it does not execute them and uses no AI. Automatic
   execution with every result confirmed by an independent read from the system is the full
   Maptelo: [maptelo.dev](https://maptelo.dev).

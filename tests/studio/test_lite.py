@@ -126,3 +126,45 @@ def test_a_process_is_shown_by_the_name_it_was_given(
     assert (shown["process"], shown["title"]) == (PROCESS, "Zmiana ceny klienta")
     titles = [r["title"] for r in lite.get(f"/api/recordings/{PROCESS}").json()]
     assert titles[-1] == "Zmiana ceny klienta"
+
+
+@pytest.fixture
+def binned(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """What goes to the Recycle Bin, kept by the test (the computer's own Bin stays as it was)."""
+    thrown: list[str] = []
+
+    def discard(paths: list[Path]) -> None:
+        for path in paths:
+            thrown.append(path.name)
+            shutil.rmtree(path)
+
+    monkeypatch.setattr("maptelo.studio.recording.discard", discard)
+    return thrown
+
+
+def test_a_recording_and_then_the_process_are_deleted(
+    lite: httpx2.Client, workspace: Workspace, binned: list[str]
+) -> None:
+    first = workspace.recording_folders(PROCESS)[0].name
+    lite.post("/api/maps", json={"process": PROCESS, "recording": first}).raise_for_status()
+    asked_elsewhere = lite.delete(f"/api/recordings/{PROCESS}", headers={"X-Maptelo": "0"})
+    assert asked_elsewhere.status_code == 403  # changes come only from Lite's own page
+    gone = lite.delete(f"/api/recordings/{PROCESS}/{first}")
+    assert gone.json()["removed"] == [f"recordings/{PROCESS}/{first}", f"maps/{PROCESS}/{first}"]
+    assert first not in [folder.name for folder in workspace.recording_folders(PROCESS)]
+    whole = lite.delete(f"/api/recordings/{PROCESS}")
+    assert whole.json()["removed"] == [f"recordings/{PROCESS}", f"maps/{PROCESS}"]
+    assert binned == [first, first, PROCESS, PROCESS]
+    assert lite.get("/api/drafts").json() == []
+    again = lite.delete(f"/api/recordings/{PROCESS}")
+    assert again.status_code == 404
+    assert again.json()["problems"] == [f"nie ma procesu '{PROCESS}'"]
+
+
+def test_the_last_recording_deleted_takes_the_process_with_it(
+    lite: httpx2.Client, workspace: Workspace, binned: list[str]
+) -> None:
+    for folder in workspace.recording_folders(PROCESS):
+        lite.delete(f"/api/recordings/{PROCESS}/{folder.name}").raise_for_status()
+    assert not (workspace.recordings / PROCESS).exists()
+    assert lite.get("/api/drafts").json() == []

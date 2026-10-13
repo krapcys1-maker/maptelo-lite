@@ -36,6 +36,7 @@
   --hold-soft: #faedd5;
   --bad: #a8322b;
   --bad-soft: #fbe3e0;
+  --bad-ink: #ffffff;
   --quiet: #59626a;
   --quiet-soft: #efe9df;
   --stripe-1: #01687a;
@@ -53,7 +54,7 @@
     --bg: #0e171c; --surface: #142027; --raised: #1a2932; --ink: #e9eef0; --muted: #9fabb2;
     --line: #273842; --accent: #4cc9d1; --accent-ink: #0b1418; --accent-soft: #123941;
     --ok: #5fd39b; --ok-soft: #10301f; --hold: #f2b65f; --hold-soft: #33260f;
-    --bad: #ff8f85; --bad-soft: #3a1817; --quiet: #9fabb2; --quiet-soft: #1d2b33;
+    --bad: #ff8f85; --bad-soft: #3a1817; --bad-ink: #1a0b0a; --quiet: #9fabb2; --quiet-soft: #1d2b33;
     --stripe-1: #1b93a3; --logo-ink: #e9eef0;
     --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px -8px rgb(0 0 0 / 0.45);
     color-scheme: dark;
@@ -175,6 +176,13 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 button.primary:hover { filter: brightness(1.08); }
 button:disabled { opacity: 0.55; cursor: not-allowed; }
 button.link { border: 0; background: none; color: var(--accent); padding: 0; font-weight: 600; }
+button.danger { background: var(--bad); border-color: var(--bad); color: var(--bad-ink); }
+button.danger:hover { filter: brightness(1.08); background: var(--bad); }
+button.quiet-danger { color: var(--bad); }
+button.link.quiet-danger { color: var(--bad); font-weight: 500; }
+.confirm { border: 1px solid var(--bad); background: var(--bad-soft); border-radius: 12px;
+           padding: 14px 16px; display: grid; gap: 8px; justify-items: start; }
+.confirm p { margin: 0; }
 button.small { padding: 4px 10px; font-size: 13px; }
 table.repairs td.state { white-space: nowrap; }
 table.repairs td.state button { display: block; margin-top: 6px; }

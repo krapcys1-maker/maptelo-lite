@@ -205,6 +205,21 @@ const EN = {
   "Działania": "Actions",
   "Mapa": "Map",
   "Ten proces nie ma jeszcze nagrań.": "This process has no recordings yet.",
+  "Anuluj": "Cancel",
+  "Usuń": "Delete",
+  "Usuń proces": "Delete the process",
+  "Usuń nagranie": "Delete the recording",
+  "Usuwanie…": "Deleting…",
+  "Usunąć proces „{}”?": "Delete the process “{}”?",
+  "Usunięte zostaną nagrania ({}) i mapy tego procesu. W systemie Windows pliki trafią do Kosza.":
+    "Its recordings ({}) and maps will be deleted. On Windows the files go to the Recycle Bin.",
+  "Usunięto proces „{}”.": "The process “{}” has been deleted.",
+  "Usunąć nagranie z {}?": "Delete the recording of {}?",
+  "Usunięta zostanie też mapa tego nagrania. W systemie Windows pliki trafią do Kosza.":
+    "Its map will be deleted too. On Windows the files go to the Recycle Bin.",
+  "To jedyne nagranie procesu, więc proces zniknie z listy. W systemie Windows pliki trafią do Kosza.":
+    "This is the only recording of the process, so the process will leave the list. On Windows the files go to the Recycle Bin.",
+  "Usunięto nagranie z {}.": "The recording of {} has been deleted.",
   "Powiększ: {}": "Enlarge: {}",
   "Powiększ": "Enlarge",
   "Mapa nie została jeszcze utworzona.": "This map has not been created yet.",
@@ -728,6 +743,42 @@ async function showLiteProcess(key) {
   const found = await load(`/api/recordings/${encodeURIComponent(key)}`);
   const named = titleOf(found, key);
   const problems = h("div");
+  const asking = h("div");
+  /* Deleting asks on the page first (what goes, and that Windows keeps it in the Recycle Bin). */
+  const ask = (question, detail, label, act) => fill(asking, h("div", { class: "confirm", role: "alertdialog" },
+    h("p", {}, h("strong", {}, question)),
+    h("p", {}, detail),
+    h("div", { class: "actions" },
+      h("button", { type: "button", class: "danger", onclick: async (event) => {
+        const button = event.currentTarget;
+        button.disabled = true;
+        button.textContent = t("Usuwanie…");  // Windows takes a moment to put it in the Bin
+        try { await act(); }
+        catch (error) { fill(asking); fill(problems, problemsBox(error.problems || [error.message])); }
+      } }, label),
+      h("button", { type: "button", onclick: () => fill(asking) }, t("Anuluj")))));
+  const forgetProcess = () => ask(
+    t("Usunąć proces „{}”?", named),
+    t("Usunięte zostaną nagrania ({}) i mapy tego procesu. W systemie Windows pliki trafią do Kosza.", found.length),
+    t("Usuń proces"),
+    async () => {
+      await api(`/api/recordings/${encodeURIComponent(key)}`, { method: "DELETE" });
+      flash = { tone: "ok", text: t("Usunięto proces „{}”.", named) };
+      location.hash = "#/";
+    });
+  const started = (r) => r.started ? new Date(r.started).toLocaleString(locale(), { dateStyle: "medium", timeStyle: "short" }) : r.id;
+  const forgetRecording = (r) => ask(
+    t("Usunąć nagranie z {}?", started(r)),
+    found.length > 1
+      ? t("Usunięta zostanie też mapa tego nagrania. W systemie Windows pliki trafią do Kosza.")
+      : t("To jedyne nagranie procesu, więc proces zniknie z listy. W systemie Windows pliki trafią do Kosza."),
+    t("Usuń nagranie"),
+    async () => {
+      await api(`/api/recordings/${encodeURIComponent(key)}/${encodeURIComponent(r.id)}`, { method: "DELETE" });
+      flash = { tone: "ok", text: t("Usunięto nagranie z {}.", started(r)) };
+      if (found.length > 1) await showLiteProcess(key);
+      else location.hash = "#/";
+    });
   const row = (r) => {
     const make = h("button", { type: "button", class: r.map ? "link" : "primary", onclick: async () => {
       make.disabled = true;
@@ -735,18 +786,22 @@ async function showLiteProcess(key) {
       catch (error) { fill(problems, problemsBox(error.problems || [error.message])); make.disabled = false; }
     } }, r.map ? t("Utwórz mapę ponownie") : t("Utwórz mapę"));
     return h("tr", {},
-      h("td", {}, r.started ? new Date(r.started).toLocaleString(locale(), { dateStyle: "medium", timeStyle: "short" }) : r.id),
+      h("td", {}, started(r)),
       h("td", {}, r.problem ? h("span", { class: "chip bad" }, r.problem) : (r.note || "—")),
       h("td", { class: "num" }, r.actions ?? "—"),
       h("td", {}, h("div", { class: "actions" },
         r.map ? h("a", { class: "button primary", href: `#/p/${encodeURIComponent(key)}/map/${encodeURIComponent(r.id)}` }, t("Otwórz mapę")) : null,
-        r.problem ? null : make)));
+        r.problem ? null : make,
+        h("button", { type: "button", class: "link quiet-danger", onclick: () => forgetRecording(r) }, t("Usuń")))));
   };
   show(
     h("div", { class: "head" }, h("div", { class: "titles" },
       h("div", { class: "crumbs" }, h("a", { href: "#/" }, t("Procesy")), " / ", named),
       h("h1", {}, named)),
-      h("div", { class: "actions" }, h("a", { class: "button primary", href: `#/new/${encodeURIComponent(key)}` }, t("Nagraj ponownie")))),
+      h("div", { class: "actions" },
+        h("a", { class: "button primary", href: `#/new/${encodeURIComponent(key)}` }, t("Nagraj ponownie")),
+        h("button", { type: "button", class: "quiet-danger", onclick: forgetProcess }, t("Usuń proces")))),
+    asking,
     takeFlash(),
     problems,
     found.length

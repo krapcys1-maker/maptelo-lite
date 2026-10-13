@@ -25,6 +25,7 @@ from maptelo.browser import (
     HOME,
     PROFILES,
     kept_cookies,
+    open_address,
     profile_context,
     profile_dir,
     remember_sign_in,
@@ -109,7 +110,7 @@ def sign_in_work(request: SignInRequest) -> Callable[[Job], dict[str, Any]]:
             ) as context,
         ):
             page = context.pages[0] if context.pages else context.new_page()
-            page.goto(request.url)
+            open_address(page, request.url)
             job.emit("open", profile=request.profile, url=request.url)
             while not page.is_closed() and not job.stop_requested:
                 if time.monotonic() > deadline:

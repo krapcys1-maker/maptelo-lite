@@ -134,9 +134,19 @@ SENTENCES: list[tuple[str, str]] = [
      "program Java nie odpowiada (może czekać okno, które otworzył)"),
     ("the Java program still does not answer (a window it opened may be waiting)",
      "program Java nadal nie odpowiada (może czekać okno, które otworzył)"),
-    ("no {dll} in the Java folders (Python is {bits}-bit; a 32-bit Java needs a 32-bit Python)",
-     "nie ma {dll} w folderach Javy (Python ma {bits} bitów; 32-bitowa Java wymaga "
-     "32-bitowego Pythona)"),
+    ("no {dll} or {other} in the Java folders", "nie ma {dll} ani {other} w folderach Javy"),
+    ("the Java here has only {dll} ({bits}-bit), which this {own}-bit Python cannot load, and "
+     "no Python of its bitness was found to load it: install Maptelo again (it brings one "
+     "along) or Python 3.12 of that bitness for this user",
+     "Java na tym komputerze ma tylko {dll} ({bits} bity), którego ten Python ({own} bity) nie "
+     "załaduje, a nie znaleziono Pythona tej samej bitowości, który mógłby go załadować: "
+     "zainstaluj ponownie Maptelo (zawiera taki Python) albo zainstaluj dla tego "
+     "użytkownika Pythona 3.12 o tej bitowości"),
+    ("starting the helper Python {python}", "uruchamianie pomocniczego Pythona {python}"),
+    ("the helper Python {python} does not start: {reason}",
+     "pomocniczy Python {python} nie uruchamia się: {reason}"),
+    ("the helper of the Java Access Bridge ended{words}",
+     "proces pomocniczy Java Access Bridge zakończył działanie{words}"),
     ("the Java Access Bridge could not start: {reason}",
      "Java Access Bridge nie mógł wystartować: {reason}"),
     ("the Java Access Bridge did not start ({reason})",
@@ -480,6 +490,8 @@ SENTENCES: list[tuple[str, str]] = [
     ("there is no such file", "nie ma takiego pliku"),
     ("there is no such job", "nie ma takiego zadania"),
     ("there is no process {name}", "nie ma procesu {name}"),
+    ("{name} could not be deleted (Windows says {code})",
+     "nie udało się usunąć {name} (Windows zgłasza kod {code})"),
     ("the file is empty", "plik jest pusty"),
     ("the file is larger than 50 MB", "plik ma więcej niż 50 MB"),
     ("the language is pl or en", "język to pl albo en"),

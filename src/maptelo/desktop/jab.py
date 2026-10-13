@@ -6,6 +6,9 @@ accessibility tree: every window, frame, field, button and list, with its role, 
 place and text. A Java program answers only when the bridge is on for it: switched on for the
 user (``jabswitch -enable``, as at a company where IT turned it on) or started with
 ``-Djavax.accessibility.assistive_technologies=com.sun.java.accessibility.AccessBridge``.
+Python loads only a library of its own bitness: where the Java here has only the other one (a
+32-bit Java 7 or 8 next to Maptelo Lite's 64-bit Python), ``connect`` starts the bridge in a
+helper Python of that bitness (``jab_remote``), which answers the same questions.
 
 All calls go through one thread that also runs the message loop the bridge needs; its events
 (focus, clicks, text changes, menus, windows opening) are collected there for the recorder.
@@ -164,6 +167,27 @@ def python_bits() -> int:
     return struct.calcsize("P") * 8
 
 
+def other_bits(bits: int | None = None) -> int:
+    return 32 if (bits or python_bits()) == 64 else 64
+
+
+def pe_bits(path: Path) -> int | None:
+    """32 or 64: the bitness of a Windows program or library, read from its PE header (the
+    machine it is built for). None: not there, or not an x86 or x64 program."""
+    try:
+        with path.open("rb") as file:
+            head = file.read(64)
+            if len(head) < 64 or head[:2] != b"MZ":
+                return None
+            file.seek(struct.unpack_from("<I", head, 0x3C)[0])
+            header = file.read(6)
+    except OSError:
+        return None
+    if len(header) < 6 or header[:4] != b"PE\0\0":
+        return None
+    return {0x014C: 32, 0x8664: 64}.get(struct.unpack_from("<H", header, 4)[0])
+
+
 def dll_names(bits: int | None = None) -> list[str]:
     """The bridge library for this Python: a 64-bit Python loads the 64-bit one, a 32-bit
     Python the 32-bit one (the oldest, ``WindowsAccessBridge.dll``, passes objects
@@ -173,10 +197,10 @@ def dll_names(bits: int | None = None) -> list[str]:
     return ["WindowsAccessBridge-32.dll"]
 
 
-def candidate_dirs(extra: list[Path] | None = None) -> list[Path]:
+def candidate_dirs(extra: list[Path] | None = None, bits: int | None = None) -> list[Path]:
     """Where a Java runtime keeps the bridge: the folders given (the Java program's own, first),
-    JAVA_HOME, the Java on PATH, the usual install folders, then Windows' own folder (a JRE
-    installer that turned the bridge on copies it there)."""
+    JAVA_HOME, the Java on PATH, the usual install folders, then Windows' own folder for
+    libraries of that bitness (a JRE installer that turned the bridge on copies it there)."""
     dirs: list[Path] = list(extra or [])
     home = os.environ.get("JAVA_HOME")
     if home:
@@ -195,9 +219,11 @@ def candidate_dirs(extra: list[Path] | None = None) -> list[Path]:
                     dirs.append(sub / "jre" / "bin")
             except OSError:
                 continue
-    windir = os.environ.get("WINDIR", r"C:\Windows")
-    dirs.append(Path(windir) / ("System32" if python_bits() == 64 else "SysWOW64"))
-    dirs.append(Path(windir) / "System32")
+    windir = Path(os.environ.get("WINDIR", r"C:\Windows"))
+    if (bits or python_bits()) == 32:  # a 64-bit program sees the 32-bit ones in SysWOW64
+        dirs.append(windir / ("SysWOW64" if python_bits() == 64 else "System32"))
+    else:  # and a 32-bit program the 64-bit ones in Sysnative
+        dirs.append(windir / ("System32" if python_bits() == 64 else "Sysnative"))
     seen: set[str] = set()
     unique = []
     for d in dirs:
@@ -208,13 +234,82 @@ def candidate_dirs(extra: list[Path] | None = None) -> list[Path]:
     return unique
 
 
-def find_dll(extra: list[Path] | None = None) -> Path | None:
-    for folder in candidate_dirs(extra):
-        for name in dll_names():
+def find_dlls(extra: list[Path] | None = None, bits: int | None = None) -> list[Path]:
+    """Every bridge library of that bitness (this Python's by default), in the order of
+    ``candidate_dirs``: a library its header says is of the other bitness is not one."""
+    bits = bits or python_bits()
+    found = []
+    for folder in candidate_dirs(extra, bits):
+        for name in dll_names(bits):
             path = folder / name
-            if path.exists():
-                return path
-    return None
+            if path.exists() and pe_bits(path) in (bits, None):
+                found.append(path)
+    return found
+
+
+def find_dll(extra: list[Path] | None = None, bits: int | None = None) -> Path | None:
+    found = find_dlls(extra, bits)
+    return found[0] if found else None
+
+
+@dataclass(frozen=True)
+class BridgeLibrary:
+    """The bridge library this computer's Java has, and the Python that loads it."""
+
+    path: Path
+    bits: int
+    python: Path | None = None
+    """For a library of the other bitness: the helper Python of its bitness that loads it
+    (None: there is none here). For one of this Python's bitness: None, this Python loads it."""
+
+    @property
+    def usable(self) -> bool:
+        return self.bits == python_bits() or self.python is not None
+
+
+def bridge_library(extra: list[Path] | None = None) -> BridgeLibrary | None:
+    """The library the bridge would use here: one of this Python's bitness first, else one
+    of the other bitness and the helper Python for it. None: no bridge library at all."""
+    own = find_dll(extra)
+    if own is not None:
+        return BridgeLibrary(own, python_bits())
+    found = find_dll(extra, other_bits())
+    if found is None:
+        return None
+    from maptelo.desktop.jab_remote import helper_python  # loaded when asked
+
+    return BridgeLibrary(found, other_bits(), helper_python(other_bits()))
+
+
+def no_helper(library: BridgeLibrary) -> str:
+    """Why a library of the other bitness cannot be used: no Python of its bitness."""
+    return (
+        f"the Java here has only {library.path.name} ({library.bits}-bit), which this "
+        f"{python_bits()}-bit Python cannot load, and no Python of its bitness was found to load "
+        "it: install Maptelo again (it brings one along) or Python 3.12 of that bitness for "
+        "this user"
+    )
+
+
+def connect(
+    *,
+    java_dirs: list[Path] | None = None,
+    desktop: str | None = None,
+    events: bool = False,
+    timeout: float = 10.0,
+) -> Bridge:
+    """A started bridge: in this Python when the Java here has a library of its bitness, else
+    in a helper Python of the library's (``jab_remote.RemoteBridge``, the same questions and
+    answers). ``java_dirs``: the Java program's own folders, looked in first."""
+    library = bridge_library(java_dirs)
+    if library is not None and library.bits != python_bits():
+        if library.python is None:
+            raise AccessBridgeError(no_helper(library))
+        from maptelo.desktop.jab_remote import RemoteBridge
+
+        remote = RemoteBridge(library.python, java_dirs=java_dirs, desktop=desktop, events=events)
+        return remote.start(timeout)
+    return Bridge(java_dirs=java_dirs, desktop=desktop, events=events).start(timeout)
 
 
 class _ACInfo(ctypes.Structure):
@@ -479,16 +574,14 @@ class Bridge:
             self._prepare_user32()
             if self.desktop:
                 self._attach_desktop(self.desktop)
-            path = self.dll_path or find_dll(self.java_dirs)
-            if path is None:
+            paths = [self.dll_path] if self.dll_path else find_dlls(self.java_dirs)
+            if not paths:
                 self.status = (
-                    f"no {' or '.join(dll_names())} in the Java folders "
-                    f"(Python is {python_bits()}-bit; a 32-bit Java needs a 32-bit Python)"
+                    f"no {dll_names()[0]} or {dll_names(other_bits())[0]} in the Java folders"
                 )
                 self._started.set()
                 return
-            self.dll_path = path
-            self._d = ctypes.CDLL(str(path))
+            self._d = self._load(paths)
             self._prototypes()
             if self.want_events:
                 self._subscribe()
@@ -519,6 +612,20 @@ class Bridge:
                 except BaseException as exc:
                     box["error"] = exc
                 done.set()
+
+    def _load(self, paths: list[Path]) -> Any:
+        """The first of the libraries that loads: one may lack what it needs beside it (a copy
+        in Windows' folder without its Java's runtime library), another Java's then serves."""
+        failed = []
+        for path in paths:
+            try:
+                library = ctypes.CDLL(str(path))
+            except OSError as exc:
+                failed.append(f"{path}: {exc}")
+                continue
+            self.dll_path = path
+            return library
+        raise AccessBridgeError("; ".join(failed))
 
     def _attach_desktop(self, name: str) -> None:
         handle = self._user32.OpenDesktopW(name, 0, False, 0x10000000)

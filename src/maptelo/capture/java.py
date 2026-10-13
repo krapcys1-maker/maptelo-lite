@@ -18,6 +18,7 @@ snapshot, a screenshot), so mapping and building a model work as for a browser.
 from __future__ import annotations
 
 import contextlib
+import json
 import re
 import secrets
 import time
@@ -27,7 +28,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, ClassVar
 
-from maptelo.desktop.jab import Bridge, Node, Window
+from maptelo.desktop.jab import Bridge, Node, Window, connect
 from maptelo.desktop.screen import (
     Element,
     Screen,
@@ -196,6 +197,33 @@ class Act:
     cell_index: int | None = None
 
 
+class Echoes:
+    """Java 8's bridge tells many events twice, some 10 ms apart: a focus, a press and a click
+    in a dialog, a combo box's list (a JDK 21 tells each once). The second, the same in every
+    word, is no second act: two presses of a person are never 50 ms apart."""
+
+    WITHIN = 0.05
+
+    def __init__(self) -> None:
+        self._seen: dict[str, float] = {}
+
+    def drop(self, events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        kept = []
+        for event in events:
+            t = float(event.get("t") or 0.0)
+            said = {key: value for key, value in event.items() if key != "t"}
+            key = json.dumps(said, sort_keys=True, default=str)
+            last = self._seen.get(key)
+            self._seen[key] = t
+            if last is not None and 0.0 <= t - last <= self.WITHIN:
+                continue
+            kept.append(event)
+        if len(self._seen) > 2000:  # only the last second can echo
+            newest = max(self._seen.values())
+            self._seen = {key: t for key, t in self._seen.items() if newest - t <= 1.0}
+        return kept
+
+
 @dataclass
 class Interpreter:
     """Turns the bridge's events into actions (``acts``). Pure: fed events and ticks."""
@@ -219,6 +247,9 @@ class Interpreter:
     """What happens this close before a press is the press's own doing (a list opening, a
     button armed): the bridge may say it before it says the press."""
     menu_open: str | None = None
+    popup: tuple[float, tuple[int, str]] | None = None
+    """When an element last showed its popup (a combo box its list), and which: the bridge
+    may tell it well before the press that opened it."""
     combo: Seen | None = None
     combo_choice: str | None = None
     combo_at: float = 0.0
@@ -227,7 +258,10 @@ class Interpreter:
     was typed into answers an Enter (SRK: "Faktura: brak pozycji „…”"), it does not echo the
     typing."""
     table_edit: tuple[float, Seen, dict[str, Any]] | None = None
-    list_choice: dict[tuple[int, str], tuple[Seen, str]] = field(default_factory=dict)
+    list_choice: dict[tuple[int, str], tuple[Seen, str, int | None]] = field(default_factory=dict)
+    choosers: set[tuple[int, str]] = field(default_factory=set)
+    """Combo boxes seen (window, path): the list under one is its own popup, chosen from as
+    the combo box's value, not a list whose row is a step."""
     keys_seen: bool = False
     """Navigation keys are read from the keyboard: nothing has to be told from reactions."""
     react_s: float = 0.25
@@ -301,10 +335,15 @@ class Interpreter:
             if node.role in CHOOSERS and new.get("name"):
                 self.combo, self.combo_choice = seen, str(new["name"])
                 self.combo_at = t
+                self.choosers.add(seen.key)
             elif node.role in LIST_ROLES and new.get("name"):
-                self.list_choice[seen.key] = (seen, str(new["name"]))
+                index = new.get("index")
+                place = int(index) if isinstance(index, int) and index >= 0 else None
+                self.list_choice[seen.key] = (seen, str(new["name"]), place)
         elif kind == "menu_selected" and node.role == "menu":
             self.menu_open = clean_name(node.name)
+        elif kind == "popup_visible":
+            self.popup = (t, seen.key)
         elif kind in ("visible_data_changed", "child_changed", "selection_changed") and not (
             self._is_focus(seen)
         ):
@@ -351,8 +390,18 @@ class Interpreter:
             and seen.window == edit.seen.window
             and seen.key != edit.seen.key
         )
-        if late:
-            self.reacted_at = -1.0  # the window answered this press, not the typing
+        # the list of the combo box now pressed, opened before the press was told: on a busy
+        # computer the bridge said it 85 ms early (benchmark D01 under load: an Enter after
+        # the date typed, then the robot stopped on every row)
+        own_popup = (
+            edit is not None
+            and self.popup is not None
+            and seen is not None
+            and self.popup[1] == seen.key
+            and self.reacted_at >= self.popup[0] > edit.changed_at
+        )
+        if late or own_popup:
+            self.reacted_at = -1.0  # the window or the list answered this press, not the typing
         else:
             self._enter_if_reacted(t - self.press_s)
         if (
@@ -489,11 +538,28 @@ class Interpreter:
             return
         if node.role in CHOOSERS:
             self.combo = seen
+            self.choosers.add(seen.key)
             return
         if self.editing is not None and self.editing.seen.key != seen.key:
             self._flush(t)
         if node.role in ("label", "list item") and self._in_list(seen):
             self.acts.append(Act("click", t, seen, value=None))
+            return
+        if node.role == "list":
+            # the bridge tells the click on the list and its row as the list's active
+            # descendant (EBS: the row of the „Items” list of values, lost, so the map typed
+            # „26386%” and clicked an OK no row had enabled): the click is on that row. Not in
+            # a combo box's own popup list (SRK „Powód zmiany”): its choice is the step.
+            own = any(
+                window == seen.window and node.path.startswith(f"{path}/")
+                for window, path in self.choosers
+            )
+            chosen = None if own else self.list_choice.get(seen.key)
+            if chosen is not None:
+                _, name, place = chosen
+                path = f"{node.path}/{place}" if place is not None else node.path
+                row = Node(path, "label", name, states=frozenset({"showing"}), box=(-1, -1, -1, -1))
+                self.acts.append(Act("click", t, Seen(row, seen.chain, seen.window), value=None))
             return
         if node.role in CLICKABLE or node.role in ("label", "list item", "table"):
             last = self.acts[-1] if self.acts else None
@@ -734,6 +800,7 @@ class JavaRecorder:
         self._t0 = 0.0
         self._keys: Any = None
         self._buffer: list[dict[str, Any]] = []
+        self._echoes = Echoes()
         """Events that came while a screen was read: taken in the next pump."""
         self._texts: dict[tuple[int, str], list[tuple[float, str | None]]] = {}
         """Each field's text as it changed (bridge time), to read a screen as it was."""
@@ -743,6 +810,9 @@ class JavaRecorder:
         self._state_screens: dict[str, Screen] = {}
         self._worked_in: str | None = None
         """The frame of the main window the person last did something in."""
+        self._frames_told: dict[str, tuple[float | None, float | None]] = {}
+        """Each frame's last opening and closing as the bridge told them (bridge time): a screen
+        read while the program is busy may leave out a frame that is open."""
         """The screens of the states written, by state: an act's element is read on the screen
         before it (its row as it was, not as the form and the person left it)."""
         self._last_screen: Screen | None = None
@@ -766,7 +836,7 @@ class JavaRecorder:
 
     def start(self, timeout: float = 30.0) -> Window:
         if self.bridge is None:
-            self.bridge = Bridge(events=True, java_dirs=list(self.options.java_dirs)).start()
+            self.bridge = connect(events=True, java_dirs=list(self.options.java_dirs))
         try:
             self.main = self._find_main(timeout)
         except BaseException:
@@ -839,7 +909,7 @@ class JavaRecorder:
         """The bridge's new events, with the window of each element and the field texts and
         the person's clicks noted."""
         assert self.bridge is not None
-        events = self.bridge.events()
+        events = self._echoes.drop(self.bridge.events())
         for event in events:
             source = event.get("source")
             t = float(event.get("t") or 0.0)
@@ -889,6 +959,7 @@ class JavaRecorder:
             with (self.folder / "bridge-events.jsonl").open("a", encoding="utf-8") as raw:
                 for event in events:
                     raw.write(json.dumps(event, ensure_ascii=False, default=str) + "\n")
+        self._note_frames(events)
         for event in events:
             self.interpreter.feed(event)
         self.interpreter.tick(now)
@@ -931,6 +1002,32 @@ class JavaRecorder:
         self._human = [t for t in self._human if t > last_act]
         self._human_windows = {t: hwnd for t, hwnd in self._human_windows.items() if t > last_act}
         return written
+
+    def _note_frames(self, events: list[dict[str, Any]]) -> None:
+        """Frames opened and closed, as the bridge tells them (a frame added to or taken from
+        its desktop)."""
+        for event in events:
+            if event.get("kind") != "child_changed":
+                continue
+            t = float(event.get("t") or 0.0)
+            for side, opened in (("new", True), ("old", False)):
+                child = event.get(side)
+                if not isinstance(child, dict) or child.get("role") != "internal frame":
+                    continue
+                title = clean_name(str(child.get("name") or ""))
+                if not title:
+                    continue
+                was_opened, was_closed = self._frames_told.get(title, (None, None))
+                self._frames_told[title] = (t, was_closed) if opened else (was_opened, t)
+
+    def _open_at(self, title: str | None, t: float) -> bool:
+        """Whether the bridge told the frame open at ``t``: opened, and not closed before it."""
+        if title is None or title not in self._frames_told:
+            return False
+        opened, closed = self._frames_told[title]
+        if opened is None or opened > t:
+            return False
+        return closed is None or closed < opened or closed >= t
 
     def _before(self, act: Act) -> str | None:
         """The screen the act was done on: the last one read, unless that is a window over the
@@ -1362,7 +1459,11 @@ class JavaRecorder:
                 # while that frame is open on the screen before it (benchmark D06)
                 then = earlier if earlier is not None and earlier.hwnd == seen.window else screen
                 open_frames = {title for title, _ in then.frames}
-                worked = self._worked_in if self._worked_in in open_frames else None
+                # or open as the bridge told it: a screen read while the program was busy (the
+                # save before Close Form) left the form out, and the Navigator became the step's
+                # screen (benchmark D06, 11 rounds of 16, every record ending unclear)
+                told = self._open_at(self._worked_in, act.t)
+                worked = self._worked_in if self._worked_in in open_frames or told else None
                 frame = worked or then.active_frame()
             elif seen.frame is not None and self.main is not None and seen.window == self.main.hwnd:
                 self._worked_in = seen.frame

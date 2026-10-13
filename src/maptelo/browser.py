@@ -21,8 +21,9 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
-from playwright.sync_api import BrowserContext, Playwright
+from playwright.sync_api import BrowserContext, Page, Playwright
 from playwright.sync_api import Error as PlaywrightError
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from maptelo import formerly
 from maptelo.model.schema import ProcessModel
@@ -45,6 +46,25 @@ container often cannot give the sandbox what it needs."""
 
 class ProfileError(Exception):
     """The profile cannot be opened (a browser has it open, or it cannot start)."""
+
+
+class AddressError(RuntimeError):
+    """The address cannot be opened at all: no such server, no network, a refused connection."""
+
+
+def open_address(page: Page, url: str) -> None:
+    """Open where a person starts working. The page's document is enough: a page that keeps
+    loading (a news portal's adverts and trackers, which never let "load" come) is there to
+    work in already, and one slower still is worked in as it comes. Only an address that
+    cannot be reached at all stops the work, in a sentence a person reads."""
+    try:
+        page.goto(url, wait_until="domcontentloaded")
+    except PlaywrightTimeoutError:
+        return
+    except PlaywrightError as exc:
+        first = str(exc).splitlines()[0] if str(exc) else type(exc).__name__
+        reason = first.removeprefix("Page.goto: ").split(" at ")[0]
+        raise AddressError(f"cannot open {url}: {reason}") from exc
 
 
 @dataclass(frozen=True)

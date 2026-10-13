@@ -70,6 +70,61 @@ def test_login_and_price_change_are_recorded(
     assert "Price saved" in after.aria
 
 
+def test_the_picture_before_a_click_shows_what_was_typed_just_before(
+    browser: Browser, live_server: str, api: httpx2.Client, tmp_path: Path
+) -> None:
+    """The date typed into „Valid from” reaches the trace only with the click on „Save” (the
+    field is left then), so the screen before that click was read before the typing (the
+    Lite film of 13.10: „Click “Save”” showed the form without the date). Once the typing
+    stops the picture is taken again; the snapshot keeps what the screen held when read."""
+    from PIL import Image
+
+    context = browser.new_context(viewport={"width": 1280, "height": 860})
+    page = context.new_page()
+    login(page, live_server)
+    out = tmp_path / "typed"
+    recorder = Recorder(context, out, RecorderOptions(process=PROCESS))
+    recorder.start(live_server + "/pricing", page)
+
+    def typed(name: str, text: str) -> None:  # as the recording's loop sees it: the screen
+        page.get_by_role("textbox", name=name).click(click_count=3)  # is read on entering the
+        recorder.pump()  # field (the one left is written then), the typing comes after
+        page.keyboard.type(text, delay=30)
+
+    page.get_by_role("combobox", name="Customer").select_option("C001")
+    recorder.pump()
+    typed("CPN", "48211-A")
+    page.get_by_role("button", name="Search").click()
+    page.get_by_role("textbox", name="Price").wait_for()
+    recorder.pump()
+    typed("Price", "320.00")
+    typed("Valid from", "2026-12-01")
+    for _ in range(7):  # the person looks for „Save”; the loop goes on meanwhile
+        page.wait_for_timeout(100)
+        recorder.pump()
+    page.get_by_role("button", name="Save").click()
+    page.get_by_text("Price saved").wait_for()
+    recorder.pump()
+    trace = load_trace(recorder.stop())
+    context.close()
+
+    date = next(a for a in trace.actions() if a.target and a.target.name == "Valid from")
+    save = trace.actions()[-1]
+    assert save.target is not None
+    assert save.target.name == "Save"
+    before = trace.state(save.state_before)
+    assert before is not None
+    assert before.screenshot is not None
+    assert 'textbox "Valid from": 2026-12-01' not in before.aria  # read before the typing
+    assert date.target is not None
+    assert date.target.bbox is not None
+    x, y, width, height = date.target.bbox
+    field = Image.open(out / before.screenshot).convert("L")
+    field = field.crop((round(x) + 4, round(y) + 4, round(x + width) - 4, round(y + height) - 4))
+    ink = sum(1 for level in field.getdata() if level < 90)  # typed text, not the grey hint
+    assert ink > 30, "the picture before „Save” shows the date field empty"
+
+
 def test_row_choice_and_popup_are_captured(
     browser: Browser, live_server: str, api: httpx2.Client, tmp_path: Path
 ) -> None:

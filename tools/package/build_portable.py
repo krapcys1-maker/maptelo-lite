@@ -2,6 +2,7 @@
 it is unpacked, with no installation and no administrator rights (docs/08-srodowiska.md).
 
     python tools/package/build_portable.py --python-zip python-3.12.10-embed-amd64.zip \
+        --python32-zip python-3.12.10-embed-win32.zip \
         --wheel dist/maptelo-0.0.1-py3-none-any.whl --out build/Maptelo [--with-chromium] [--lite]
 
 ``--lite``: Maptelo Lite, which records a process and makes its map (steps, SOP, BPMN, report)
@@ -10,7 +11,9 @@ Chromium (the recording uses the company's Edge), ``Maptelo Lite.cmd`` instead o
 
     Maptelo/
       python/                  Python's own "embeddable" build, with Maptelo in site-packages
-      browsers/                Chromium for the robot (only --with-chromium; else Edge is used)
+      python32/                its 32-bit build as it comes: a 32-bit Java's bridge library is
+                               loaded there (desktop/jab_remote.py), no administrator rights
+      browsers/               Chromium for the robot (only --with-chromium; else Edge is used)
       Maptelo Studio.cmd       opens Studio in its own window, on Documents\\Maptelo
       maptelo.cmd              the command line
       policy.example.yaml      what IT may decide (docs/08-srodowiska.md)
@@ -82,6 +85,8 @@ ani w rejestrze Windows:
   Procesy            nagrania i mapy procesów
   data               zapamiętane logowania i ustawienia (nie należy ich udostępniać)
   python             środowisko Python z bibliotekami Maptelo Lite
+  python32           32-bitowe środowisko Python dla programów działających w 32-bitowej
+                     Javie (na przykład w 32-bitowej Javie 7 lub 8)
 
 Pierwsze kroki: kliknij „Nowy proces”, wprowadź nazwę i adres startowy (albo wybierz program
 Java), wykonaj proces w zwykły sposób i zakończ nagrywanie. Mapa zostanie utworzona
@@ -106,6 +111,8 @@ All data stays in this folder; nothing is written to system folders or the Windo
   Processes          recordings and process maps
   data               saved sign-ins and settings (do not share)
   python             the Python runtime with Maptelo Lite's libraries
+  python32           a 32-bit Python runtime for programs running on a 32-bit Java
+                     (for example a 32-bit Java 7 or 8)
 
 Getting started: click "New process", enter a name and the start address (or choose a Java
 program), perform the process as usual and finish the recording. The map is created
@@ -186,7 +193,13 @@ def _chromium(out: Path) -> None:
 
 
 def build(
-    python_zip: Path, wheel: Path, out: Path, *, with_chromium: bool = False, lite: bool = False
+    python_zip: Path,
+    wheel: Path,
+    out: Path,
+    *,
+    with_chromium: bool = False,
+    lite: bool = False,
+    python32_zip: Path | None = None,
 ) -> Path:
     if out.exists():
         shutil.rmtree(out)
@@ -195,6 +208,9 @@ def build(
     with zipfile.ZipFile(python_zip) as archive:
         archive.extractall(python)
     _patch_paths(python)
+    if python32_zip is not None:  # as it comes: it imports Maptelo from python's site-packages
+        with zipfile.ZipFile(python32_zip) as archive:
+            archive.extractall(out / "python32")
     _install(python, wheel, lite=lite)
     if with_chromium and not lite:
         _chromium(out)
@@ -216,13 +232,23 @@ def build(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--python-zip", type=Path, required=True)
+    parser.add_argument(
+        "--python32-zip",
+        type=Path,
+        help="the 32-bit embeddable Python, in which a 32-bit Java's bridge library is loaded",
+    )
     parser.add_argument("--wheel", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--with-chromium", action="store_true")
     parser.add_argument("--lite", action="store_true", help="Maptelo Lite: maps only, no robot")
     args = parser.parse_args()
     built = build(
-        args.python_zip, args.wheel, args.out, with_chromium=args.with_chromium, lite=args.lite
+        args.python_zip,
+        args.wheel,
+        args.out,
+        with_chromium=args.with_chromium,
+        lite=args.lite,
+        python32_zip=args.python32_zip,
     )
     print(f"built {built}")
 

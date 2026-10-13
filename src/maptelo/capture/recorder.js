@@ -418,9 +418,18 @@
     Array.from(edited).forEach(flushFill);
   }
 
+  // How much the person typed and when last: the recorder takes the screen's picture again
+  // once the typing stops, as what is typed reaches the trace only when the field is left.
+  window.__mapteloTyped = 0;
+  window.__mapteloTypedAt = 0;
+
   document.addEventListener("input", (e) => {
     const el = realTarget(e);
-    if (e.isTrusted && isTextInput(el)) edited.add(el);
+    if (e.isTrusted && isTextInput(el)) {
+      edited.add(el);
+      window.__mapteloTyped += 1;
+      window.__mapteloTypedAt = performance.now();
+    }
   }, true);
 
   // Installed once the page had loaded (a window window.open filled, benchmark g031): what
@@ -533,6 +542,8 @@
     ready: document.readyState,
     quietMs: performance.now() - window.__mapteloLastMutation,
     significant: window.__mapteloSignificant,
+    typed: window.__mapteloTyped || 0,
+    typedQuietMs: performance.now() - (window.__mapteloTypedAt || 0),
     document: performance.timeOrigin,
     passwords: Array.from(document.querySelectorAll("input[type=password]"))
       .map((input) => input.value).filter((v) => v.length > 0),

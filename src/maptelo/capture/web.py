@@ -26,7 +26,7 @@ from urllib.parse import urlsplit
 from playwright.sync_api import BrowserContext, Download, Frame, Page, Request, sync_playwright
 from playwright.sync_api import Error as PlaywrightError
 
-from maptelo.browser import SANDBOX, profile_context
+from maptelo.browser import SANDBOX, AddressError, open_address, profile_context
 from maptelo.capture.redact import redact_secrets
 from maptelo.data.secrets import covered_copy
 from maptelo.privacy import screenshot as take_screenshot
@@ -147,6 +147,10 @@ class Recorder:
         self._current_state: dict[int, str] = {}
         """Each window's last screen, by its place in ``windows``."""
         self._seen_page: dict[int, tuple[float, int]] = {}
+        self._current_shot: dict[int, Path] = {}
+        """Each window's last screen's picture, taken again when typing into a field stops."""
+        self._typed_seen: dict[int, int] = {}
+        """How much had been typed in each window's page when its picture was last taken."""
         self.windows: list[Page] = []
         """Every window of the recording, in the order they opened."""
         self._depths: list[int] = []
@@ -197,13 +201,27 @@ class Recorder:
         self._follow(self.page)
         self.context.on("page", self._follow)  # a chooser, an approval, a print preview
         self._queue.append((time.time(), {"type": "navigate", "value": url, "url": url}))
-        self.page.goto(url)
+        try:
+            open_address(self.page, url)  # a portal that never ends loading is recorded too
+        except AddressError:
+            self._forget()
+            raise
         with contextlib.suppress(PlaywrightError):
             self.page.bring_to_front()  # it opened behind Studio's window (the 11.10 test)
         self._install_in_open_documents()
         self._queue = [item for item in self._queue if item[1]["type"] != "navigated"]
         self.pump()
         return self.page
+
+    def _forget(self) -> None:
+        """Nothing was recorded (the start address cannot be reached): no recording is left
+        behind to be listed as one, only a folder that held something else stays."""
+        if self._writer is not None:
+            self._writer.close()
+            self._writer = None
+        self.trace_path.unlink(missing_ok=True)
+        with contextlib.suppress(OSError):
+            self.out_dir.rmdir()  # only when empty
 
     def _follow(self, page: Page) -> None:
         """Record in this window too: what the person does there and what it shows."""
@@ -394,6 +412,7 @@ class Recorder:
             return 0
         self._keep_downloads()
         if not self._queue and not self._page_changed():
+            self._retake_after_typing()
             return 0
         page_info = self._settle()
         batch, self._queue = sorted(self._queue, key=lambda item: item[0]), []
@@ -410,7 +429,35 @@ class Recorder:
         if state is not None:
             self._writer.write(state)
             self._current_state[window] = state.id
+            if state.screenshot is not None:
+                self._current_shot[window] = self.out_dir / state.screenshot
+            else:
+                self._current_shot.pop(window, None)
         return written
+
+    def _retake_after_typing(self) -> None:
+        """The current screen's picture again once the person stopped typing into a field.
+        What is typed reaches the trace only when the field is left, with the click on „Save”,
+        so the screen before that click showed the form without it (the Lite film of 13.10:
+        „Click “Save”” with an empty date). Only the picture: the snapshot keeps what the
+        screen held when it was read, and every event of that screen comes after the typing."""
+        if not self.options.screenshots:
+            return
+        info = self._page_info()
+        window, page = self._shown()
+        shot = self._current_shot.get(window)
+        if info is None or shot is None:
+            return
+        typed = int(info.get("typed") or 0)
+        if typed == self._typed_seen.get(window, 0):
+            return
+        if float(info.get("typedQuietMs") or 0) < self.options.settle_ms:
+            return  # still typing
+        try:
+            take_screenshot(page, shot, private=self.options.private, type="jpeg", quality=60)
+        except PlaywrightError:
+            return
+        self._typed_seen[window] = typed
 
     def _page_changed(self) -> bool:
         info = self._page_info()
@@ -476,6 +523,7 @@ class Recorder:
                 screenshot = None
         if info is not None:
             self._seen_page[window] = (info["document"], info["significant"])
+            self._typed_seen[window] = int(info.get("typed") or 0)
         return TraceState(
             id=state_id,
             t=round(time.time() - self._t0, 3),

@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import Any
 
 from maptelo.capture.java import (
+    Echoes,
     Interpreter,
     display_name,
     program_name,
@@ -59,6 +60,48 @@ def test_combo_is_saved_before_next_click_even_without_focus_event() -> None:
     assert [a.type for a in actions] == ["select", "click"]
     assert actions[0].t == 1.0
     assert actions[0].value == "Return"
+
+
+def test_a_row_of_a_list_of_values_clicked_is_a_step() -> None:
+    """EBS „Items” (a list of values over the price list): the bridge tells the click on the
+    list itself and its row as the list's active descendant. The click was lost, so the map
+    typed „26386%” and clicked an OK no row had enabled; it is the click on that row."""
+    items = [("internal frame", "Items"), ("frame", "Wiorek Applications - WRK1")]
+    row = "Item Number:26386-F\tDescription:Pudło fasonowe 200x150x100 białe\tUOM:Ea"
+    lov = "0/0/1/0/1/0/0/1/0/1/0/0"
+    it = Interpreter()
+    it.feed(ev("active_descendant", 4.02, "list", "", lov, chain=items,
+               new={"role": "label", "name": row, "index": 0}))  # fmt: skip
+    it.feed(ev("mouse_pressed", 4.064, "list", "", lov, chain=items))
+    it.feed(ev("mouse_clicked", 4.083, "list", "", lov, chain=items))
+    it.feed(ev("mouse_pressed", 4.833, "push button", "OK ALT O", "0/0/1/0/2/1", chain=items[:1]))
+    it.feed(ev("mouse_clicked", 4.84, "push button", "OK ALT O", "0/0/1/0/2/1", chain=items[:1]))
+    it.finish(6.0)
+    acts = it.take()
+    assert [(a.type, a.seen.node.role, a.seen.node.name) for a in acts if a.seen] == [
+        ("click", "label", row),
+        ("click", "push button", "OK ALT O"),
+    ]
+    chosen = acts[0].seen
+    assert chosen is not None
+    assert (chosen.node.path, chosen.frame) == (lov + "/0", "Items")
+    nothing = Interpreter()  # a click on a list with no row told: no step
+    nothing.feed(ev("mouse_clicked", 1.0, "list", "", lov, chain=items))
+    nothing.finish(2.0)
+    assert nothing.take() == []
+    # a combo box's own popup list (SRK „Powód zmiany”, the list under the box): its choice
+    # is the step, the click on the list is not another one
+    box, popup = "0/0/1/0/0/17", "0/0/1/0/0/17/0/0/0/0"
+    combo = Interpreter()
+    combo.feed(ev("mouse_clicked", 1.0, "combo box", "Powód zmiany", box))
+    combo.feed(ev("active_descendant", 1.1, "list", "", popup,
+                  new={"role": "label", "name": "Negocjacje handlowe", "index": 0}))  # fmt: skip
+    combo.feed(ev("active_descendant", 1.15, "combo box", "Powód zmiany", box,
+                  new={"role": "label", "name": "Negocjacje handlowe"}))  # fmt: skip
+    combo.feed(ev("mouse_pressed", 1.2, "list", "", popup))
+    combo.feed(ev("mouse_clicked", 1.21, "list", "", popup))
+    combo.finish(3.0)
+    assert [(a.type, a.value) for a in combo.take()] == [("select", "Negocjacje handlowe")]
 
 
 def test_detached_cell_editor_retains_table_window_and_column() -> None:
@@ -317,6 +360,60 @@ def test_a_menu_command_keeps_the_screen_it_was_chosen_on(tmp_path, monkeypatch)
     assert captures == []
 
 
+def test_a_menu_command_is_on_the_form_the_bridge_tells_open_though_a_busy_read_missed_it(
+    tmp_path,
+):
+    """The screen read while the program was saving left the price list's form out, so Close
+    Form, chosen on that form, became a step of the Navigator (benchmark D06: 11 rounds of 16,
+    every record ending unclear and 15 s slower). The bridge told the form open until after
+    the command: the command is on the form; a form closed before it is not."""
+    from types import SimpleNamespace
+
+    from maptelo.capture.java import Act, JavaRecorder, JavaRecorderOptions, Seen
+    from maptelo.desktop.jab import Node, Window
+    from maptelo.desktop.screen import build_screen
+
+    shown = frozenset({"enabled", "showing", "visible"})
+    main = Window(1, "Wiorek Applications - WRK1", 7, True)
+    rec = JavaRecorder(tmp_path, JavaRecorderOptions())
+    rec.app = "wiorek-applications"
+    rec._windows = {1: main}
+    written = []
+    rec.writer = SimpleNamespace(write=written.append)
+    busy = build_screen(  # only the Navigator: the price list's form left out
+        main.title,
+        1,
+        [
+            Node("0", "frame", main.title, states=shown, box=(0, 0, 1920, 1040)),
+            Node(
+                "0/1",
+                "internal frame",
+                "Navigator - Pricing Manager",
+                states=shown,
+                box=(20, 120, 440, 380),
+            ),
+            Node("0/1/0", "push button", "Open", states=shown, box=(30, 460, 70, 26)),
+        ],
+    )
+    rec._state_screens = {"s009": busy}
+    rec._screens = {1: busy}
+    rec._worked_in = "Price Lists"  # its fields were typed into
+    rec._note_frames([
+        {"kind": "child_changed", "t": 2.5, "old": None,
+         "new": {"role": "internal frame", "name": "Price Lists"}},
+        {"kind": "child_changed", "t": 8.473, "new": None,
+         "old": {"role": "internal frame", "name": "Price Lists"}},
+    ])  # fmt: skip
+    close = Node("0/0/1/1/0/4", "menu item", "Close Form")
+    chosen = Seen(close, [("frame", main.title)], 1)
+    rec._write_act(Act("click", 8.45, chosen, menu="File"), "s009", "s010")
+    assert written[-1].url == "java://wiorek-applications/Price Lists"
+    rec._write_act(Act("click", 9.2, chosen, menu="File"), "s009", "s011")  # closed by then
+    assert written[-1].url == "java://wiorek-applications/Navigator - Pricing Manager"
+    assert not rec._open_at("Price Lists", 1.0)  # not open yet
+    assert not rec._open_at("Navigator - Pricing Manager", 5.0)  # never told: not known
+
+
 def test_new_dialog_without_a_next_human_action_remains_the_result(tmp_path, monkeypatch):
     from types import SimpleNamespace
 
@@ -344,6 +441,39 @@ def typed(it: Interpreter, t: float, name: str, path: str, value: str) -> None:
     it.feed(ev("focus", t + 0.01, "text", name, path, text=value))
     for i in range(1, len(value) + 1):
         it.feed(ev("text_changed", t + 0.02 * i, "text", name, path, text=value[:i]))
+
+
+def test_the_list_of_a_combo_box_told_early_is_no_enter() -> None:
+    """A date typed, then the combo box below it clicked: its list opened and the bridge told
+    it before the press, on a busy computer 85 ms before (benchmark D01 while another round
+    ran: an Enter after the date, and the robot stopped on every row). The list is the press's
+    own doing; an Enter whose answer came first still counts."""
+    date, box = "0/0/1/0/0/12", "0/0/1/0/0/17"
+    dialog = [("dialog", "Nowa wersja ceny – K0007"), ("frame", "SRK 4.2.7")]
+
+    def opened(it: Interpreter, t: float) -> None:
+        it.feed(ev("popup_visible", t, "combo box", "Powód zmiany", box, chain=dialog))
+        it.feed({"kind": "child_changed", "t": t + 0.034, "source": {
+            "node": {"path": "0/0/1", "role": "layered pane", "name": ""}, "chain": dialog,
+            "window": 1}, "new": {"role": "panel", "name": ""}})  # fmt: skip
+        it.feed(ev("mouse_pressed", t + 0.119, "combo box", "Powód zmiany", box, chain=dialog))
+        it.feed(ev("mouse_clicked", t + 0.135, "combo box", "Powód zmiany", box, chain=dialog))
+
+    busy = Interpreter()
+    typed(busy, 1.0, "Obowiązuje od", date, "2026-11-01")
+    opened(busy, 2.0)
+    busy.finish(4.0)
+    assert [(a.type, a.value) for a in busy.take()] == [("fill", "2026-11-01")]
+
+    answered = Interpreter()  # the program answered the date before the list was opened
+    typed(answered, 1.0, "Obowiązuje od", date, "2026-11-01")
+    answered.feed({"kind": "visible_data_changed", "t": 1.6, "source": {"node": {"role": "table"}}})
+    opened(answered, 2.0)
+    answered.finish(4.0)
+    assert [(a.type, a.value) for a in answered.take()] == [
+        ("fill", "2026-11-01"),
+        ("press", "Enter"),
+    ]
 
 
 def test_typing_then_the_screen_reacting_is_a_fill_and_enter() -> None:
@@ -827,3 +957,42 @@ def test_a_menu_item_read_with_its_menu_open_is_not_the_button_at_its_path() -> 
         element_info(Seen(gone, [], 1), open_menu).role,
         element_info(Seen(gone, [], 1), open_menu).bbox,
     ) == ("menuitem", None)
+
+
+def test_an_event_java_8_tells_twice_is_one_act() -> None:
+    """Java 8's bridge (a 32-bit JRE 8, 13.10) tells a dialog's focus, press and click twice,
+    some 10 ms apart: the map clicked the row of a list of values twice. A JDK 21 tells each
+    once; the echo is dropped as the events come (the events as Java 8 told them)."""
+    lov = [("dialog", "Kontrahenci"), ("frame", "Cennik testowy")]
+    rows = "0/0/1/0/0/0/0"
+    row = {"role": "label", "name": "K0003 Piekarnia Gamma", "index": 2}
+    told = [
+        ev("focus", 6.965, "list", "", rows, window=2, chain=lov),
+        ev("focus", 6.974, "list", "", rows, window=2, chain=lov),
+        ev("active_descendant", 8.431, "list", "", rows, window=2, chain=lov, new=row),
+        ev("mouse_pressed", 8.453, "list", "", rows, window=2, chain=lov),
+        ev("mouse_pressed", 8.463, "list", "", rows, window=2, chain=lov),
+        ev("mouse_clicked", 8.539, "list", "", rows, window=2, chain=lov),
+        ev("mouse_clicked", 8.550, "list", "", rows, window=2, chain=lov),
+    ]
+
+    def rows_clicked(events: list[dict[str, Any]]) -> list[str]:
+        it = Interpreter()
+        for event in events:
+            it.feed(event)
+        it.finish(10.0)
+        return [act.seen.node.name for act in it.take() if act.seen is not None]
+
+    assert rows_clicked(told) == ["K0003 Piekarnia Gamma"] * 2  # as the bridge told it
+    assert rows_clicked(Echoes().drop(told)) == ["K0003 Piekarnia Gamma"]
+
+
+def test_a_person_clicking_twice_quickly_is_no_echo() -> None:
+    told = [
+        ev("mouse_clicked", 1.0, "push button", "Dalej", "0/4"),
+        ev("mouse_clicked", 1.12, "push button", "Dalej", "0/4"),  # a quick double click
+    ]
+    assert Echoes().drop(told) == told
+    across = Echoes()  # an echo told in the next batch is dropped too
+    assert across.drop(told[:1]) == told[:1]
+    assert across.drop([ev("mouse_clicked", 1.008, "push button", "Dalej", "0/4")]) == []

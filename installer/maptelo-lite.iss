@@ -83,6 +83,7 @@ Name: "startmenu"; Description: "{cm:StartMenuIcon}"; GroupDescription: "{cm:Sho
 ; old package's metadata would give its version, an old module would still import). The
 ; person's processes and sign-ins are in other folders.
 Type: filesandordirs; Name: "{app}\python"
+Type: filesandordirs; Name: "{app}\python32"
 
 [Files]
 Source: "{#Source}\*"; Excludes: "Maptelo Lite.cmd,maptelo-lite.ico"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -105,6 +106,7 @@ Filename: "{app}\python\pythonw.exe"; Parameters: "-m maptelo.lite studio --work
 ; the program and what it keeps for the person (sign-ins: cookies, settings, its log); their
 ; processes and maps stay, and so the folder with them
 Type: filesandordirs; Name: "{app}\python"
+Type: filesandordirs; Name: "{app}\python32"
 Type: filesandordirs; Name: "{app}\data"
 Type: dirifempty; Name: "{app}\{cm:WorkFolder}"
 Type: dirifempty; Name: "{app}"
