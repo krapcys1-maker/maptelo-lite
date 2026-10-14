@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import queue
 import re
 import secrets
 import time
@@ -28,11 +29,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, ClassVar
 
-from maptelo.desktop.jab import Bridge, Node, Window, connect
+from maptelo.desktop.jab import Bridge, Node, Table, Window, connect
 from maptelo.desktop.screen import (
     Element,
     Screen,
     build_screen,
+    chosen_in_lists,
     clean_name,
     fill_block_cells,
     status_labels,
@@ -68,6 +70,8 @@ CHOOSERS = frozenset({"combo box"})
 BUTTONS = frozenset({"push button", "toggle button"})
 """Pressed then released: a click, even when the bridge cannot tell the click (see Interpreter)."""
 LIST_ROLES = frozenset({"list", "table", "tree"})
+DOUBLE_ROLES = frozenset({"list", "table", "tree", "label", "list item"})
+"""What a person double-clicks to open it: a row of a table, a list or a tree."""
 
 
 def title_template(title: str) -> str:
@@ -195,6 +199,20 @@ class Act:
     row: RowContext | None = None
     column: str | None = None
     cell_index: int | None = None
+    clicks: int = 1
+    """2: a double click (its second click came within half a second, on the same row)."""
+    told_index: int | None = None
+    """For a click in a table: the chosen cell's place as the table told it (row * columns +
+    column), for a table gone before it could be read (a list closed by a double click)."""
+    ended: float | None = None
+    """For a double click: when its second click came. What the program does after it belongs
+    to the act's screen after; the person goes on only later (benchmark M2 r8: the screen after
+    the list of values was read at its second click, before WCR put the chosen Indeks in)."""
+
+    @property
+    def end(self) -> float:
+        """When the act was over: its second click for a double click, else its time."""
+        return self.ended if self.ended is not None else self.t
 
 
 class Echoes:
@@ -224,6 +242,21 @@ class Echoes:
         return kept
 
 
+def _told_again(first: Seen, second: Seen) -> bool:
+    """The same element told twice: at its place, or, when the window's tree changed between
+    (a frame the first click of a double click opened, benchmark M4 r4; a list of values
+    closing, M3 r4), in the same window with the same role and name."""
+    if first.key == second.key:
+        return True
+    one, other = first.node, second.node
+    return (
+        first.window == second.window
+        and one.role == other.role
+        and bool(one.name)
+        and one.name == other.name
+    )
+
+
 @dataclass
 class Interpreter:
     """Turns the bridge's events into actions (``acts``). Pure: fed events and ticks."""
@@ -232,6 +265,9 @@ class Interpreter:
     focus: Seen | None = None
     editing: Editing | None = None
     last_click: tuple[float, Seen] | None = None
+    clicked: Act | None = None
+    """The last click on a row of a table, a list or a tree: its second click makes it a
+    double click (it may be taken already, but it is written only once the screen settles)."""
     activity_at: float = -1.0
     reacted_at: float = -1.0
     """The program's first reaction after the last typing into the field being edited."""
@@ -239,7 +275,13 @@ class Interpreter:
     """A field's text written again unchanged this long after the last typing is the
     program's doing (the bridge reads a field's text when it tells the change: a quick burst
     of typing shows the last text in every event)."""
+    told_per_char_s: float = 0.008
+    """How long the bridge may take to tell each character of a text typed at once: the last
+    change of a long one comes late, with the text it showed all along (benchmark M3: a path
+    of 75 characters, its last change told 0.45 s after the first), and is still the typing."""
     pressed: tuple[float, Seen] | None = None
+    pressed_last: tuple[float, Seen] | None = None
+    """The button the person pressed last, kept after its click came."""
     """A button pressed whose click has not come yet."""
     lost_click_s: float = 0.6
     """A press without its click this long after is a click whose element went away."""
@@ -264,6 +306,7 @@ class Interpreter:
     the combo box's value, not a list whose row is a step."""
     keys_seen: bool = False
     """Navigation keys are read from the keyboard: nothing has to be told from reactions."""
+    FILLED_S: ClassVar[float] = 0.3
     react_s: float = 0.25
     react_window_s: float = 1.0
     """A window opened while a field was typed into, nothing else reacting: a click the bridge
@@ -272,6 +315,12 @@ class Interpreter:
     """The program's reaction to the typing so far is only a window that opened."""
     known: dict[tuple[int, str], tuple[float, str | None]] = field(default_factory=dict)
     """What fields held on the last screen captured (their text before the person typed)."""
+    wrote_at: list[float] = field(default_factory=list)
+    """When the program itself wrote fields (a list of values' row, a query's records, a form
+    read again after a save): a combo box it set at that moment is no choice of the person."""
+    combo_touched: bool = False
+    """The person was at the combo box whose choice is pending (clicked it, its list shown, the
+    keys in it)."""
     described: dict[tuple[str, str], tuple[float, Seen]] = field(default_factory=dict)
     """The latest full description of each (role, name): a button that closes its question
     is described after it closed, without the question around it."""
@@ -324,6 +373,7 @@ class Interpreter:
             self._lost_click()
             if node.role in BUTTONS:
                 self.pressed = (t, seen)
+                self.pressed_last = (t, seen)
             if node.role.endswith("menu item"):
                 self._click(
                     seen, t
@@ -333,6 +383,15 @@ class Interpreter:
         elif kind == "active_descendant":
             new = event.get("new") or {}
             if node.role in CHOOSERS and new.get("name"):
+                if self.combo is not None and self.combo.key != seen.key:
+                    # the box before this one was chosen in (its list's first row taken, SRK and
+                    # WCR „Powód zmiany”), then this one opened: that choice is made first
+                    self._choose_combo(t)
+                self.combo_touched = (
+                    (self.combo is not None and self.combo.key == seen.key)
+                    or self._is_focus(seen)
+                    or self._own_popup(seen, t)
+                )
                 self.combo, self.combo_choice = seen, str(new["name"])
                 self.combo_at = t
                 self.choosers.add(seen.key)
@@ -494,12 +553,19 @@ class Interpreter:
             and t - self.last_click[0] < 1.0
         )
         if not mine or seen.node.role not in TEXT_ROLES:
+            if seen.node.role in TEXT_ROLES:
+                # the program wrote the field: what it holds before the person types is this,
+                # not what an earlier screen showed (WCR's query mode empties the block, then
+                # the person types the item the line had: that is typing, benchmark M2)
+                self.known[seen.key] = (t, seen.node.text)
+                self.wrote_at = [*self.wrote_at[-50:], t]
             self._activity(t, (seen.node.role, seen.node.name))
             return
         if self.editing is None or self.editing.seen.key != seen.key:
             self.editing = self._new_edit(seen, t)
         edit = self.editing
-        if edit.changed and seen.node.text == edit.last and t - edit.changed_at >= self.retyped_s:
+        rewritten_after = max(self.retyped_s, len(edit.last or "") * self.told_per_char_s)
+        if edit.changed and seen.node.text == edit.last and t - edit.changed_at >= rewritten_after:
             # the field set again to what it shows, a while after the typing: the program
             # did it (benchmark D05: Enter in the customer's field, SRK writes the code back)
             self._activity(t)
@@ -562,6 +628,18 @@ class Interpreter:
                 self.acts.append(Act("click", t, Seen(row, seen.chain, seen.window), value=None))
             return
         if node.role in CLICKABLE or node.role in ("label", "list item", "table"):
+            once = self.clicked
+            if (
+                once is not None
+                and node.role in DOUBLE_ROLES
+                and once.seen is not None
+                and _told_again(once.seen, seen)
+                and 0.06 < t - once.t < 0.5
+                and once.clicks == 1
+            ):
+                once.clicks = 2  # its second click: a double click (a row that opens)
+                once.ended = t
+                return
             last = self.acts[-1] if self.acts else None
             if (
                 last is not None
@@ -575,7 +653,10 @@ class Interpreter:
             menu = self.menu_open if node.role.endswith("menu item") else None
             chosen = self.list_choice.get(seen.key) if node.role == "table" else None
             cell = chosen[1] if chosen is not None else None
-            self.acts.append(Act("click", t, seen, menu=menu, cell=cell))
+            told = chosen[2] if chosen is not None else None
+            act = Act("click", t, seen, menu=menu, cell=cell, told_index=told)
+            self.acts.append(act)
+            self.clicked = act if node.role in DOUBLE_ROLES else None
             if node.role.endswith("menu item"):
                 self.menu_open = None
 
@@ -616,7 +697,35 @@ class Interpreter:
         if key in ("Enter", "Escape", "F11", "Ctrl+F11", "ArrowDown", "ArrowUp", "PageDown"):
             target = self.focus
             self._flush(t)
+            if key == "Enter" and self._row_taken(target, t):
+                return
             self.acts.append(Act("press", t, target, value=key))
+
+    def _row_taken(self, target: Seen | None, t: float) -> bool:
+        """Enter in a list (a list of values) whose row the arrows came to takes that row: the
+        row is the step, as a click on it would be (people at Oracle Forms keep to the keys); the
+        arrows that went there are no steps of their own (another record's row is elsewhere)."""
+        if target is None or target.node.role not in LIST_ROLES:
+            return False
+        chosen = self.list_choice.get(target.key)
+        if chosen is None:
+            return False
+        while (
+            self.acts
+            and self.acts[-1].type == "press"
+            and self.acts[-1].value in ("ArrowDown", "ArrowUp", "PageDown")
+            and self.acts[-1].seen is not None
+            and self.acts[-1].seen.key == target.key
+        ):
+            self.acts.pop()
+        _, name, place = chosen
+        if target.node.role == "table":
+            self.acts.append(Act("click", t, target, cell=name))
+            return True
+        path = f"{target.node.path}/{place}" if place is not None else target.node.path
+        row = Node(path, "label", name, states=frozenset({"showing"}), box=(-1, -1, -1, -1))
+        self.acts.append(Act("click", t, Seen(row, target.chain, target.window), value=None))
+        return True
 
     def _new_edit(self, seen: Seen, t: float) -> Editing:
         cell = self.table_edit
@@ -646,7 +755,18 @@ class Interpreter:
         edit.changed = False
 
     def _choose_combo(self, t: float) -> None:
-        if self.combo is not None and self.combo_choice:
+        if (
+            self.combo is not None
+            and self.combo_choice
+            and (
+                self.combo_touched
+                or not (
+                    self._program_filled(self.combo_at)
+                    or self._answers_a_press(self.combo, self.combo_at)
+                )
+            )
+            and not self._typed_in(self.combo, self.combo_choice)
+        ):
             self.acts.append(
                 Act(
                     "select",
@@ -659,6 +779,47 @@ class Interpreter:
         self.combo = None
         self.combo_choice = None
         self.combo_at = 0.0
+        self.combo_touched = False
+
+    def _typed_in(self, combo: Seen, value: str) -> bool:
+        """The value was typed into the box's own field just before (a combo box one types
+        into, WCR's Waluta: EU completed to EUR): that typing is the step, not another one."""
+        last = self.acts[-1] if self.acts else None
+        return (
+            last is not None
+            and last.type == "fill"
+            and last.seen is not None
+            and last.seen.window == combo.window
+            and last.seen.node.path.startswith(combo.node.path + "/")
+            and str(last.value or "").strip() == value.strip()
+        )
+
+    def _own_popup(self, seen: Seen, t: float) -> bool:
+        """The combo box's own list was shown just now (not a menu's, nor another box's)."""
+        if self.popup is None or not 0 <= t - self.popup[0] < 2.0:
+            return False
+        window, path = self.popup[1]
+        return window == seen.window and (
+            path == seen.node.path or path.startswith(seen.node.path + "/")
+        )
+
+    ANSWER_S: ClassVar[float] = 0.5
+    """How soon after a button's press the program's own change of a box comes."""
+
+    def _answers_a_press(self, combo: Seen, at: float) -> bool:
+        """The box changed just after the person pressed another button (Java's file chooser
+        shows the chosen file's folder in „Look In:” 50 ms after Open, benchmark M3 r5): the
+        program's answer to the button, not the person's choice."""
+        if self.pressed_last is None:
+            return False
+        pressed_at, button = self.pressed_last
+        return button.key != combo.key and 0 <= at - pressed_at <= self.ANSWER_S
+
+    def _program_filled(self, at: float) -> bool:
+        """The program wrote other fields just before ``at`` (the row a list of values or a
+        query filled): a combo box set then, untouched by the person, is the program's too
+        (WCR's J.m. after a list of values' row; benchmark M2)."""
+        return any(at - self.FILLED_S <= wrote <= at + 0.02 for wrote in self.wrote_at)
 
     def finish(self, t: float) -> None:
         self._lost_click()
@@ -801,6 +962,8 @@ class JavaRecorder:
         self._keys: Any = None
         self._buffer: list[dict[str, Any]] = []
         self._echoes = Echoes()
+        self._said: queue.SimpleQueue[tuple[float, str]] = queue.SimpleQueue()
+        """What the person said about what they were doing (Studio's box), waiting to be written."""
         """Events that came while a screen was read: taken in the next pump."""
         self._texts: dict[tuple[int, str], list[tuple[float, str | None]]] = {}
         """Each field's text as it changed (bridge time), to read a screen as it was."""
@@ -810,6 +973,8 @@ class JavaRecorder:
         self._state_screens: dict[str, Screen] = {}
         self._worked_in: str | None = None
         """The frame of the main window the person last did something in."""
+        self._worked_at: float | None = None
+        """When (the act's time) the person last did something in that frame."""
         self._frames_told: dict[str, tuple[float | None, float | None]] = {}
         """Each frame's last opening and closing as the bridge told them (bridge time): a screen
         read while the program is busy may leave out a frame that is open."""
@@ -822,6 +987,8 @@ class JavaRecorder:
         """When the person clicked or typed (bridge time)."""
         self._last_event = 0.0
         self._opened_at: dict[int, float] = {}
+        self._kinds: dict[int, str] = {}
+        """Each window's role as the bridge tells its root (dialog, frame, window), read once."""
         self._first_event: dict[int, float] = {}
         """Each window's first event: when it was there, though noticed later."""
         """When each window of the program appeared (bridge time)."""
@@ -910,11 +1077,12 @@ class JavaRecorder:
         the person's clicks noted."""
         assert self.bridge is not None
         events = self._echoes.drop(self.bridge.events())
+        rows: list[dict[str, Any]] = []
         for event in events:
             source = event.get("source")
             t = float(event.get("t") or 0.0)
             if isinstance(source, dict) and "node" in source:
-                source["window"] = self._window_of(source)
+                source["window"] = self._window_of(source, t)
                 hwnd = int(source["window"] or 0)
                 self._first_event[hwnd] = min(t, self._first_event.get(hwnd, t))
                 if hwnd in self._opened_at:  # it was there before it was noticed
@@ -931,9 +1099,38 @@ class JavaRecorder:
                 elif kind in ("mouse_pressed", "mouse_clicked"):
                     self._human.append(t)
                     self._human_windows[t] = hwnd
+                elif kind == "selection_changed" and node.get("role") == "list":
+                    told = self._list_row(hwnd, node, t, source)
+                    if told is not None:
+                        rows.append(told)
             if event.get("kind") not in ("visible_data_changed",):
                 self._last_event = max(self._last_event, t)
+        if rows:  # each told right after its selection
+            events = sorted([*events, *rows], key=lambda e: float(e.get("t") or 0.0))
         return events
+
+    def _list_row(
+        self, hwnd: int, node: dict[str, Any], t: float, source: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """The row now chosen in a list the bridge told a selection of (a Swing list says no
+        more): read from the list, told as its active descendant, as EBS's lists tell it
+        (WCR's Navigator: „Funkcje”, the function clicked; benchmark M1, M2)."""
+        assert self.bridge is not None
+        path = str(node.get("path") or "")
+        try:
+            count = int(node.get("children") or 0)
+            chosen = self.bridge.children_selected(hwnd, path, count) if count > 0 else []
+            row = self.bridge.node(hwnd, f"{path}/{chosen[0]}") if chosen else None
+        except Exception:  # the list is gone (its window closed): nothing to tell
+            return None
+        if row is None or not row.name:
+            return None
+        return {
+            "kind": "active_descendant",
+            "t": t + 0.0001,
+            "source": source,
+            "new": {"role": "label", "name": row.name, "index": chosen[0]},
+        }
 
     def pump(self) -> int:
         """Turn what happened since the last call into trace events; returns how many."""
@@ -943,13 +1140,23 @@ class JavaRecorder:
         # the windows first: an event of a window that just opened is put in it
         windows = {w.hwnd: w for w in self._app_windows()}
         changed = set(windows) != set(self._windows)
+        # a window that can answer an act came or went: one with a title, or a dialog (a
+        # question may have none). A bare untitled window (Swing's popup, an input method's)
+        # answers nothing the person did (benchmark M1 r2: an Enter nobody pressed in Indeks)
+        for unread in windows.keys() - self._kinds.keys():
+            self._kinds[unread] = self._root_role(unread)
+        titled = self._answering(windows) != self._answering(self._windows)
+        came = [w.title for h, w in windows.items() if h not in self._windows]
+        went = [w.title for h, w in self._windows.items() if h not in windows]
         if changed:
             self._windows_opened(windows, now)
             self._last_event = max(self._last_event, now)
         events = self._buffer + self._take_events()
         self._buffer = []
-        if changed:
-            events.append({"kind": "windows_changed", "t": now})
+        if titled:  # what came and went is kept for whoever reads the raw events
+            events.append({"kind": "windows_changed", "t": now, "came": came, "went": went})
+        elif changed:  # told in the raw events only: no act answers it
+            events.append({"kind": "windows_untitled", "t": now, "came": came, "went": went})
         if self._keys is not None:
             events += [{"kind": "key", "t": now, "key": k} for k in self._keys.pressed()]
         events.sort(key=lambda e: float(e.get("t") or 0.0))
@@ -966,10 +1173,11 @@ class JavaRecorder:
         for act in self.interpreter.take():
             self._row_of(act)
             self._pending.append((act, self._before(act)))
+        self._write_said()
         settled = self._settle_earlier()
         if not self._pending:
             return settled
-        last_act = max(act.t for act, _ in self._pending)
+        last_act = max(act.end for act, _ in self._pending)  # a double click's second click
         went_on = next((t for t in self._human if t > last_act + self.HUMAN_GAP), None)
         quiet = now - max(self._last_event, last_act) >= self.options.settle_ms / 1000
         overdue = now - last_act >= self.options.max_settle_ms / 1000
@@ -1020,6 +1228,24 @@ class JavaRecorder:
                 was_opened, was_closed = self._frames_told.get(title, (None, None))
                 self._frames_told[title] = (t, was_closed) if opened else (was_opened, t)
 
+    OPENED_WITH: ClassVar[float] = 0.3
+    """How long before an act's time (its click) a frame it opened may be told open."""
+
+    def _opened_since(self, since: float | None, t: float) -> str | None:
+        """The frame the bridge told opened after ``since`` and still open at ``t``, the
+        newest: what the act done at ``since`` opened (Znajdź opens the price list's lines
+        over the find window: the person works in them now, benchmark M2)."""
+        if since is None:
+            return None
+        opened = [
+            (at, title)
+            for title, (at, _) in self._frames_told.items()
+            # the bridge tells the form open between the press and the click it answers
+            # (benchmark M2 r3: 6.023 between Znajdź's 6.016 and 6.044)
+            if at is not None and since - self.OPENED_WITH < at <= t and self._open_at(title, t)
+        ]
+        return max(opened)[1] if opened else None
+
     def _open_at(self, title: str | None, t: float) -> bool:
         """Whether the bridge told the frame open at ``t``: opened, and not closed before it."""
         if title is None or title not in self._frames_told:
@@ -1058,7 +1284,7 @@ class JavaRecorder:
         written = 0
         while len(self._pending) > 1:
             first = self._pending[0][0]
-            went_on = next((t for t in self._human if t > first.t + self.HUMAN_GAP), None)
+            went_on = next((t for t in self._human if t > first.end + self.HUMAN_GAP), None)
             if went_on is None or went_on > self._pending[-1][0].t:
                 break
             group = [entry for entry in self._pending if entry[0].t < went_on]
@@ -1097,9 +1323,26 @@ class JavaRecorder:
         try:
             table = self.bridge.table(window, seen.node.path)
         except Exception:
-            return
+            table = None
+        place = act.cell_index
         if table is None:
-            return
+            # the table's window closed with the click: a double click in a list of values takes
+            # the row and closes the list at once (benchmark M2, „Indeksy”). The table as the
+            # screen before the click showed it, the row the table told chosen
+            table = self._shown_table(seen.node.path, window)
+            if table is None or not table.headers:
+                return
+            place = act.told_index if act.told_index is not None else place
+            if place is None and act.cell:
+                hits = [i for i, row in enumerate(table.rows) if act.cell in row]
+                place = (
+                    hits[0] * len(table.headers) + table.rows[hits[0]].index(act.cell)
+                    if len(hits) == 1
+                    else None
+                )
+            if place is None or place < 0:
+                return
+            table = replace(table, selected=[place // len(table.headers)])
         # A detached editor may flush after the table lost its selection. The
         # active descendant recorded when editing started identifies its cell.
         index = (
@@ -1116,8 +1359,8 @@ class JavaRecorder:
             return
         cells = dict(zip(table.headers, table.rows[index], strict=False))
         column = (
-            table.headers[act.cell_index % len(table.headers)]
-            if act.cell_index is not None and act.cell_index >= 0 and table.headers
+            table.headers[place % len(table.headers)]
+            if place is not None and place >= 0 and table.headers
             else next((h for h, v in cells.items() if act.cell and v == act.cell), None)
         )
         if column is None and act.type in ("check", "uncheck"):
@@ -1133,6 +1376,14 @@ class JavaRecorder:
         act.row = RowContext(table=clean_name(seen.node.name) or None, cells=cells, index=index)
         act.column = column
         act.cell = cells.get(column, act.cell) if column else act.cell
+
+    def _shown_table(self, path: str, window: int | None) -> Table | None:
+        """A table as the newest screen read showed it (that window's first)."""
+        screens = [self._last_screen, *reversed(list(self._state_screens.values()))]
+        found = [s for s in screens if s is not None and path in s.tables]
+        own = [s for s in found if s.hwnd == window]
+        best = (own or found)[:1]
+        return best[0].tables[path] if best else None
 
     def _refresh_windows(self) -> None:
         """The program's windows as they are now (benchmark D05: SRK's question opened while
@@ -1154,7 +1405,7 @@ class JavaRecorder:
                 self._depth[hwnd] = owner_depth + 1 if window.owner else 0
         self._windows = windows
 
-    def _window_of(self, source: dict[str, Any]) -> int:
+    def _window_of(self, source: dict[str, Any], t: float | None = None) -> int:
         """The window an element is in. The bridge sometimes cannot say (a question's button,
         described as the question closes): then the window titled as the dialog around it,
         else the interpreter puts it where it saw the element last."""
@@ -1179,7 +1430,39 @@ class JavaRecorder:
                 for hwnd, known in [*self._windows.items(), *self._ever.items()]:
                     if known.title == name:
                         return hwnd
+        if t is not None and any(role == "option pane" for role, _ in source.get("chain") or []):
+            # a question's button told as the question closed, with neither its window nor its
+            # title (only the option pane around it: benchmark M1 r2, „Tak” of WCR's question
+            # became a step of no window): the dialog opened last before it is the question's
+            asked = [
+                hwnd
+                for hwnd, opened in self._opened_at.items()
+                if opened <= t
+                and hwnd in self._ever
+                and self._ever[hwnd].owner
+                and self._ever[hwnd].title
+                and (self.main is None or hwnd != self.main.hwnd)
+            ]
+            if asked:
+                return max(asked, key=lambda h: self._opened_at[h])
         return 0
+
+    def _root_role(self, hwnd: int) -> str:
+        assert self.bridge is not None
+        try:
+            root = self.bridge.node(hwnd, "0")
+        except Exception:  # gone before it could be read: a popup's moment
+            return ""
+        return root.role if root is not None else ""
+
+    def _answering(self, windows: dict[int, Window]) -> set[int]:
+        """The windows an act may have opened or closed: titled, or dialogs."""
+        dialogs = ("dialog", "option pane", "frame", "alert")
+        return {
+            hwnd
+            for hwnd, window in windows.items()
+            if window.title.strip() or self._kinds.get(hwnd) in dialogs
+        }
 
     def _newest_window(self) -> int:
         open_ = [h for h in self._windows if h in self._depth]
@@ -1265,6 +1548,24 @@ class JavaRecorder:
             self.bridge.close()
         return self.trace_path
 
+    def note(self, text: str) -> None:
+        """What the person says about what they are doing, from another thread (Studio's
+        box): written with the time it was said, the map gives it to the step it came after."""
+        if self.bridge is not None and text.strip():
+            self._said.put((self.bridge.clock(), text.strip()))
+
+    def _write_said(self) -> None:
+        writer = self.writer
+        if writer is None:  # not started: what was said waits for the trace
+            return
+        while True:
+            try:
+                said_at, text = self._said.get_nowait()
+            except queue.Empty:
+                return
+            self._seq += 1
+            writer.write(TraceEvent(seq=self._seq, t=self._time(said_at), type="note", value=text))
+
     def _time(self, bridge_t: float) -> float:
         return max(0.0, round(bridge_t - self._t0, 3))
 
@@ -1274,10 +1575,12 @@ class JavaRecorder:
         assert self.bridge is not None
         window = self._windows.get(hwnd)
         if window is None:
+            self._unread(hwnd, "not among the program's windows")
             return None
         try:
             nodes = self.bridge.tree(hwnd)
-        except Exception:
+        except Exception as exc:
+            self._unread(hwnd, f"{type(exc).__name__}: {exc}")
             return None
         tables = {}
         for node in nodes:
@@ -1286,10 +1589,29 @@ class JavaRecorder:
                     table = self.bridge.table(hwnd, node.path)
                     if table is not None:
                         tables[node.path] = table
-        screen = build_screen(window.title, hwnd, nodes, tables=tables)
+        bridge = self.bridge
+        chosen = chosen_in_lists(
+            nodes, lambda path: bridge.tree(hwnd, root=path, showing_only=False, texts=False)
+        )
+        screen = build_screen(window.title, hwnd, nodes, tables=tables, chosen=chosen)
         self._screens[hwnd] = screen
         self._last_screen = screen
         return screen
+
+    def _unread(self, hwnd: int, why: str) -> None:
+        """Told in the raw events only (bridge-events.jsonl): a screen asked for and not read,
+        so the act's screen is the last one read (benchmark M3 r3: Java's file chooser)."""
+        assert self.bridge is not None
+        window = self._windows.get(hwnd) or self._ever.get(hwnd)
+        self._buffer.append(
+            {
+                "kind": "screen_unread",
+                "t": self.bridge.clock(),
+                "hwnd": hwnd,
+                "title": window.title if window is not None else None,
+                "why": why[:300],
+            }
+        )
 
     def _capture(self, hwnd: int, until: float) -> str | None:
         """The window's screen as it was at ``until`` (bridge time)."""
@@ -1464,9 +1786,16 @@ class JavaRecorder:
                 # screen (benchmark D06, 11 rounds of 16, every record ending unclear)
                 told = self._open_at(self._worked_in, act.t)
                 worked = self._worked_in if self._worked_in in open_frames or told else None
+                # a form the last act opened is the one the person works in now (benchmark
+                # M2: Zapytanie > Wprowadź zapytanie after Znajdź is for the lines it opened,
+                # not for the find window under them)
+                opened = self._opened_since(self._worked_at, act.t)
+                if opened is not None and opened != worked:
+                    worked = opened
                 frame = worked or then.active_frame()
             elif seen.frame is not None and self.main is not None and seen.window == self.main.hwnd:
                 self._worked_in = seen.frame
+                self._worked_at = act.t
             url = screen_url(self.app, frame)
             window_depth = self._depth.get(seen.window, 0)
         self._seq += 1
@@ -1480,6 +1809,7 @@ class JavaRecorder:
                 target=target,
                 value=None if act.secret else act.value,
                 option_label=act.option_label,
+                clicks=act.clicks if act.clicks > 1 else None,
                 secret=act.secret,
                 window=window_depth,
                 state_before=before,

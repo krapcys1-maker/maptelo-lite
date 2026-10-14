@@ -33,6 +33,12 @@ SENTENCES: list[tuple[str, str]] = [
     ("the process keeps jumping between steps", "proces krąży między krokami"),
     ("the model declares no effect to verify", "model nie mówi, jak sprawdzić wynik"),
     ("effect '{effect}' not confirmed: {detail}", "efekt „{effect}” niepotwierdzony: {detail}"),
+    (
+        "effect '{effect}' not confirmed yet after “{step}” ({detail}); the steps left write "
+        "nothing: read again at the end",
+        "efekt „{effect}” jeszcze niepotwierdzony po „{step}” ({detail}); pozostałe kroki "
+        "niczego nie zapisują: odczyt ponowiony na końcu",
+    ),
     ("every effect confirmed by an independent read",
      "każdy efekt potwierdzony niezależnym odczytem"),
     ("“{step}” needs a decision ({executor}): there is no rule for it yet",
@@ -51,6 +57,11 @@ SENTENCES: list[tuple[str, str]] = [
      "przed „{step}” ekran nie jest taki jak w każdym pokazie ({shown}): może na nim być praca "
      "pozostawiona wcześniej"),
     ("the screen is not as recorded", "ekran nie jest taki jak w pokazach"),
+    ("“{step}” is chosen only when {shown}, and here it is not: no recording showed when "
+     "{others} is chosen, a person decides",
+     "„{step}” wybiera się tylko wtedy, gdy {shown}, a tutaj tak nie jest; pokazy nie mówią, "
+     "kiedy wybiera się {others}, więc decyzję podejmuje człowiek"),
+    ("the decision's rule does not hold", "reguła decyzji nie jest spełniona"),
     ("“{step}” needs {called} from the record, and the record has none",
      "„{step}” potrzebuje z rekordu wartości „{called}”, a rekord jej nie ma"),
     ("a value of the record is missing", "w rekordzie brakuje wartości"),
@@ -173,6 +184,16 @@ SENTENCES: list[tuple[str, str]] = [
     ("after the last step the program still shows a window: “{window}”{shows}",
      "po ostatnim kroku program nadal pokazuje okno: „{window}”{shows}"),
     ("{element}: the table cannot be read", "{element}: nie da się odczytać tabeli"),
+    (
+        "{element}: a double click needs the cell's place",
+        "{element}: do dwukliku potrzebne jest położenie komórki na ekranie",
+    ),
+    (
+        "{element}: a click where its row should be chose row(s) {chosen}, not {row}; nothing "
+        "was opened",
+        "{element}: kliknięcie w miejscu, w którym powinien być jego wiersz, wybrało wiersze "
+        "{chosen}, a nie {row}; niczego nie otwarto",
+    ),
     ("{element} is not chosen after choosing it", "{element} nie jest wybrany mimo wyboru"),
     ("closing “{title}” changed other frames ({frames})",
      "zamknięcie „{title}” zmieniło inne ramki ({frames})"),
@@ -219,6 +240,10 @@ SENTENCES: list[tuple[str, str]] = [
      "written ({checked})",
      "program odmówił przyjęcia rekordu, czego nie pokazało żadne nagranie: {refusal}; nic "
      "nie zapisano ({checked})"),
+    ("the window “{name}”, which no recording showed, lay over “{step}”: answered with "
+     "“{choice}” (no consent beyond what the site needs)",
+     "okno „{name}”, którego nie pokazało żadne nagranie, zasłaniało krok „{step}”: wybrano "
+     "„{choice}” (bez zgód ponad niezbędne)"),
     ("the row where {said} is not in the table “{table}”, which has no further pages; "
      "nothing was written ({checked})",
      "wiersza, w którym {said}, nie ma w tabeli „{table}”, a tabela nie ma dalszych stron; "
@@ -322,6 +347,14 @@ SENTENCES: list[tuple[str, str]] = [
      "pasujących wierszy: {count} ({where}); model każe wybrać tylko jeden"),
     ("{element} in the row where {where}", "{element} w wierszu, gdzie {where}"),
     ("{element} in rows {where}", "{element} w wierszach {where}"),
+    ("no row fits", "żaden wiersz nie pasuje"),
+    ("a step done in each row of a table has no one element",
+     "krok wykonywany w każdym wierszu tabeli nie ma jednego elementu"),
+    ("the table has no column {columns}", "tabela nie ma kolumny {columns}"),
+    ("the table “{table}” is not on the screen", "tabeli „{table}” nie ma na ekranie"),
+    ("{element} in each row that fits", "{element} w każdym pasującym wierszu"),
+    ("the table “{table}” is not on the screen{shows}",
+     "tabeli „{table}” nie ma na ekranie{shows}"),
     # a batch
     ("stopped on request; run again to do the rest",
      "zatrzymano na prośbę; uruchom ponownie, żeby zrobić resztę"),
@@ -490,6 +523,14 @@ SENTENCES: list[tuple[str, str]] = [
     ("there is no such file", "nie ma takiego pliku"),
     ("there is no such job", "nie ma takiego zadania"),
     ("there is no process {name}", "nie ma procesu {name}"),
+    ("the description is empty", "opis jest pusty"),
+    ("a step is described while its recording runs",
+     "opis kroku dodaje się w trakcie jego nagrywania"),
+    ("which step: its first action's number", "który krok: numer jego pierwszego działania"),
+    ("which step: its action's number", "który krok: numer jego działania"),
+    ("the card: its answers by question", "karta procesu: odpowiedzi na kolejne pytania"),
+    ("there is no map of the recording {recording} of {key}",
+     "nie ma mapy nagrania {recording} procesu {key}"),
     ("{name} could not be deleted (Windows says {code})",
      "nie udało się usunąć {name} (Windows zgłasza kod {code})"),
     ("the file is empty", "plik jest pusty"),

@@ -164,3 +164,24 @@ def test_the_month_shown_is_the_one_month_among_the_texts() -> None:
     assert month_shown(texts, "{Month_en} {yyyy}") == (2026, 10)
     assert month_shown([*texts, "November 2026"], "{Month_en} {yyyy}") is None  # two months
     assert month_shown(["10/2026"], "{Month_en} {yyyy}") is None  # another way of writing
+
+
+def test_oracle_s_mask_in_english_and_in_polish() -> None:
+    from datetime import date
+
+    from maptelo.dates import (
+        ORACLE_MASK,
+        ORACLE_MASK_PL,
+        oracle_date,
+        oracle_mask,
+        read_oracle_date,
+    )
+
+    assert read_oracle_date("31-PAŹ-2026") == date(2026, 10, 31)
+    assert read_oracle_date("01-lis-2026") == date(2026, 11, 1)
+    assert read_oracle_date("01-NOV-2026") == date(2026, 11, 1)
+    assert read_oracle_date("01-XYZ-2026") is None
+    assert oracle_mask("01-LIS-2026") == ORACLE_MASK_PL
+    assert oracle_mask("01-NOV-2026") == ORACLE_MASK
+    assert oracle_date(date(2026, 10, 31), ORACLE_MASK_PL) == "31-PAŹ-2026"
+    assert oracle_date(date(2026, 10, 31)) == "31-OCT-2026"

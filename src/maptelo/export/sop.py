@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 
 from maptelo import PRODUCT, __version__
 from maptelo.export.describe import (
+    choice_text,
     documented,
     evidence_note,
     input_source,
@@ -23,7 +24,7 @@ from maptelo.export.describe import (
     word,
 )
 from maptelo.mapping.naming import Lang
-from maptelo.model.schema import Action, Executor, ProcessModel, RiskClass
+from maptelo.model.schema import CARD_FIELDS, Action, Executor, ProcessModel, RiskClass
 
 _CHECKS = {
     "pl": {
@@ -81,6 +82,12 @@ def render_sop(
     if model.description:
         out += [f"> {model.description}", ""]
 
+    said = model.card.answered() if model.card is not None else {}
+    if said:  # what the people doing the process said it is for (the process card)
+        out += [f"## {w('card')}", ""]
+        out += [f"- **{w('card_' + key)}:** {said[key]}" for key in CARD_FIELDS if key in said]
+        out.append("")
+
     if model.preconditions:
         out += [f"## {w('preconditions')}", ""]
         out += [f"- {p}" for p in model.preconditions] + [""]
@@ -129,6 +136,14 @@ def render_sop(
         if step.executor is Executor.HUMAN:
             line += f" — *{w('by_person')}*"
         out.append(line)
+        if step.note:  # what the person said about the step: first, in their words
+            out.append(f"   - **{w('person_note')}:** {step.note}")
+        if step.note_when:
+            out.append(f"   - **{w('person_when')}:** {step.note_when}")
+        if step.person_decides:
+            out.append(f"   - *{w('person_decides')}*")
+        if (choice := choice_text(step, model, lang)) is not None:
+            out.append(f"   - **{w('choice')}:** {choice}")
         if step.document is not None:
             checks = _CHECKS[lang if lang in _CHECKS else "en"]
             shown = checks[step.document.kind] + (checks["sum"] if step.document.role else "")

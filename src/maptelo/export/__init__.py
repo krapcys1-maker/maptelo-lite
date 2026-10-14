@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import base64
+import json
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
+from maptelo.export.ai_brief import ai_brief_data, render_ai_brief
 from maptelo.export.bpmn import render_bpmn
+from maptelo.export.effects import model_effects
 from maptelo.export.html import render_html
 from maptelo.export.images import screenshots_for, step_screenshots
 from maptelo.export.mermaid import render_mermaid
@@ -38,14 +41,17 @@ def write_bundle(
     several_sources: bool = False,
     header: str | None = None,
     warnings: bool = True,
+    one_recording: bool = False,
 ) -> dict[str, Path]:
-    """Write model.yaml, sop.md, process.mmd, process.svg, process.bpmn, report.html
-    (+ images/). ``source`` names the recording(s) the model is made from (``several_sources``:
-    more than one); ``warnings``: the model's lint findings in the report, for whoever edits
-    the model (a single recording's map leaves them out: its report is for people doing the
-    process, and the findings are the model file's English)."""
+    """Write model.yaml, sop.md, process.mmd, process.svg, process.bpmn, report.html,
+    ai-brief.md and ai-brief.json (+ images/). ``source`` names the recording(s) the model is
+    made from (``several_sources``: more than one; ``one_recording``: a single recording's map,
+    which shows one case only); ``warnings``: the model's lint findings in the report, for
+    whoever edits the model (a single recording's map leaves them out: its report is for
+    people doing the process, and the findings are the model file's English)."""
     out_dir.mkdir(parents=True, exist_ok=True)
     images = screenshots_for(model, sources or {}, out_dir)
+    effects = model_effects(model, sources or {})
     yaml_text = dump_model(model, header=header)
     files = {
         "model": out_dir / "model.yaml",
@@ -54,6 +60,8 @@ def write_bundle(
         "svg": out_dir / "process.svg",
         "bpmn": out_dir / "process.bpmn",
         "report": out_dir / "report.html",
+        "ai_brief": out_dir / "ai-brief.md",
+        "ai_data": out_dir / "ai-brief.json",
     }
     contents = {
         "model": yaml_text,
@@ -73,6 +81,28 @@ def write_bundle(
             sources=several_sources,
             yaml_text=yaml_text,
         ),
+        "ai_brief": render_ai_brief(
+            model,
+            lang=lang,
+            notes=notes,
+            images=images,
+            effects=effects,
+            source=source,
+            one_recording=one_recording,
+        ),
+        "ai_data": json.dumps(
+            ai_brief_data(
+                model,
+                lang=lang,
+                notes=notes,
+                images=images,
+                effects=effects,
+                one_recording=one_recording,
+            ),
+            ensure_ascii=False,
+            indent=1,
+        )
+        + "\n",
     }
     for key, path in files.items():
         path.write_text(contents[key], encoding="utf-8", newline="\n")
@@ -95,10 +125,12 @@ def write_map_bundle(result: MapResult, out_dir: Path, *, lang: Lang = "pl") -> 
             "Edit freely; check with: maptelo model validate <this file>"
         ),
         warnings=False,
+        one_recording=True,
     )
 
 
 __all__ = [
+    "render_ai_brief",
     "render_bpmn",
     "render_html",
     "render_mermaid",

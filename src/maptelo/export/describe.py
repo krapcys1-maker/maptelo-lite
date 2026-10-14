@@ -9,6 +9,7 @@ from maptelo.mapping.naming import Lang, day_shift, human_title, rows_phrase
 from maptelo.model.schema import (
     Action,
     Application,
+    Executor,
     FieldCheck,
     InputSpec,
     InputType,
@@ -27,6 +28,14 @@ WORDS: dict[Lang, dict[str, str]] = {
         "sources": "nagrania",
         "version": "wersja",
         "preconditions": "Wymagania wstępne",
+        "card": "Cel i zakres",
+        "card_story": "Opis procesu",
+        "card_goal": "Cel",
+        "card_data": "Skąd dane",
+        "card_scope": "Zakres",
+        "card_done": "Kiedy gotowe",
+        "card_failures": "Co bywa nie tak i co wtedy",
+        "card_never": "Czego nie robić nigdy",
         "inputs": "Dane wejściowe",
         "source_column": "Skąd",
         "per_row": "Dla każdego wiersza arkusza „{sheet}” ({file}): jeden przebieg na wiersz.",
@@ -55,6 +64,22 @@ WORDS: dict[Lang, dict[str, str]] = {
             "z systemu). Należy to ustalić przed automatyzacją procesu."
         ),
         "expected": "Oczekiwany wynik",
+        "person_note": "Opis",
+        "person_when": "Kiedy",
+        "person_decides": "Tu decyduje człowiek (tak powiedziała osoba nagrywająca)",
+        "choice": "Decyzja",
+        "choice_person": "nagrania pokazują tylko „{chosen}”, choć {where} jest też {others}. "
+        "Kiedy wybrać inaczej, nie wiadomo: decyduje człowiek",
+        "choice_said": "nagrania pokazują tylko „{chosen}”, choć {where} jest też {others}. Kiedy "
+        "wybrać „{chosen}”, mówi osoba nagrywająca (zob. „Kiedy”); gdy jej słowa nie pozwalają "
+        "rozstrzygnąć, decyduje człowiek",
+        "choice_rule": "„{chosen}” tylko wtedy, gdy {rule}. W pozostałych przypadkach zatrzymaj "
+        "się przed tym krokiem i przekaż sprawę człowiekowi: nagrania nie pokazują, kiedy wybrać "
+        "{others}",
+        "choice_always": "{where} jest też {others}, ale właściciel procesu potwierdził, że "
+        "zawsze wybiera się „{chosen}”",
+        "choice_row": "w wierszu tabeli",
+        "choice_screen": "na ekranie",
         "if_message": "Jeśli pojawi się komunikat",
         "if_shown": "Jeśli widać",
         "then_stop": "przerwij",
@@ -120,6 +145,14 @@ WORDS: dict[Lang, dict[str, str]] = {
         "sources": "recordings",
         "version": "version",
         "preconditions": "Preconditions",
+        "card": "Goal and scope",
+        "card_story": "The process",
+        "card_goal": "Goal",
+        "card_data": "Where the data come from",
+        "card_scope": "Scope",
+        "card_done": "When it is done",
+        "card_failures": "What goes wrong, and what then",
+        "card_never": "Never do",
         "inputs": "Inputs",
         "source_column": "Source",
         "per_row": "For each row of the sheet “{sheet}” ({file}): one run per row.",
@@ -149,6 +182,21 @@ WORDS: dict[Lang, dict[str, str]] = {
             "automating the process."
         ),
         "expected": "Expected result",
+        "person_note": "Description",
+        "person_when": "When",
+        "person_decides": "A person decides here (the person recording said so)",
+        "choice": "Decision",
+        "choice_person": "the recordings show only “{chosen}”, although {where} also offers "
+        "{others}. When to choose otherwise is not known: a person decides",
+        "choice_said": "the recordings show only “{chosen}”, although {where} also offers "
+        "{others}. When to choose “{chosen}” the person recording said (see “When”); where their "
+        "words do not settle it, a person decides",
+        "choice_rule": "“{chosen}” only when {rule}. In other cases stop before this step and "
+        "hand the case to a person: the recordings do not show when to choose {others}",
+        "choice_always": "{where} also offers {others}, but the process owner confirmed that "
+        "“{chosen}” is chosen every time",
+        "choice_row": "the table's row",
+        "choice_screen": "the screen",
         "if_message": "If the message appears",
         "if_shown": "If the screen shows",
         "then_stop": "stop",
@@ -645,6 +693,25 @@ def step_alternatives(step: Step, model: ProcessModel, lang: Lang) -> list[str]:
     good = _good_outcomes(step)
     usual = "done" if "done" in good else next(iter(good), None)
     return [predicate_text(p, model, lang) for name, p in good.items() if name != usual]
+
+
+def choice_text(step: Step, model: ProcessModel, lang: Lang) -> str | None:
+    """A decision the recordings made one way where another was offered („Akceptuj” in a row
+    that also has „Korekta (CN)”): who makes it, or the rule the robot keeps to; None for a
+    step that is no such decision."""
+    if not step.alternatives or step.when is not None:  # under a rule: its condition says it
+        return None
+    chosen = next((t.name for t in step.target or [] if t.name), None) or step.intent
+    mark = "„{}”" if lang == "pl" else "“{}”"
+    others = ", ".join(mark.format(o) for o in step.alternatives)
+    where = word(lang, "choice_row" if step.within is not None else "choice_screen")
+    if step.executor is Executor.HUMAN:
+        key = "choice_said" if step.note_when else "choice_person"
+        return word(lang, key).format(chosen=chosen, where=where, others=others)
+    if step.requires is not None:
+        rule = predicate_text(step.requires, model, lang)
+        return word(lang, "choice_rule").format(chosen=chosen, rule=rule, others=others)
+    return word(lang, "choice_always").format(chosen=chosen, where=where, others=others)
 
 
 def evidence_note(step: Step, lang: Lang) -> str | None:

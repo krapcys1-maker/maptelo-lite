@@ -53,7 +53,11 @@ class FakeRecorder:
     def __init__(self, folder: Path, options: Any) -> None:
         self.folder, self.options = folder, options
         self.stopped_by: str | None = None
+        self.said: list[str] = []
         FakeRecorder.made.append(self)
+
+    def note(self, text: str) -> None:
+        self.said.append(text)
 
     def start(self, timeout: float = 30.0) -> Window:
         if FakeRecorder.missing:
@@ -159,3 +163,61 @@ def test_the_page_lists_the_java_programs_open(
     elsewhere = client.get("/api/java/windows").json()
     assert elsewhere["windows"] == []
     assert elsewhere["problem"] == "program Java można nagrać tylko w Windows"
+
+
+def test_what_the_person_says_while_recording_reaches_the_recorder(
+    fake_java: type[FakeRecorder], lite: tuple[httpx2.Client, Workspace]
+) -> None:
+    """Studio's „Opisz, co teraz robisz” box: the words go to the recording as it runs (the map
+    gives them to the step done last); after it, a step is described on its map."""
+    client, _ = lite
+    started = client.post("/api/recordings", json={"process": "Ceny SRK", "java": SRK.title})
+    job = started.json()["id"]
+    for _ in range(500):
+        if any(e["type"] == "progress" for e in client.get(f"/api/jobs/{job}").json()["events"]):
+            break
+        time.sleep(0.02)
+    told = client.post(f"/api/jobs/{job}/notes", json={"text": "Biorę najnowszą wersję ceny."})
+    assert told.status_code == 202, told.text
+    empty = client.post(f"/api/jobs/{job}/notes", json={"text": "  "})
+    assert (empty.status_code, empty.json()["problems"]) == (400, ["opis jest pusty"])
+    events = client.get(f"/api/jobs/{job}").json()["events"]
+    assert [e["text"] for e in events if e["type"] == "note"] == ["Biorę najnowszą wersję ceny."]
+    client.post(f"/api/jobs/{job}/stop")
+    finished(client, job)
+    (recorder,) = fake_java.made
+    assert recorder.said == ["Biorę najnowszą wersję ceny."]
+    late = client.post(f"/api/jobs/{job}/notes", json={"text": "za późno"})
+    assert late.status_code == 409
+    assert late.json()["problems"] == ["opis kroku dodaje się w trakcie jego nagrywania"]
+
+
+def test_a_step_on_the_list_is_described_by_its_action(
+    fake_java: type[FakeRecorder], lite: tuple[httpx2.Client, Workspace]
+) -> None:
+    """Studio's list of the steps as they are recorded: a step described by its action's number
+    is kept with the recording (its map gives the words to that step, not to the last one), and
+    told to every page showing the job; a step without a number is refused."""
+    client, _ = lite
+    started = client.post("/api/recordings", json={"process": "Ceny SRK", "java": SRK.title})
+    job = started.json()["id"]
+    for _ in range(500):
+        if any(e["type"] == "progress" for e in client.get(f"/api/jobs/{job}").json()["events"]):
+            break
+        time.sleep(0.02)
+    said = {"action": 2, "text": "Biorę najnowszą wersję ceny.", "when": "zawsze", "person": False}
+    told = client.post(f"/api/jobs/{job}/notes", json=said)
+    assert told.status_code == 202, told.text
+    wrong = client.post(f"/api/jobs/{job}/notes", json={"action": "drugi", "text": "x"})
+    assert wrong.status_code == 400
+    assert wrong.json()["problems"] == ["który krok: numer jego działania"]
+    events = client.get(f"/api/jobs/{job}").json()["events"]
+    notes = [(e["action"], e["text"], e["when"]) for e in events if e["type"] == "note"]
+    assert notes == [(2, "Biorę najnowszą wersję ceny.", "zawsze")]
+    assert [e["seq"] for e in events] == list(range(1, len(events) + 1))  # the job's own order
+    client.post(f"/api/jobs/{job}/stop")
+    finished(client, job)
+    (recorder,) = fake_java.made
+    assert recorder.said == []  # the step itself was described, not the one done last
+    kept = {"text": "Biorę najnowszą wersję ceny.", "when": "zawsze", "person": False}
+    assert recording.written_notes(recorder.folder) == {2: kept}

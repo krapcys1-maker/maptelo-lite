@@ -169,7 +169,10 @@ def group_acts(trace: Trace) -> list[Act]:
     application, not a result of the action before it."""
     acts: list[Act] = []
     page: str | None = None
+    said = [event for event in trace.events if event.type == "note"]
     for event in trace.events:
+        if event.type == "note":
+            continue  # by its time below: a recorder may write it before an earlier act
         if event.is_action:
             acts.append(Act(event))
         elif acts and _opened_by_person(acts[-1], event, page, trace):
@@ -177,6 +180,11 @@ def group_acts(trace: Trace) -> list[Act]:
         elif acts:
             acts[-1].observed.append(event)
         page = event.url or page
+    for note in said:  # what the person said goes with the act they had just done (or the first)
+        before = [act for act in acts if act.event.t <= note.t]
+        owner = before[-1] if before else (acts[0] if acts else None)
+        if owner is not None:
+            owner.observed.append(note)
     return acts
 
 
@@ -606,8 +614,10 @@ def _opens_calendar(act: Act, day: Act, seen: CalendarSeen) -> bool:
     """Whether the click before the calendar was used opened it: on the same screen, a field
     or what sits next to the field, or what says it is for a date."""
     target = act.event.target
-    if act.kind != "click" or target is None or act.event.url != day.event.url:
+    if act.kind != "click" or target is None:
         return False
+    if act.event.url != day.event.url and not _program(day):
+        return False  # a page's calendar opens on that page; a program's in a window of its own
     if target.role in ("textbox", "combobox", "searchbox"):
         return True
     words = " ".join(w for w in (target.name, target.title, target.label, target.text) if w)
@@ -656,6 +666,9 @@ def _seen_from_screen(trace: Trace, act: Act) -> CalendarSeen | None:
             and node.find(target.role, target.name)
         ]
         window = holders[-1] if holders else None
+    dated = sum(1 for node in root.find_all(target.role) if read_day(node.name or ""))
+    if window is None and dated >= 28:
+        window = root  # a desktop program's calendar is a window of its own: the whole screen
     days = [node.name or "" for node in window.find_all(target.role)] if window else []
     if window is None or target.name not in days:
         return None
@@ -698,6 +711,110 @@ def _picked_before(act: Act | None, seen: CalendarSeen) -> bool:
     return seen.field is None or _same_element(act.picked.field_used, seen.field)
 
 
+def _program(act: Act) -> bool:
+    """Whether the act was done in a desktop program (a Java one: its screens are windows)."""
+    return (act.event.url or "").startswith("java://")
+
+
+def _typed_instead(trace: Trace, opener: Act, day: Act, label: str | None) -> TraceEvent | None:
+    """A desktop program's calendar fills a field one can also type into: the date typed into
+    that field is the step. The Java robot types it, and so do other people doing the same
+    process (benchmark M1: „Obowiązuje od” typed by some, picked in the calendar by others,
+    which made two ways of one value a decision nobody could explain)."""
+    state = trace.state(day.event.state_after)
+    if state is None or not label:
+        return None
+    shown = next(
+        (
+            n
+            for n in parse_aria(state.aria).walk()
+            if n.role == "textbox" and n.name == label and n.value
+        ),
+        None,
+    )
+    if shown is None or {"disabled", "readonly"} & set(shown.attrs):
+        return None
+    opened = opener.event.target
+    info = ElementInfo(
+        tag="java:text",
+        role="textbox",
+        name=label,
+        dialog=opened.dialog if opened is not None else None,
+    )
+    info.candidates = candidates_for(info)
+    return day.event.model_copy(
+        update={
+            "type": "fill",
+            "target": info,
+            "value": shown.value,
+            "url": opener.event.url,
+            "state_before": opener.event.state_before,
+        }
+    )
+
+
+def _program_pick(trace: Trace, steps: list[Act], index: int) -> bool:
+    """A day clicked in a desktop program's calendar whose screen the recording did not read
+    (a program's window told late: benchmark M1 r2, „Kalendarz” read as the main window). The
+    day's name says the date („1 listopada 2026”), the click that opened the calendar names
+    its field („Wybierz datę: Obowiązuje od”): the date typed into that field is the step, as
+    when the calendar was read. Returns whether the acts were made one."""
+    day = steps[index]
+    target = day.event.target
+    if day.kind != "click" or target is None or not target.dialog:
+        return False
+    read = read_day(target.name or "")
+    if read is None:
+        return False
+    start = index
+    while start > 0 and steps[start - 1].kind == "click":
+        moved = steps[start - 1].event.target
+        if moved is None or moved.dialog != target.dialog:
+            break
+        start -= 1  # a month moved in the calendar
+    if start == 0:
+        return False
+    opener = steps[start - 1]
+    opened = opener.event.target
+    if opener.kind != "click" or opened is None or opened.dialog == target.dialog:
+        return False
+    said = opened.name or ""
+    if ":" not in said or not _DATE_WORDS.search(said):
+        return False
+    label = said.rsplit(":", 1)[-1].strip()
+    shown = _shown_after(trace, steps[index + 1 :], label, read[0]) or read[0].isoformat()
+    info = ElementInfo(tag="java:text", role="textbox", name=label, dialog=opened.dialog)
+    info.candidates = candidates_for(info)
+    day.event = day.event.model_copy(
+        update={
+            "type": "fill",
+            "target": info,
+            "value": shown,
+            "url": opener.event.url,
+            "state_before": opener.event.state_before,
+        }
+    )
+    for done in steps[start - 1 : index]:
+        done.role = "superseded"
+    day.observed = [o for done in steps[start - 1 : index] for o in done.observed] + day.observed
+    return True
+
+
+def _shown_after(trace: Trace, later: list[Act], label: str, day: date) -> str | None:
+    """The field's text once the day was picked, as a later screen shows it (01-LIS-2026)."""
+    for act in later[:4]:
+        for state_id in (act.event.state_before, act.event.state_after):
+            state = trace.state(state_id)
+            if state is None:
+                continue
+            for node in parse_aria(state.aria).walk():
+                if node.role == "textbox" and node.name == label and node.value:
+                    read = read_day(node.value)
+                    if read is not None and read[0] == day:
+                        return node.value
+    return None
+
+
 def _merge_calendar(trace: Trace, acts: list[Act]) -> None:
     """A day picked in a calendar is one act: picking that date. The person opens the
     calendar (with a click, or by going into its field), moves it month by month and clicks
@@ -711,6 +828,8 @@ def _merge_calendar(trace: Trace, acts: list[Act]) -> None:
         picked = _day_picked(seen) if seen is not None else None
         if seen is not None and picked is None and _calendar_like(seen):
             act.calendar_unread = True
+        if seen is None and _program(act) and _program_pick(trace, steps, index):
+            continue
         if seen is None or picked is None:
             continue
         start = index
@@ -742,6 +861,17 @@ def _merge_calendar(trace: Trace, acts: list[Act]) -> None:
         if label is None and not opens:  # a calendar always shown: what it is called
             label = what.name or what.label
         label = _HELP_MARK.sub("", label or "") or label  # "Validity Period?": the field
+        typed = (
+            _typed_instead(trace, opener, act, label)
+            if opener is not None and _program(act)
+            else None
+        )
+        if typed is not None:
+            act.event = typed
+            for done in steps[start:index]:
+                done.role = "superseded"
+            act.observed = [o for done in steps[start:index] for o in done.observed] + act.observed
+            continue
         forward, back = _arrows(seen)
         days = {"role": seen.role} if seen.role else {"css": seen.css or "*"}
         earlier = steps[start:index]
@@ -840,8 +970,33 @@ def _clicked_in_closed_question(trace: Trace) -> None:
         target.dialog = opened.group(1)
 
 
+def _clicked_in_closed_window(trace: Trace) -> None:
+    """A window that closes as its button is clicked („Open” in Java's file chooser, benchmark
+    M3), told by the bridge in no window at all (the program's own address, no window's name)
+    and with the screen under it read: the click was in the window of the action before it, a
+    window over that screen, when that screen has no such button."""
+    if trace.header.program is None:
+        return
+    actions = [e for e in trace.events if e.is_action]
+    for before, event in pairwise(actions):
+        target, earlier = event.target, before.target
+        if event.type != "click" or target is None or target.dialog or not target.name:
+            continue
+        if _path(event.url).strip("/") or earlier is None or not earlier.dialog:
+            continue
+        if before.window <= event.window:
+            continue
+        screen = trace.states.get(event.state_before or "")
+        button = f'- {target.role} "{target.name}"'
+        if screen is not None and any(line.strip() == button for line in screen.aria.splitlines()):
+            continue  # the screen under it has the button: it may have been clicked there
+        event.url, event.title, event.window = before.url, before.title, before.window
+        target.dialog = earlier.dialog
+
+
 def normalize(trace: Trace) -> Normalized:
     _clicked_in_closed_question(trace)
+    _clicked_in_closed_window(trace)
     acts = group_acts(trace)
     after_login = _mark_login(trace, acts)
     _mark_interrupts(trace, acts)

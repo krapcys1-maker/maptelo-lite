@@ -115,6 +115,7 @@ def _issues(model: ProcessModel) -> Iterator[str]:
         values: list[object] = [step.value]
         if step.within is not None:
             values.extend(step.within.where.values())
+            values.extend(step.within.where_not.values())
         for rung in step.target or []:  # a field named by the record's value
             values.extend(
                 text
@@ -161,6 +162,7 @@ def _step_values(step: Step) -> list[object]:
     values: list[object] = [step.value]
     if step.within is not None:
         values.extend(step.within.where.values())
+        values.extend(step.within.where_not.values())
     for predicate in step.predicates():
         values.extend(predicate_values(predicate))
     return values

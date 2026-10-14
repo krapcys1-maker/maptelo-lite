@@ -26,7 +26,20 @@ inteligencji.
   - `process.svg` i `process.mmd` — diagram procesu (SVG i Mermaid);
   - `process.bpmn` — model BPMN 2.0 do narzędzi do modelowania procesów;
   - `report.html` — pełna dokumentacja w jednym pliku;
-  - `model.yaml` — opis procesu w formacie Maptelo (schemat: `schemas/`).
+  - `model.yaml` — opis procesu w formacie Maptelo (schemat: `schemas/`);
+  - `ai-brief.md` (z `ai-brief.json` i zrzutami w folderze `images`) — pakiet dla AI: proces
+    opisany tak, aby model językowy (np. Claude) mógł zbudować z niego automatyzację: dane
+    wejściowe, kroki ze sposobami odnalezienia elementów, decyzje i pętle, sprawdzenie wyniku oraz
+    pytania do właściciela procesu. Maptelo Lite nie przekazuje pakietu żadnemu modelowi; robi to
+    użytkownik.
+- **Opisy kroków i karta procesu.** W czasie nagrywania okno pokazuje kolejne kroki i każdy można
+  od razu opisać: po co się go wykonuje, kiedy oraz czy decyzję podejmuje człowiek (także w małym
+  oknie obok nagrywanego programu). Karta procesu zbiera opis procesu własnymi słowami, cel, źródło
+  danych, zakres, wyjątki i to, czego nie wolno robić. Opisy trafiają do instrukcji, raportu
+  i pakietu dla AI.
+- **Decyzje widoczne w mapie.** Gdy w nagraniu wybrano jedno z kilku poleceń (np. „Akceptuj”
+  w wierszu, w którym jest też „Korekta”), mapa oznacza krok jako decyzję człowieka i pyta
+  o regułę: jedno nagranie nie pokazuje, kiedy wybrać inaczej.
 - **Interfejs w języku polskim i angielskim.** Język zmienia przełącznik w lewym dolnym rogu okna,
   domyślnie używany jest język systemu. Instrukcja i raport powstają w wybranym języku.
 - **Zakładka „Gotowość”** pokazuje, co można nagrać na danym komputerze i czego brakuje.
@@ -48,8 +61,9 @@ korzystają również czytniki ekranu. Mechanizm musi być włączony (polecenie
 z folderu `bin` środowiska Java lub konfiguracja przez dział IT). Program wykrywa go także
 w środowisku Java dołączonym do aplikacji, a zakładka „Gotowość” pokazuje jego stan. Działanie
 sprawdzono na programach Swing, w tym na czystym systemie Windows z programem dysponującym
-wyłącznie własnym środowiskiem Java. Oracle Forms korzysta z tego samego mechanizmu, ale nie był
-jeszcze testowany z Maptelo Lite.
+wyłącznie własnym środowiskiem Java, oraz na programie testowym zbudowanym jak Oracle Forms (listy
+wartości wyszukiwane wzorcem „%”, tryb zapytania, bloki wierszy, polskie daty, okno wyboru pliku).
+Samego Oracle Forms jeszcze z Maptelo Lite nie testowano.
 
 Komputer, na którym jest tylko 32-bitowa Java (na przykład Java 7 lub 8 w wersji 32-bitowej), ma
 wyłącznie 32-bitową bibliotekę mostu (`WindowsAccessBridge-32.dll`). Maptelo Lite odczytuje
@@ -138,7 +152,19 @@ diagram, a BPMN model and a report. It runs locally and uses no AI.
 - **A process map from a single recording**, saved in `maps/<process>/<recording>/`: `sop.md`
   (inputs, steps, expected results and a screenshot of every step with the element marked),
   `process.svg` and `process.mmd` (process diagram), `process.bpmn` (BPMN 2.0 model),
-  `report.html` (the complete documentation in one file) and `model.yaml`.
+  `report.html` (the complete documentation in one file), `model.yaml`, and `ai-brief.md` (with
+  `ai-brief.json` and the screenshots in `images`): an AI brief describing the process so that a
+  language model (such as Claude) can build an automation from it — inputs, steps with the ways to
+  find each element, decisions and loops, how to check the result, and the questions for the
+  process owner. Maptelo Lite passes the brief to no model; the user does.
+- **Step descriptions and the process card.** While recording, the window lists the steps as
+  they happen and each can be described at once: why it is done, when, and whether a person
+  decides there (also in a small window next to the recorded program). The process card holds the
+  process in the person's own words, its goal, data source, scope, exceptions and what must never
+  be done. The descriptions go into the instruction, the report and the AI brief.
+- **Decisions shown on the map.** When the recording chose one of several commands (such as
+  "Accept" in a row that also offers "Correction"), the map marks the step as a person's decision
+  and asks for the rule: one recording does not show when the other is chosen.
 - **English and Polish interface**, switched in the lower-left corner of the window (the system
   language by default); the instruction and the report follow the chosen language. The
   **Readiness** tab shows what can be recorded on the computer and what is missing.
@@ -149,12 +175,13 @@ diagram, a BPMN model and a report. It runs locally and uses no AI.
 
 - **Java programs** are read through the Java Access Bridge, the mechanism screen readers use
   (enabled with `jabswitch -enable` or by IT). Tested with Swing programs, including on a clean
-  Windows with a program that ships only its own Java runtime. Oracle Forms uses the same
-  mechanism but has not yet been tested with Maptelo Lite. On a computer with only a 32-bit
-  Java (such as a 32-bit Java 7 or 8), whose bridge library is `WindowsAccessBridge-32.dll`,
-  Maptelo Lite reads the program through its bundled 32-bit Python (the `python32` folder), with
-  no administrator rights and no change to the Java installation. Tested on a 32-bit Java 8
-  (Temurin 8u472).
+  Windows with a program that ships only its own Java runtime, and with a test program built
+  like Oracle Forms (lists of values searched with “%”, query mode, blocks of rows, Polish dates,
+  a file dialog). Oracle Forms itself has not yet been tested with Maptelo Lite. On a computer
+  with only a 32-bit Java (such as a 32-bit Java 7 or 8), whose bridge library is
+  `WindowsAccessBridge-32.dll`, Maptelo Lite reads the program through its bundled 32-bit Python
+  (the `python32` folder), with no administrator rights and no change to the Java installation.
+  Tested on a 32-bit Java 8 (Temurin 8u472).
 - **Scope:** Maptelo Lite documents processes; it does not execute them and uses no AI. Automatic
   execution with every result confirmed by an independent read from the system is the full
   Maptelo: [maptelo.dev](https://maptelo.dev).

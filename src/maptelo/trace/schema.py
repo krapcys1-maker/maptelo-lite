@@ -24,7 +24,9 @@ TRACE_FORMAT: Literal["maptelo-trace/0.1"] = "maptelo-trace/0.1"
 ActionType = Literal[
     "navigate", "click", "fill", "select", "check", "uncheck", "press", "upload"
 ]  # fmt: skip
-ObservationType = Literal["appeared", "navigated", "downloaded", "dialog"]
+ObservationType = Literal["appeared", "navigated", "downloaded", "dialog", "note"]
+"""What was seen after an action; "note": what the person said about what they were doing
+(its ``value``), typed while recording."""
 ACTION_TYPES: tuple[str, ...] = (
     "navigate", "click", "fill", "select", "check", "uncheck", "press", "upload"
 )  # fmt: skip
@@ -40,6 +42,10 @@ class RowContext(_Record):
     table: str | None = None
     cells: dict[str, str] = Field(default_factory=dict)
     index: int | None = None
+    sorted_by: str | None = Field(
+        default=None, description="The column the table is sorted by (aria-sort), when it is."
+    )
+    sort_order: Literal["ascending", "descending"] | None = None
 
 
 class ElementInfo(_Record):
@@ -192,6 +198,12 @@ class TraceEvent(_Record):
     target: ElementInfo | None = None
     value: str | None = None
     option_label: str | None = Field(default=None, description="Visible text of a chosen option.")
+    clicks: int | None = Field(
+        default=None,
+        ge=2,
+        le=2,
+        description="2: a double click (a row of a list opens its record).",
+    )
     secret: bool = Field(default=False, description="The value was withheld (password).")
     files: list[str] = Field(
         default_factory=list,

@@ -73,6 +73,7 @@ ASKED = frozenset(
         "set_text",
         "select_all_text",
         "select",
+        "clear_selection",
         "do_action",
     }
 )
@@ -549,6 +550,9 @@ class RemoteBridge(Bridge):
         self, hwnd: int, path: str, index: int, expect: Node | None = None, *, clear: bool = True
     ) -> None:
         self._ask("select", hwnd, path, index, expect, clear=clear)
+
+    def clear_selection(self, hwnd: int, path: str, expect: Node | None = None) -> None:
+        self._ask("clear_selection", hwnd, path, expect)
 
     def do_action(self, hwnd: int, path: str, action: str, expect: Node | None = None) -> bool:
         return bool(self._ask("do_action", hwnd, path, action, expect, wait=10.0))

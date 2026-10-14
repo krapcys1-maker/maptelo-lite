@@ -92,10 +92,28 @@
 
   const roleOf = (el) => clean(el.getAttribute("role")).split(" ")[0] || implicitRole(el);
 
+  // The words a screen reader says for an element: its text without what is hidden from it
+  // (aria-hidden: a sort arrow, an icon's glyph), as the browser names it.
+  function spoken(el) {
+    if (!el.querySelector('[aria-hidden="true"]')) return el.innerText;
+    const copy = el.cloneNode(true);
+    copy.querySelectorAll('[aria-hidden="true"]').forEach((n) => n.remove());
+    return copy.textContent;
+  }
+
   function labelText(el) {
     const labels = el.labels ? Array.from(el.labels) : [];
-    const text = clean(labels.map((l) => l.innerText).join(" "));
+    const text = clean(labels.map(labelWords).join(" "));
     return text || null;
+  }
+
+  // A label that holds its field (<label>Waluta <select>...</select></label>) names it with its
+  // own words only: not the list's options nor what is typed (as the browser names the field).
+  function labelWords(label) {
+    if (!label.querySelector("select, input, textarea, button, [contenteditable]")) return spoken(label);
+    const copy = label.cloneNode(true);
+    copy.querySelectorAll("select, input, textarea, button, [contenteditable]").forEach((c) => c.remove());
+    return copy.textContent;
   }
 
   function byId(el, id) {
@@ -110,7 +128,7 @@
     if (ids) {
       const text = clean(
         ids.split(" ").map((id) => byId(el, id)).filter(Boolean)
-          .map((n) => n.innerText).join(" "),
+          .map((n) => spoken(n)).join(" "),
       );
       if (text) return text;
     }
@@ -131,7 +149,7 @@
     const byContent = ["button", "link", "tab", "menuitem", "option", "heading", "cell",
       "columnheader", "checkbox", "radio", "switch"];
     if (byContent.includes(role)) {
-      const text = clean(el.innerText).slice(0, 120);
+      const text = clean(spoken(el)).slice(0, 120);
       if (text) return text;
       const labelled = el.querySelectorAll("[aria-label]");  // an icon that says what it is
       if (labelled.length === 1) {
@@ -177,15 +195,25 @@
     const row = el.closest("tr");
     const table = row ? row.closest("table") : null;
     if (!row || !table) return null;
-    const headers = Array.from(table.querySelectorAll("thead th")).map((th) => clean(th.innerText));
+    // a column's header (sorting by it) is no row of the table's records
+    if (row.parentElement && row.parentElement.tagName === "THEAD") return null;
+    const headers = Array.from(table.querySelectorAll("thead th")).map((th) => clean(spoken(th)));
     const cells = {};
     Array.from(row.children)
       .filter((c) => c.tagName === "TD" || c.tagName === "TH")
       .forEach((cell, i) => {
-        cells[headers[i] || "#" + (i + 1)] = clean(cell.innerText);
+        cells[headers[i] || "#" + (i + 1)] = clean(spoken(cell));
       });
     const index = row.parentElement ? Array.from(row.parentElement.children).indexOf(row) : null;
-    return { table: accessibleName(table), cells, index };
+    const context = { table: accessibleName(table), cells, index };
+    // the order the table shows its rows in (aria-sort): its first row is then the newest
+    // (or the oldest) of something, not a record of its own (benchmark M5)
+    const sorted = table.querySelector('thead th[aria-sort="ascending"], thead th[aria-sort="descending"]');
+    if (sorted) {
+      context.sorted_by = clean(spoken(sorted)) || null;
+      context.sort_order = sorted.getAttribute("aria-sort");
+    }
+    return context;
   }
 
   function columnOf(el) {
@@ -196,7 +224,7 @@
     if (!cell || !row || !table) return null;
     const cells = Array.from(row.children).filter((c) => c.tagName === "TD" || c.tagName === "TH");
     const header = table.querySelectorAll("thead th")[cells.indexOf(cell)];
-    const text = header ? clean(header.innerText) : "";
+    const text = header ? clean(spoken(header)) : "";
     return text || null;
   }
 
@@ -451,6 +479,9 @@
     // Automation tools change <select> and choose files with synthetic events; people never
     // do it otherwise.
     if (!e.isTrusted && el.tagName !== "SELECT" && !isFileInput(el)) return;
+    // what was typed elsewhere came before this change, though its field may still have the
+    // cursor (an automation tool changes a <select> without moving it; benchmark g008, g027)
+    if (!isTextInput(el)) flushAll();
     if (isFileInput(el)) {
       // the files' names only: never what is in them, nor the folder they came from
       const files = Array.from(el.files || []).map((file) => file.name);
@@ -466,11 +497,22 @@
     }
   }, true);
 
+  // A list one chooses from with the keys only (a combo box one cannot type into, a list box:
+  // a platform's own list of reasons, benchmark M6): its arrows are the person's steps.
+  const keyList = (el) => {
+    if (!el || el.tagName === "SELECT") return false;
+    const role = roleOf(el);
+    return role === "listbox" || (role === "combobox" && (!isTextInput(el) || el.readOnly === true));
+  };
+
   document.addEventListener("keydown", (e) => {
-    if (!e.isTrusted || !["Enter", "Escape", "Tab"].includes(e.key)) return;
+    if (!e.isTrusted) return;
     const el = realTarget(e);
+    const arrow = ["ArrowDown", "ArrowUp"].includes(e.key) && keyList(el);
+    if (!arrow && !["Enter", "Escape", "Tab"].includes(e.key)) return;
     if (isTextInput(el)) flushFill(el);
     if (e.key === "Tab") return;
+    flushAll();  // a key that acts comes after all the typing before it
     const onPage = !el || el === document.body || el === document.documentElement;
     emit({ type: "press", target: onPage ? null : describe(el), value: e.key });
   }, true);

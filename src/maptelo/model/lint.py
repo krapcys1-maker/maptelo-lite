@@ -79,6 +79,7 @@ def _used_inputs(model: ProcessModel) -> set[str]:
         values.append(step.value)
         if step.within is not None:
             values.extend(step.within.where.values())
+            values.extend(step.within.where_not.values())
         for predicate in step.predicates():
             values.extend(predicate_values(predicate))
     for effect in model.effects:

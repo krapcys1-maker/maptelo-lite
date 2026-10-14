@@ -188,23 +188,52 @@ def read_month(text: str) -> tuple[int, int, str] | None:
 
 ORACLE_MASK = "DD-MON-YYYY"
 """Oracle Forms' date mask: 01-NOV-2026 (benchmark D06, and programs built on Oracle Forms)."""
+ORACLE_MASK_PL = "DD-MON-RRRR"
+"""The same mask in an Oracle that speaks Polish (its date language): 01-LIS-2026, 31-PAŹ-2026
+(benchmark M2: WCR)."""
 _MON = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
-_ORACLE = re.compile(r"(\d{1,2})-([A-Za-z]{3})-(\d{4})")
+_MON_PL = ["STY", "LUT", "MAR", "KWI", "MAJ", "CZE", "LIP", "SIE", "WRZ", "PAŹ", "LIS", "GRU"]
+_ORACLE = re.compile(r"(\d{1,2})-([^\W\d_]{3})-(\d{4})")
 
 
-def oracle_date(day: date) -> str:
-    """A date in Oracle's mask, English months whatever the computer's language."""
-    return f"{day.day:02d}-{_MON[day.month - 1]}-{day.year}"
+def oracle_date(day: date, mask: str = ORACLE_MASK) -> str:
+    """A date in Oracle's mask: English months whatever the computer's language, or Polish ones
+    for the Polish mask."""
+    months = _MON_PL if mask == ORACLE_MASK_PL else _MON
+    return f"{day.day:02d}-{months[day.month - 1]}-{day.year}"
+
+
+def oracle_mask(text: str) -> str | None:
+    """Which of Oracle's masks a date is written in (01-NOV-2026, 01-LIS-2026); None: neither.
+    March is MAR in both: English, unless a Polish month shows otherwise."""
+    found = _ORACLE.fullmatch(text.strip())
+    if found is None:
+        return None
+    month = found.group(2).upper()
+    if month in _MON:
+        return ORACLE_MASK
+    return ORACLE_MASK_PL if month in _MON_PL else None
+
+
+def oracle_masks(text: str) -> list[str]:
+    """Every Oracle mask a date can be written in: both for March (MAR), one for the others."""
+    found = _ORACLE.fullmatch(text.strip())
+    if found is None:
+        return []
+    month = found.group(2).upper()
+    return [m for m, names in ((ORACLE_MASK, _MON), (ORACLE_MASK_PL, _MON_PL)) if month in names]
 
 
 def read_oracle_date(text: str) -> date | None:
-    """01-NOV-2026 (any case) to a date; None when it is not one."""
+    """01-NOV-2026 or 01-LIS-2026 (any case) to a date; None when it is not one."""
+    mask = oracle_mask(text)
     found = _ORACLE.fullmatch(text.strip())
-    if found is None or found.group(2).upper() not in _MON:
+    if mask is None or found is None:
         return None
+    months = _MON_PL if mask == ORACLE_MASK_PL else _MON
     try:
         return date(
-            int(found.group(3)), _MON.index(found.group(2).upper()) + 1, int(found.group(1))
+            int(found.group(3)), months.index(found.group(2).upper()) + 1, int(found.group(1))
         )
     except ValueError:
         return None

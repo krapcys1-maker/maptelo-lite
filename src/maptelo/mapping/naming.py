@@ -51,6 +51,12 @@ TEMPLATES: dict[Lang, dict[str, str]] = {
         ),
         "upload": "Załącz plik w polu „{field}”",
         "pick_date": "Wybierz datę w polu „{field}” z kalendarza",
+        "double": "{what} (dwuklikiem)",
+        "each_row": "{what} w każdym wierszu tabeli „{table}”, w którym „{column}” nie jest puste",
+        "calendar_by_person": (
+            "Pole daty nie przyjmuje wpisywania, a robot programu Java nie wybiera jeszcze dat "
+            "w kalendarzu: ten krok wykonuje pracownik."
+        ),
         "fill": "Wypełnij pole „{field}”",
         "select": "Wybierz wartość z listy „{field}”",
         "choose": "Wypełnij pole „{field}” i wybierz podpowiedź",
@@ -61,6 +67,14 @@ TEMPLATES: dict[Lang, dict[str, str]] = {
         "menu": "Wybierz z menu „{menu}” pozycję „{name}”",
         "row": "W tabeli „{table}” wybierz wiersz, w którym {rule}",
         "row_any": "W tabeli „{table}” wybierz wiersz",
+        "row_command": "W tabeli „{table}” kliknij „{command}” w wierszu, w którym {rule}",
+        "row_any_command": "W tabeli „{table}” kliknij „{command}” w wierszu",
+        "row_first_command": "W tabeli „{table}” kliknij „{command}” w pierwszym wierszu "
+        "(według „{column}”, {order})",
+        "row_last_command": "W tabeli „{table}” kliknij „{command}” w ostatnim wierszu "
+        "(według „{column}”, {order})",
+        "row_first": "W tabeli „{table}” wybierz pierwszy wiersz (według „{column}”, {order})",
+        "row_last": "W tabeli „{table}” wybierz ostatni wiersz (według „{column}”, {order})",
         "dialog": "W oknie „{dialog}” kliknij „{name}”",
         "press": "Naciśnij {keys}",
         "check": "Zaznacz „{name}”",
@@ -77,6 +91,12 @@ TEMPLATES: dict[Lang, dict[str, str]] = {
         "read_message": "Read the message that follows “{words}:” on the “{screen}” screen",
         "upload": "Attach a file in the “{field}” field",
         "pick_date": "Choose a date in the “{field}” field from the calendar",
+        "double": "{what} (double-click)",
+        "each_row": "{what} in each row of the table “{table}” where “{column}” is not empty",
+        "calendar_by_person": (
+            "The date field takes no typing, and the Java robot does not pick dates in a "
+            "calendar yet: a person does this step."
+        ),
         "fill": "Fill in the “{field}” field",
         "select": "Choose a value from the “{field}” list",
         "choose": "Fill in the “{field}” field and pick the suggestion",
@@ -87,6 +107,14 @@ TEMPLATES: dict[Lang, dict[str, str]] = {
         "menu": "Choose “{name}” in the “{menu}” menu",
         "row": "In the “{table}” table, pick the row where {rule}",
         "row_any": "In the “{table}” table, pick a row",
+        "row_command": "In the “{table}” table, click “{command}” in the row where {rule}",
+        "row_any_command": "In the “{table}” table, click “{command}” in a row",
+        "row_first_command": "In the “{table}” table, click “{command}” in the first row "
+        "(by “{column}”, {order})",
+        "row_last_command": "In the “{table}” table, click “{command}” in the last row "
+        "(by “{column}”, {order})",
+        "row_first": "In the “{table}” table, pick the first row (by “{column}”, {order})",
+        "row_last": "In the “{table}” table, pick the last row (by “{column}”, {order})",
         "dialog": "In the “{dialog}” window, click “{name}”",
         "press": "Press {keys}",
         "check": "Tick “{name}”",

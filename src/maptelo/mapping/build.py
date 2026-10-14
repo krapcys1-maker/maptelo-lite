@@ -11,16 +11,19 @@ import json
 import os
 import re
 from collections import Counter
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from itertools import combinations, pairwise
+from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import unquote, urlsplit
 
 from maptelo import options, sentences
+from maptelo.consent import CONSENT
 from maptelo.data.tables import Table, TableError, read_table
 from maptelo.dates import read_day
 from maptelo.mapping import shown
+from maptelo.mapping.choices import offered_choices
 from maptelo.mapping.naming import Lang, human_title, say, slug, unique, written_date
 from maptelo.mapping.normalize import (
     Act,
@@ -29,6 +32,7 @@ from maptelo.mapping.normalize import (
     normalize,
     one_time_code,
 )
+from maptelo.mapping.sources import bind, is_search, trace_origins
 from maptelo.model.integrity import PLACEHOLDER
 from maptelo.model.schema import ProcessModel
 from maptelo.model.urls import fill_from, origin, screen_template
@@ -39,7 +43,7 @@ _COMMIT_WORDS = re.compile(
     r"\b(save|submit|apply|confirm|send|post|book|approve|reject|create|update|delete|issue|"
     r"register|zapisz|zatwierdź|zatwierdz|wyślij|wyslij|potwierdź|potwierdz|zaksięguj|"
     r"zaksieguj|księguj|ksieguj|usuń|usun|utwórz|utworz|wystaw|rejestruj|zarejestruj|"
-    r"akceptuj|zaakceptuj|odrzuć|odrzuc|wstrzymaj|przekaż|przekaz)\b",
+    r"akceptuj|zaakceptuj|odrzuć|odrzuc|wstrzymaj|przekaż|przekaz|importuj|zaimportuj)\b",
     re.IGNORECASE,
 )
 """Words of a button that saves, when the recording cannot say (it did not see what was sent)."""
@@ -56,6 +60,9 @@ _IRREVERSIBLE_WORDS = re.compile(
 """What cannot be taken back once done: sending (an invoice to KSeF, a reminder), signing,
 paying, publishing."""
 _DISMISS = re.compile(r"\b(nie|no|anuluj|cancel|zamknij|close|wróć|wroc|back)\b", re.IGNORECASE)
+_CONSENT = CONSENT
+"""A window asking for the consents of a site (cookies, privacy): its answer is no write of
+the process, though it sends the choice (benchmark M5: „Pliki cookie i zgody”)."""
 _YES = re.compile(r"tak|yes", re.IGNORECASE)
 """The answer that does what a question asks."""
 """Buttons that close a window without doing what it asks."""
@@ -311,7 +318,7 @@ def _infer_type(label: str, value: str) -> str:
 # --- rows ------------------------------------------------------------------------------
 
 
-RowRule = Literal["rule", "key", "all"]
+RowRule = Literal["rule", "key", "all", "sorted"]
 """How a row was told apart: by a rule ("Status = Active"), by a value that names one record
 and so comes from the work list ("Numer = PO/2026/0001"), or only by all of its values."""
 
@@ -494,6 +501,39 @@ _ASKS = re.compile(
 """How a prompt asks („Podaj powód zmiany”): the rest names the value."""
 
 
+def _sorted_edge(trace: Trace, act: Act, target: ElementInfo) -> Literal["first", "last"] | None:
+    """The first or the last row of a table shown sorted by a column (aria-sort): the newest (or
+    the oldest) of the list, whichever record that is each time; not the record the recording
+    happened to take (benchmark M5: the newest invoice, sorted by its date)."""
+    row = target.row
+    if row is None or not row.sorted_by or row.index is None:
+        return None
+    count = _rows_before(trace, act, row.table)
+    if row.index == 0:
+        return "first"
+    if count is not None and count > 1 and row.index == count - 1:
+        return "last"
+    return None
+
+
+ORDER_WORDS = {
+    "pl": {"ascending": "rosnąco", "descending": "malejąco"},
+    "en": {"ascending": "ascending", "descending": "descending"},
+}
+
+
+_PICKS = re.compile(r"^(wybierz|wybór|select|choose|pick)\b", re.IGNORECASE)
+
+
+def row_command(target: ElementInfo) -> str | None:
+    """The words of the button or link a row's step clicks, when they say more than „pick
+    this row” (Akceptuj, Korekta (CN), Podgląd: benchmark M5, M6); None for Select, Wybierz."""
+    if target.role not in ("button", "link"):
+        return None
+    words = (target.text or target.name or "").strip()
+    return words if words and _PICKS.match(words) is None else None
+
+
 def _picks_row(target: ElementInfo) -> bool:
     """A command inside a data row (Select, Edit): the row is chosen by a rule."""
     return target.role not in ("option", "menuitem") and _row_has_data(target)
@@ -537,8 +577,20 @@ def _exception_from(message: str, placeholders: dict[str, str]) -> tuple[str, st
 
 
 class _Builder:
-    def __init__(self, normalized: Normalized, lang: Lang, process_id: str | None) -> None:
+    def __init__(
+        self,
+        normalized: Normalized,
+        lang: Lang,
+        process_id: str | None,
+        written: Mapping[int, str | Mapping[str, Any]] | None = None,
+        sheet: bool = True,
+    ) -> None:
         self.n = normalized
+        self.sheet = sheet
+        """Whether the inputs take their columns from the sheet the recording names."""
+        self.written = dict(written or {})
+        """Descriptions written by an action of the step (on the map afterwards, or on Studio's
+        list of steps while recording): they replace what was said in the box."""
         self.trace = normalized.trace
         self.lang = lang
         self.app = _app_name(self.trace)
@@ -588,6 +640,39 @@ class _Builder:
     def note(self, pl: str, en: str) -> None:
         self.notes.append(pl if self.lang == "pl" else en)
 
+    def person_notes(self, steps: list[dict[str, Any]]) -> None:
+        """What the person said about a step goes with it: said while recording (Studio's box),
+        it belongs to the act it came after; said after an act the map has no step for (a
+        misclick), to the next step; written on the map afterwards, it replaces what was said."""
+        said: dict[int, list[str]] = {}
+        for act in self.n.acts:
+            for seen in act.observed:
+                if seen.type == "note" and seen.value and seen.value.strip():
+                    said.setdefault(act.seq, []).append(seen.value.strip())
+        owner = {seq: step["id"] for step in steps for seq in self.step_events.get(step["id"], [])}
+        kept = set(owner.values())
+        firsts = sorted((min(s), i) for i, s in self.step_events.items() if s and i in kept)
+        by_step: dict[str, list[str]] = {}
+        for seq, texts in sorted(said.items()):
+            step_id = owner.get(seq) or next((i for first, i in firsts if first > seq), None)
+            step_id = step_id or (steps[-1]["id"] if steps else None)
+            if step_id is not None:
+                by_step.setdefault(step_id, []).extend(texts)
+        for step in steps:
+            seqs = sorted(self.step_events.get(step["id"], []))
+            written = next((self.written[s] for s in seqs if s in self.written), None)
+            if written is not None:  # an empty one takes back what was said
+                full = said_of(written)
+                if full["text"]:
+                    step["note"] = full["text"]
+                if full["when"]:
+                    step["note_when"] = full["when"]
+                if full["person"]:  # a person decides there: the robot stops before it
+                    step["person_decides"] = True
+                    step["executor"] = "human"
+            elif step["id"] in by_step:
+                step["note"] = " ".join(by_step[step["id"]])
+
     def evidence(self, seqs: list[int], note: str | None = None) -> dict[str, Any]:
         evidence: dict[str, Any] = {"traces": [f"{self.recording}#{s}" for s in seqs]}
         if note:
@@ -605,13 +690,18 @@ class _Builder:
             # chosen by its words as well as by its codes
             value, column = words, by_words
         for known in self.labelled.get(label, []):
-            held = self.column_of(str(self.inputs[known].get("example", "")))
+            example = str(self.inputs[known].get("example", ""))
+            if value != example and is_search(example, value):
+                continue  # the value typed again as a search („26386%” after „26386-F” in the
+                # same field, benchmark M2): typed so, an input of its own
+            held = self.column_of(example)
             if column is None or held is None or held == column:
                 return known  # the same field again, or its value of the record's next line
         again = label in self.labelled  # another field of the label: named by its column
         plain_label = PLACEHOLDER.sub("", label).strip(" :") or "value"  # „Ilość do zwrotu”
-        name = unique(slug(str(column) if again else plain_label), self._input_names)
-        described = f"{label} ({column})" if again else label
+        by_column = again and column is not None
+        name = unique(slug(str(column) if by_column else plain_label), self._input_names)
+        described = f"{label} ({column})" if by_column else label
         spec: dict[str, Any] = {"type": _infer_type(label, value), "description": described}
         if value:
             spec["example"] = value
@@ -639,6 +729,97 @@ class _Builder:
         if self._columns is None:
             self._columns = self.sheet_columns()
         return self._columns.get(shown.plain(value)) if value.strip() else None
+
+    def each_rows(self, steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """A box ticked or unticked one after another in rows of one table, when those rows
+        are all the rows that show something in one column (Importuj unticked in each row
+        with an error, benchmark M3): one step done in each such row. Kept apart, each named
+        its row by what it held, and the next file has its errors in other rows."""
+        out: list[dict[str, Any]] = []
+        i = 0
+        while i < len(steps):
+            j = i + 1
+            while j < len(steps) and _same_in_rows(steps[i], steps[j]):
+                j += 1
+            merged = self.each_of(steps[i:j]) if j - i >= 2 else None
+            out += [merged] if merged is not None else steps[i:j]
+            i = j
+        return out
+
+    def each_of(self, run: list[dict[str, Any]]) -> dict[str, Any] | None:
+        first = run[0]
+        within = first["within"]
+        rows = self.rows_before(first, within)
+        taken = self.rows_taken(run, rows) if rows else None
+        if not rows or taken is None or len(taken) != len(run) or len(taken) == len(rows):
+            return None  # rows not read, one row twice, or every row: no rule of rows
+        acted = {str(loc.get("column")) for loc in first.get("target") or []}
+        said = [column for step in run for column in step["within"].get("where") or {}]
+        column = next(
+            (
+                c
+                for c in dict.fromkeys([*said, *rows[0]])
+                if c not in acted
+                and {i for i, row in enumerate(rows) if row.get(c, "").strip()} == taken
+            ),
+            None,
+        )
+        if column is None:
+            return None  # the rows taken are not the rows that show something in one column
+        table = next((loc.get("name") for loc in within["table"] if loc.get("name")), "")
+        seqs = [s for step in run for s in self.step_events.get(str(step["id"]), [])]
+        merged = dict(first)
+        merged["within"] = {"table": within["table"], "where_not": {column: None}, "pick": "each"}
+        merged["intent"] = say(
+            self.lang, "each_row", what=first["intent"], table=table or "?", column=column
+        )
+        merged["evidence"] = self.evidence(seqs)
+        self.step_events[str(first["id"])] = seqs
+        for step in run[1:]:
+            self.step_events.pop(str(step["id"]), None)
+        return merged
+
+    def rows_taken(self, run: list[dict[str, Any]], rows: list[dict[str, str]]) -> set[int] | None:
+        """The rows of the table the steps were done in: the row showing what the recording
+        saw in it, else the row at its place."""
+        events = {e.seq: e for e in self.trace.events}
+        taken: set[int] = set()
+        for step in run:
+            seqs = self.step_events.get(str(step["id"])) or []
+            target = events[seqs[0]].target if seqs and seqs[0] in events else None
+            if target is None or target.row is None:
+                return None
+            seen = {k: " ".join(v.split()) for k, v in target.row.cells.items()}
+            fits = [
+                i
+                for i, row in enumerate(rows)
+                if all(
+                    " ".join(row.get(k, "").split()) == v
+                    for k, v in seen.items()
+                    if k != target.column
+                )
+            ]
+            index = target.row.index
+            if len(fits) == 1:
+                taken.add(fits[0])
+            elif index is not None and 0 <= index < len(rows):
+                taken.add(index)
+            else:
+                return None
+        return taken
+
+    def rows_before(
+        self, step: dict[str, Any], within: dict[str, Any]
+    ) -> list[dict[str, str]] | None:
+        """The rows of the step's table on the screen before its first action."""
+        seqs = self.step_events.get(str(step["id"])) or []
+        event = next((e for e in self.trace.events if seqs and e.seq == seqs[0]), None)
+        state = self.trace.state(event.state_before) if event is not None else None
+        if state is None:
+            return None
+        name = next((loc.get("name") for loc in within["table"] if loc.get("name")), None)
+        node = parse_aria(state.aria).find("table", name)
+        return table_rows(node) if node is not None else None
 
     def fold_lines(self, steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Steps done one after another for each product of an order (choose the product,
@@ -725,6 +906,19 @@ class _Builder:
         self.inputs_by_field[column] = name
         self.labelled.setdefault(column, []).append(name)
         return name
+
+    def sorted_intent(self, edge: str | None, target: ElementInfo) -> str:
+        assert target.row is not None
+        order = ORDER_WORDS[self.lang].get(target.row.sort_order or "", target.row.sort_order or "")
+        command = row_command(target)
+        return say(
+            self.lang,
+            f"row_{edge or 'first'}" + ("_command" if command else ""),
+            table=target.row.table or "",
+            column=target.row.sorted_by or "",
+            order=order,
+            **({"command": command} if command else {}),
+        )
 
     def data_in_row(self, act: Act, target: ElementInfo) -> tuple[str, str] | None:
         """(column, input) of a cell of the picked row holding a value of the data, so the
@@ -1005,6 +1199,41 @@ class _Builder:
                     )
                 }
             )
+
+    def bind_sources(self) -> dict[str, Any] | None:
+        """The inputs whose values came from the sheet the person worked from: their columns,
+        and how the screen wants them typed (K0010% searched for, 01-LIS-2026). A map of one
+        recording is the work list's one row: a value two columns hold is left unbound, and
+        the map says which to confirm. None: no sheet, or nothing of it typed."""
+        data, path = self.trace.header.data, self.trace.path
+        if data is None or path is None:
+            return None
+        try:
+            table: Table = read_table(path.parent / data.file, data.sheet)
+        except (TableError, OSError):
+            return None
+        examples = {
+            n: str(s["example"]) for n, s in self.inputs.items() if s.get("example") is not None
+        }
+        found = trace_origins([examples], [table])
+        if not found.origins:
+            return None
+        row = next((r for r in found.rows if r is not None), {})
+        for name, source in found.origins.items():
+            if name in self.inputs:
+                bind(self.inputs[name], source, row)
+        for name, origins in found.doubtful.items():
+            if name not in self.inputs:
+                continue
+            columns = ", ".join(f"„{o.column}”" for o in origins)
+            label = self.inputs[name].get("description", name)
+            self.note(
+                f"Wartość pola „{label}” jest w kilku kolumnach arkusza ({columns}): "
+                "potwierdź, z której ją brać.",
+                f"The value of “{label}” is in several columns of the sheet ({columns}): "
+                "say which one it comes from.",
+            )
+        return {"description": Path(data.file).name, "sheet": data.sheet}
 
     def sheet_columns(self) -> dict[str, str]:
         """Each value of the sheet the person worked from, with the one column holding it
@@ -1493,7 +1722,12 @@ class _Builder:
         in_state = self.screens.state_id(act.event.url, act.event.window)
         if in_state:
             step["in_state"] = in_state
-        step["evidence"] = self.evidence(picked.seqs)
+        java = (act.event.url or "").startswith("java://")
+        # a Java program's calendar over a field one cannot type into: no robot does it yet
+        note = say(self.lang, "calendar_by_person") if java else None
+        step["evidence"] = self.evidence(picked.seqs, note)
+        if java:
+            step["executor"] = "human"
         self.step_events[step_id] = picked.seqs
         return step
 
@@ -1535,13 +1769,16 @@ class _Builder:
         window sends is watched as anything else: a dry run lets nothing through)."""
         if self.sent_by(act):
             return False
-        after = self.trace.states.get(act.event.state_after or "")
-        if after is not None and after.window > act.event.window:
-            return True
-        # the person's next action is in a window over this one: this click brought it up
-        # (its screen was not read when the person answered at once: benchmark D01)
         later = self.n.steps.index(act) + 1 if act in self.n.steps else len(self.n.steps)
         following = self.n.steps[later] if later < len(self.n.steps) else None
+        after = self.trace.states.get(act.event.state_after or "")
+        if after is not None and after.window > act.event.window:
+            # unless it went away by itself and the person went on here: a progress window
+            # („Importowanie…” after „Importuj zaznaczone”, benchmark M3) is no window the
+            # save is made in
+            return following is None or following.event.window > act.event.window
+        # the person's next action is in a window over this one: this click brought it up
+        # (its screen was not read when the person answered at once: benchmark D01)
         return following is not None and following.event.window > act.event.window
 
     def confirms_save(self, act: Act) -> bool:
@@ -1581,6 +1818,43 @@ class _Builder:
         if not any(event.sent for event in self.trace.events):
             return False  # a recording that does not see what is sent cannot say
         return not any(o.type in ("navigated", "downloaded") for o in act.observed)
+
+    def mark_choice(self, act: Act, step: dict[str, Any], name: str) -> None:
+        """A decision made where the screen offered another: „Akceptuj” clicked in an
+        invoice's row that also has „Korekta (CN)” (benchmark M6), „Przyjmij reklamację” beside
+        „Odrzuć reklamację” (p18). The recording shows which was chosen, never when the other
+        is: a person makes the decision until the owner gives its rule, and an automation built
+        from the map stops before it (one built from this recording accepted every invoice)."""
+        target = act.event.target
+        if act.kind != "click" or target is None:
+            return
+        if (target.dialog and _CONSENT.search(target.dialog)) or self.confirms_own(act):
+            return  # a site's consents; the person's own changes confirmed (how it saves, g039)
+        others = offered_choices(_screen_before(self.trace, act), target, name)
+        if not others:
+            return
+        step["alternatives"] = others
+        if step.get("executor", "deterministic") == "deterministic":
+            step["executor"] = "human"
+        table = target.row.table if target.row is not None else None
+        if target.row is None:
+            where_pl, where_en = "na ekranie", "the screen"
+        elif table:
+            where_pl, where_en = f"w wierszu tabeli „{table}”", f"the row of the table “{table}”"
+        else:
+            where_pl, where_en = "w wierszu tabeli", "the table's row"
+        listed_pl = ", ".join(f"„{o}”" for o in others)
+        listed_en = ", ".join(f"“{o}”" for o in others)
+        self.note(
+            f"Krok „{step['intent']}” to decyzja: wybrano „{name}”, a {where_pl} "
+            f"{'jest' if len(others) == 1 else 'są'} też {listed_pl}. Nagranie nie mówi, kiedy "
+            "wybrać inaczej, więc decyduje człowiek, a robot zatrzyma się przed tym krokiem. "
+            f"Podaj regułę, kiedy wybierasz „{name}”, albo nagraj przypadek z inną decyzją.",
+            f"Step “{step['intent']}” is a decision: “{name}” was chosen, and {where_en} also "
+            f"offered {listed_en}. The recording does not say when to choose otherwise, so a "
+            "person decides and the robot stops before the step. Give the rule for when "
+            f"“{name}” is chosen, or record a case decided the other way.",
+        )
 
     def confirms_own(self, act: Act) -> bool:
         """An approval in a window opened over the person's own changes („Zapisz” opens
@@ -1691,16 +1965,20 @@ class _Builder:
             value = (target.name or target.text or "").strip()
             table = _table_ladder(self.trace, act, target.row.table)
             named = None if self.from_data(value) else self.row_named_by_data(act, target)
+            edge = None if self.from_data(value) or named else _sorted_edge(self.trace, act, target)
             if named:  # the record's own row: its customer and date, not the recorded number
                 where = {column: f"$inputs.{name}" for column, name in named.items()}
                 rule = " i " if self.lang == "pl" else " and "
                 rule = rule.join(f"{column} = {{{name}}}" for column, name in named.items())
                 step["intent"] = say(self.lang, "open_row_by", rule=rule)
+            elif edge is not None:  # the newest (or oldest) of a sorted list, whichever it is
+                where = {}
+                step["intent"] = self.sorted_intent(edge, target)
             else:
                 input_name = self.value_input(target.column, value)
                 where = {target.column: f"$inputs.{input_name}"}
                 step["intent"] = say(self.lang, "open_row", column=target.column, input=input_name)
-            step["within"] = {"table": table, "where": where}
+            step["within"] = {"table": table, "where": where, **({"pick": edge} if edge else {})}
             own_target = [{"role": "cell", "column": target.column}]
             if target.role not in (None, "cell", "gridcell"):
                 # the link in the cell: the cell's middle misses a link shorter than it (g017)
@@ -1736,6 +2014,10 @@ class _Builder:
                 column, input_name = known
                 where, how = {column: f"$inputs.{input_name}"}, "key"
                 rule = f"{column} = {{{input_name}}}"
+            elif how in ("key", "all") and (place := _sorted_edge(self.trace, act, target)):
+                # the first row of a list sorted by its date: the newest, whichever record that
+                # is; its number is no value of the work (benchmark M5)
+                where, how = {}, "sorted"
             elif how == "key":  # the record the work list names: its value is an input
                 ((column, value),) = where.items()
                 input_name = self.value_input(column, value)
@@ -1744,14 +2026,34 @@ class _Builder:
             step["within"] = {
                 "table": _table_ladder(self.trace, act, target.row.table),
                 "where": where,
+                **({"pick": place} if how == "sorted" else {}),
             }
             table_name = target.row.table or ""
-            if where:
+            command = row_command(target)
+            if how == "sorted":
+                step["intent"] = self.sorted_intent(place, target)
+            elif where and command:
+                step["intent"] = say(
+                    self.lang, "row_command", table=table_name, command=command, rule=rule
+                )
+            elif where:
                 step["intent"] = say(self.lang, "row", table=table_name, rule=rule)
+            elif command:  # nothing in the row has a header to name it by
+                step["intent"] = say(
+                    self.lang, "row_any_command", table=table_name, command=command
+                )
             else:  # nothing in the row has a header to name it by (an inbox, a plain list)
                 step["intent"] = say(self.lang, "row_any", table=table_name)
             base = f"pick_row_{target.row.table or 'table'}"
-            if how == "key":
+            if how == "sorted":
+                evidence_note = (
+                    "Wiersz wskazuje miejsce na posortowanej liście (pierwszy albo ostatni), "
+                    "a nie numer z nagrania"
+                    if self.lang == "pl"
+                    else "The row is a place in a sorted list (the first or the last), not the "
+                    "recorded number"
+                )
+            elif how == "key":
                 evidence_note = (
                     f"Wiersz wskazuje wartość z danych wejściowych ({column}), "
                     "a nie stała z nagrania"
@@ -1770,7 +2072,8 @@ class _Builder:
                     if self.lang == "en"
                     else "Wiersz rozpoznany po wszystkich wartościach"
                 )
-            if not where and _rows_before(self.trace, act, target.row.table) != 1:
+            rows = _rows_before(self.trace, act, target.row.table)
+            if not where and how != "sorted" and rows != 1:
                 step["executor"] = "human"  # which row is the work, nothing on screen says
                 self.note(
                     f"Krok „{step['intent']}”: nic w wierszu nie mówi, który wiersz wybrać "
@@ -1801,6 +2104,9 @@ class _Builder:
             base = f"click_{name}"
         if step["action"] == "click" and any(o.type == "downloaded" for o in act.observed):
             step["action"] = "download"  # the click gave a file: the robot keeps it
+        if step["action"] == "click" and act.event.clicks == 2:
+            step["clicks"] = 2  # a double click: a row of a list opens its record
+            step["intent"] = say(self.lang, "double", what=step["intent"])
         if own_target is not None:
             step["target"] = own_target
         elif target is not None:
@@ -1829,6 +2135,8 @@ class _Builder:
         )
         no_undo = act.kind == "click" and not _DISMISS.search(words) and self.warned_no_undo(act)
         saves = sends or no_undo or self.sent_by(act) or self.confirms_save(act)
+        if saves and target is not None and _CONSENT.search(target.dialog or ""):
+            saves = False  # the site's consents answered: a dry run goes past it to the work
         if saves:  # "Księguj" saves too: it sent data; "Tak" to "Zatwierdzić notę?" too
             step["risk"] = "commit"
             if no_undo or _IRREVERSIBLE_WORDS.search(words):
@@ -1837,7 +2145,10 @@ class _Builder:
         if in_state:
             step["in_state"] = in_state
         self.mark_control(act, step, name)
-        expect = self.expectation(act, following)
+        self.mark_choice(act, step, name)
+        # a file given is the download's result (the robot waits for it): no screen to expect,
+        # and the next button, there all along in a new tab, is none (benchmark M5)
+        expect = None if step.get("action") == "download" else self.expectation(act, following)
         step_id = self.step_id(base)
         step = {"id": step_id, **step}
         self.outcomes_for(act, expect, step)
@@ -1891,9 +2202,11 @@ class _Builder:
         self.windows_and_dialogs(steps[1:], acts)
         steps = self.read_copied(steps, acts)
         self.link_downloads(steps, acts)
+        steps = self.each_rows(steps)
         steps = self.fold_lines(steps)
         self.open_by_data(steps)
         self.dialog_templates(steps)
+        self.person_notes(steps)
 
         interrupts: list[dict[str, Any]] = []
         for act in self.n.by_role("interrupt"):
@@ -1941,6 +2254,7 @@ class _Builder:
                 "identifying constants requires several recordings.",
             )
 
+        records = self.bind_sources() if self.sheet else None
         started = written_date(self.trace.header.started_at.date(), self.lang)
         description = say(self.lang, "mapped_from", date=started)
         note = (self.trace.header.note or "").strip()
@@ -1962,6 +2276,7 @@ class _Builder:
             },
             "preconditions": preconditions,
             "inputs": self.inputs,
+            **({"records": records} if records else {}),
             "states": self.screens.states(),
             "interrupts": interrupts,
             "exceptions": self.exceptions,
@@ -1975,6 +2290,45 @@ class _Builder:
         )
 
 
-def map_trace(trace: Trace, *, lang: Lang = "pl", process_id: str | None = None) -> MapResult:
-    """Turn one recording into a process model (plus what needs confirming)."""
-    return _Builder(normalize(trace), lang, process_id).build()
+def _same_in_rows(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    """Two steps ticking (or unticking) the same box in two rows of one table, neither row
+    named by the record's data (the record says which rows: no rule of rows)."""
+    if a.get("action") != b.get("action") or a.get("action") not in ("check", "uncheck"):
+        return False
+    first, second = a.get("within"), b.get("within")
+    if not first or not second or first.get("table") != second.get("table"):
+        return False
+    if a.get("target") != b.get("target") or a.get("when") or b.get("when"):
+        return False
+    one, other = first.get("where") or {}, second.get("where") or {}
+    data = [v for v in (*one.values(), *other.values()) if isinstance(v, str) and "$" in v]
+    return one != other and not data
+
+
+def said_of(written: object) -> dict[str, Any]:
+    """A step's description as written: why (its text), when it is done, whether a person
+    decides there. Plain words are the why alone (as maps wrote them before)."""
+    if isinstance(written, Mapping):
+        return {
+            "text": str(written.get("text") or "").strip(),
+            "when": str(written.get("when") or "").strip(),
+            "person": bool(written.get("person")),
+        }
+    return {"text": str(written or "").strip(), "when": "", "person": False}
+
+
+def map_trace(
+    trace: Trace,
+    *,
+    lang: Lang = "pl",
+    process_id: str | None = None,
+    notes: Mapping[int, str | Mapping[str, Any]] | None = None,
+    sheet: bool = True,
+) -> MapResult:
+    """Turn one recording into a process model (plus what needs confirming). ``notes``: a
+    step's description written on its map afterwards or while recording, by the number of an
+    action of it (plain words: why; or why, when, whether a person decides). ``sheet``: the
+    inputs take their columns from the sheet the recording names (its row is the work list's
+    one row); False leaves them as typed, for a model of several recordings to decide where
+    each comes from, and to ask when it is not sure."""
+    return _Builder(normalize(trace), lang, process_id, notes, sheet).build()

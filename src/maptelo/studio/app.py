@@ -22,7 +22,13 @@ from typing import Any
 from starlette.applications import Starlette
 from starlette.datastructures import Headers
 from starlette.requests import Request
-from starlette.responses import FileResponse, JSONResponse, RedirectResponse, Response
+from starlette.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    RedirectResponse,
+    Response,
+)
 from starlette.routing import BaseRoute, Mount, Route
 from starlette.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Receive, Scope, Send
@@ -201,6 +207,10 @@ def create_app(
             if secrets.compare_digest(given.encode(), token.encode()):
                 response.set_cookie(COOKIE, token, httponly=True, samesite="strict", path="/")
             return response
+        if lite:  # the page is Lite's before the key is given: no robot's menu, Lite's own words
+            page = (STATIC / "index.html").read_text("utf-8")
+            page = page.replace("<body>", '<body data-lite="1">', 1)
+            return HTMLResponse(page, headers={"Cache-Control": "no-store"})
         return FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-store"})
 
     def state(request: Request) -> JSONResponse:
@@ -273,6 +283,89 @@ def create_app(
             raise _NotFoundError("there is no such job") from None
         found.stop_requested = True
         return JSONResponse(found.view(0))
+
+    async def hear(request: Request) -> JSONResponse:
+        """What the person says about what they are doing, while a recording runs (its box)."""
+        lang = _lang(request)
+        try:
+            found = jobs.get(request.path_params["job"])
+        except KeyError:
+            raise _NotFoundError("there is no such job") from None
+        data = await _json_object(request)
+        text = str(data.get("text") or "").strip()
+        when = str(data.get("when") or "").strip()
+        person = bool(data.get("person"))
+        action = data.get("action")
+        if action is not None:  # a step of the list, by its action: kept with the recording
+            if not isinstance(action, int) or isinstance(action, bool) or action < 1:
+                return _problems(["which step: its action's number"], lang=lang)
+            if found.folder is None:
+                return _problems(["a step is described while its recording runs"], 409, lang)
+            recording.keep_note(found.folder, action, text, when, person)
+            found.emit("note", action=action, text=text, when=when, person=person)
+            return JSONResponse({"action": action, "text": text}, 202)
+        if not text:
+            return _problems(["the description is empty"], lang=lang)
+        if found.state != "running" or found.hear is None:
+            return _problems(["a step is described while its recording runs"], 409, lang)
+        found.hear(text)
+        found.emit("note", text=text)
+        return JSONResponse({"text": text}, 202)
+
+    def described_steps(request: Request) -> JSONResponse:
+        """A recording's map, step by step, with each step's description (to write on it)."""
+        try:
+            steps = recording.map_steps_view(
+                workspace,
+                request.path_params["key"],
+                request.path_params["recording"],
+                _lang(request),
+            )
+        except RunProblemError as exc:
+            return _problems(exc.problems, 404, _lang(request))
+        return JSONResponse(steps)
+
+    async def describe_step(request: Request) -> JSONResponse:
+        """A step's description written on the map; the map is made again with it."""
+        lang = _lang(request)
+        key, one = request.path_params["key"], request.path_params["recording"]
+        data = await _json_object(request)
+        first = data.get("first")
+        if not isinstance(first, int) or first < 1:
+            return _problems(["which step: its first action's number"], lang=lang)
+        try:
+            recording.write_note(
+                workspace,
+                key,
+                one,
+                first,
+                str(data.get("text") or ""),
+                str(data.get("when") or ""),
+                bool(data.get("person")),
+            )
+            made = recording.map_recording(workspace, key, one, str(data.get("lang") or lang))
+        except RunProblemError as exc:
+            return _problems(exc.problems, 400, lang)
+        return JSONResponse(made)
+
+    def card(request: Request) -> JSONResponse:
+        """The process card: what the process is for, in the person's words."""
+        return JSONResponse({"card": recording.process_card(workspace, request.path_params["key"])})
+
+    async def write_card(request: Request) -> JSONResponse:
+        """The process card written; the process's maps are made again with it."""
+        lang = _lang(request)
+        data = await _json_object(request)
+        answers = data.get("card")
+        if not isinstance(answers, dict):
+            return _problems(["the card: its answers by question"], lang=lang)
+        try:
+            written = recording.write_process_card(
+                workspace, request.path_params["key"], answers, str(data.get("lang") or lang)
+            )
+        except RunProblemError as exc:
+            return _problems(exc.problems, 400, lang)
+        return JSONResponse({"card": written})
 
     def file(request: Request) -> Response:
         try:
@@ -395,6 +488,7 @@ def create_app(
         Route("/api/sheets", upload, methods=["POST"]),
         Route("/api/jobs/{job}", job),
         Route("/api/jobs/{job}/stop", stop, methods=["POST"]),
+        Route("/api/jobs/{job}/notes", hear, methods=["POST"]),
         Route("/api/files/{path:path}", file),
         Route("/api/open", open_path, methods=["POST"]),
         Route("/api/drafts", drafts),
@@ -402,6 +496,10 @@ def create_app(
         Route("/api/recordings/{key}", recordings),
         Route("/api/recordings/{key}", forget, methods=["DELETE"]),
         Route("/api/recordings/{key}/{recording}", forget, methods=["DELETE"]),
+        Route("/api/recordings/{key}/{recording}/steps", described_steps),
+        Route("/api/recordings/{key}/{recording}/notes", describe_step, methods=["PUT"]),
+        Route("/api/processes/{key}/card", card),
+        Route("/api/processes/{key}/card", write_card, methods=["PUT"]),
         Route("/api/java/windows", java_windows),
         Route("/api/maps", make_map, methods=["POST"]),
         Route("/api/profiles", profiles, methods=["GET"]),

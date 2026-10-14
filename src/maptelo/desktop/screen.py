@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field, replace
 
 from maptelo.desktop.jab import SECRET, Node, Table
@@ -141,6 +141,9 @@ class Element:
     column: str | None = None
     cells: dict[str, str] = field(default_factory=dict)
     """The other fields' values in its row (for a rule naming the row by them)."""
+    chosen: str | None = None
+    """For a combo box one cannot type into: the item its list has chosen (read from the list,
+    which is not showing); written as [chosen=…], not as what the box holds."""
 
     @property
     def path(self) -> str:
@@ -337,6 +340,9 @@ def _line(element: Element, *, named: bool = True) -> str:
         attrs.append("[selected]")
     if not element.enabled and element.role in FIELDS | {"button", "menuitem", "tab"}:
         attrs.append("[disabled]")
+    if element.role == "combobox" and element.chosen and element.value is None:
+        shown = " ".join(element.chosen.split()).replace("]", ")")
+        attrs.append(f"[chosen={shown}]")
     attr = "".join(f" {a}" for a in attrs if a)
     head = f"- {element.role}" + (f" {_quote(element.name)}" if element.name and named else "")
     head += attr
@@ -367,8 +373,10 @@ def build_screen(
     nodes: list[Node],
     *,
     tables: dict[str, Table] | None = None,
+    chosen: Mapping[str, str] | None = None,
 ) -> Screen:
-    """The screen of one window from its tree (``Bridge.tree``)."""
+    """The screen of one window from its tree (``Bridge.tree``). ``chosen``: the item each combo
+    box's list has chosen, by the box's path (``chosen_in_lists``)."""
     by_path = {n.path: n for n in nodes}
     frames: list[tuple[str, Node]] = []
     elements: list[Element] = []
@@ -390,8 +398,11 @@ def build_screen(
             continue
         if node.role == "label" and _parent_role(node, by_path) == "list":
             role = "option"  # a row of a list (Oracle's lists of values are labels)
-        if role == "text" and _status_line(node, nodes[0]) and (node.text or "").strip():
-            status.append(" ".join((node.text or "").split()))
+        # what a status line shows: its text, or, for a Swing label whose text the bridge does
+        # not read (only an HTML label has it), its name, which is that text (benchmark WCR)
+        shown = _label_text(node) if role == "text" else ""
+        if role == "text" and _status_line(node, nodes[0]) and shown.strip():
+            status.append(" ".join(shown.split()))
             continue
         if role == "text" and not _label_text(node).strip():
             continue  # a label that shows nothing (its name is for a reader, not on screen)
@@ -412,12 +423,37 @@ def build_screen(
             frame=chain[-1][0] if chain else None,
             frames=tuple(t for t, _ in chain),
             modal=any("modal" in n.states for _, n in chain),
+            chosen=(chosen or {}).get(node.path) if role == "combobox" else None,
         )
         if role in ("listbox", "table", "combobox", "menubar", "tablist", "toolbar"):
             pass  # their children are elements of their own
         elements.append(element)
     _mark_blocks(elements)
     return Screen(title, hwnd, nodes, elements, frames, status, dict(tables or {}))
+
+
+def chosen_in_lists(nodes: list[Node], read: Callable[[str], list[Node]]) -> dict[str, str]:
+    """The item each showing combo box's list has chosen, for the boxes whose own text does not
+    say (one cannot type into them: WCR's „Cena za”, „Kanał sprzedaży”); ``read`` gives the
+    elements under a path, hidden ones too (the list is not showing). By the box's path."""
+    chosen: dict[str, str] = {}
+    for node in nodes:
+        if node.role != "combo box" or not node.showing or (node.text or "").strip():
+            continue
+        try:
+            under = read(node.path)
+        except Exception:  # gone or busy: the box stays without it
+            continue
+        listed = next((n for n in under if n.role == "list"), None)
+        if listed is None:
+            continue
+        item = next(
+            (n for n in under if n.depth == listed.depth + 1 and n.is_under(listed) and n.selected),
+            None,
+        )
+        if item is not None and clean_name(item.name):
+            chosen[node.path] = clean_name(item.name)
+    return chosen
 
 
 def _label_text(node: Node) -> str:

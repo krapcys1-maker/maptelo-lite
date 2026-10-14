@@ -77,9 +77,11 @@ WORD_LISTS = [
     ("const BROWSERS = [", "];"),
     ('[["processes", "Procesy"]', "]]"),
     ('["Data", "Uwagi"', "]"),
+    ("const CARD_QUESTIONS = [", "];"),
 ]
 """Words the page gives to t() where it uses them: the names of the checks of this computer
-and of the browsers, the side panel's links, the headings of a process's recordings."""
+and of the browsers, the side panel's links, the headings of a process's recordings, the
+questions of the process card and their examples."""
 
 
 def test_no_polish_word_of_the_page_is_left_where_english_cannot_reach() -> None:

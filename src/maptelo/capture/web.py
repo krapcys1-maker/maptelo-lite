@@ -13,6 +13,7 @@ each action, then ``stop()``.
 from __future__ import annotations
 
 import contextlib
+import queue
 import re
 import secrets
 import time
@@ -160,6 +161,7 @@ class Recorder:
         self._allowed: set[str] = set(self.options.allowed_origins)
         self._sent: list[tuple[float, str]] = []
         self._pending_downloads: list[Download] = []
+        self._said: queue.SimpleQueue[tuple[float, str]] = queue.SimpleQueue()
         context.expose_binding(BINDING, self._on_emit)
         context.on("request", self._on_request)
         context.add_init_script(script=RECORDER_JS)
@@ -222,6 +224,12 @@ class Recorder:
         self.trace_path.unlink(missing_ok=True)
         with contextlib.suppress(OSError):
             self.out_dir.rmdir()  # only when empty
+
+    def note(self, text: str) -> None:
+        """What the person says about what they are doing, from another thread (Studio's
+        box): written with the time it was said, the map gives it to the step it came after."""
+        if text.strip():
+            self._said.put((time.time(), text.strip()))
 
     def _follow(self, page: Page) -> None:
         """Record in this window too: what the person does there and what it shows."""
@@ -411,6 +419,12 @@ class Recorder:
         if page is None or self._writer is None or page.is_closed():
             return 0
         self._keep_downloads()
+        while True:  # what the person said meanwhile (Studio's box, another thread)
+            try:
+                said_at, text = self._said.get_nowait()
+            except queue.Empty:
+                break
+            self._queue.append((said_at, {"type": "note", "value": text, "_window": self._active}))
         if not self._queue and not self._page_changed():
             self._retake_after_typing()
             return 0
@@ -609,11 +623,13 @@ def record_session(
     stop: Callable[[], bool] | None = None,
     progress: Callable[[int], None] | None = None,
     on_open: Callable[[], None] | None = None,
+    listen: Callable[[Callable[[str], None]], None] | None = None,
 ) -> Path:
     """Open a browser, record until the person closes it, and return the trace path.
     With ``profile`` it is the person's own browser profile, signed in already; with
     ``storage_state`` a saved sign-in instead. ``on_open`` hears when the start page is open
-    (Studio brings the browser's window in front then)."""
+    (Studio brings the browser's window in front then); ``listen`` is given the recorder's ear
+    for what the person says about what they are doing (Studio's box)."""
     with sync_playwright() as playwright, contextlib.ExitStack() as opened:
         window: dict[str, Any] = {
             "viewport": {"width": 1280, "height": 860},
@@ -633,6 +649,8 @@ def record_session(
             )
         recorder = Recorder(context, out_dir, options)
         recorder.start(url, context.pages[0] if context.pages else None)
+        if listen is not None:
+            listen(recorder.note)
         if on_open is not None:
             on_open()
         try:

@@ -120,9 +120,16 @@ class RowScope(_Model):
 
 
 class WithinRow(RowScope):
-    """Restricts a step's target to one table row. 'only' refuses to guess between rows."""
+    """Restricts a step's target to one table row. 'only' refuses to guess between rows;
+    'each' does the step in every row that fits, none being fine (a box unticked in each row
+    with an error)."""
 
-    pick: Literal["only", "first", "last"] = "only"
+    pick: Literal["only", "first", "last", "each"] = "only"
+    where_not: dict[str, Scalar | None] = Field(
+        default_factory=dict,
+        description="Columns the row must not hold the value in (null: must not be empty: "
+        "the rows with an error, benchmark M3).",
+    )
 
 
 # --- Conditions ----------------------------------------------------------------------
@@ -412,6 +419,28 @@ class DocumentField(_Model):
 class Step(_Model):
     id: Identifier
     intent: str = Field(min_length=1, description="What the step achieves, in business terms.")
+    note: str | None = Field(
+        default=None,
+        description="What the person who showed the process said about the step, while showing "
+        "it or on its map afterwards: why it is done, the rule they follow („the newest SBI”).",
+    )
+    note_when: str | None = Field(
+        default=None,
+        description="When the step is done, as the person said it („only when the invoice's "
+        "amount differs from the WZ”): for people and for whoever builds the automation; a robot "
+        "follows only a rule (when).",
+    )
+    person_decides: bool = Field(
+        default=False,
+        description="The person said a person decides at this step: a robot stops before it.",
+    )
+    alternatives: list[str] = Field(
+        default_factory=list,
+        description="The other decisions offered where this one was chosen („Korekta (CN)” "
+        "beside „Akceptuj” in the invoice's row): no recording showed when they are made. "
+        "Unless the owner says it is always this one, a person decides, or the robot makes it "
+        "only while its rule ('requires') holds and stops before it otherwise.",
+    )
     action: Action
     target: Target | None = None
     within: WithinRow | None = None
@@ -504,6 +533,13 @@ class Step(_Model):
         description="A check a person makes before confirming (four eyes: compares a request "
         "with its document, then approves it). Done by a person (executor 'human') unless the "
         "company lets the robot make it.",
+    )
+    clicks: int | None = Field(
+        default=None,
+        ge=2,
+        le=2,
+        description="For 'click': 2, a double click (a row of a list opens its record: WCR's "
+        "requests to approve, Oracle Forms' lists).",
     )
     no_suggestion: Literal["keep_typed"] | None = Field(
         default=None,
@@ -611,6 +647,12 @@ class ScreenVerifier(_Model):
     expect: dict[str, Scalar] = Field(
         default_factory=dict,
         description="Column -> the value the record's row shows ($inputs.name allowed).",
+    )
+    rows: Literal["one", "all"] = Field(
+        default="one",
+        description="'one': the values name the record's one row; 'all': the record wrote "
+        "several rows the values name (the lines of an imported file, benchmark M3), each to "
+        "show what expect says.",
     )
 
     def values(self) -> list[object]:
@@ -742,6 +784,11 @@ NBSP = chr(0xA0)  # non-breaking space, common in pasted numbers
 _ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _AMOUNT = re.compile(r"0(?:[.,]0+)?")
 ZERO_MASK = re.compile(r"0{2,}")
+LIKE_MASK = "{}%"
+"""A value typed as a search: itself, then % (a list of values in Oracle Forms finds what
+begins so: K0010% for the customer K0010; benchmark M1, M2). One case of a string typed with
+words around it: ``typed_as`` holds the words and one {} where the value goes ("Kwota netto
+niezgodna z dokumentem {}." for the delivery note WZ/2026/01018, benchmark M6)."""
 """How a number is typed to a width with its leading zeros: 000000000 for the order 000000302."""
 _TRUE = {"true", "yes", "1", "tak"}
 _FALSE = {"false", "no", "0", "nie"}
@@ -819,10 +866,10 @@ class InputSpec(_Model):
 
     def _check_typed_as(self, pattern: str) -> None:
         if self.type is InputType.DATE:
-            from maptelo.dates import ORACLE_MASK
+            from maptelo.dates import ORACLE_MASK, ORACLE_MASK_PL
 
-            if pattern == ORACLE_MASK:
-                return  # Oracle Forms' mask: 01-NOV-2026
+            if pattern in (ORACLE_MASK, ORACLE_MASK_PL):
+                return  # Oracle Forms' mask: 01-NOV-2026, in Polish 01-LIS-2026
             if "%" not in pattern:
                 raise ValueError("'typed_as' of a date is a pattern such as %d.%m.%Y")
             try:
@@ -832,6 +879,8 @@ class InputSpec(_Model):
         elif self.type is InputType.DECIMAL:
             if _AMOUNT.fullmatch(pattern) is None:
                 raise ValueError("'typed_as' of an amount is 0, 0.00 or 0,00 (any decimals)")
+        elif self.type is InputType.STRING and pattern.count("{}") == 1:
+            return  # the value with words around it (K0010%, „… dokumentem WZ/2026/01018.”)
         elif self.type in (InputType.STRING, InputType.INTEGER):
             if ZERO_MASK.fullmatch(pattern) is None:
                 raise ValueError(
@@ -846,16 +895,18 @@ class InputSpec(_Model):
         if self.typed_as is None:
             return None
         if self.type is InputType.DATE and isinstance(value, date):
-            from maptelo.dates import ORACLE_MASK, oracle_date
+            from maptelo.dates import ORACLE_MASK, ORACLE_MASK_PL, oracle_date
 
-            if self.typed_as == ORACLE_MASK:
-                return oracle_date(value)
+            if self.typed_as in (ORACLE_MASK, ORACLE_MASK_PL):
+                return oracle_date(value, self.typed_as)
             return value.strftime(self.typed_as)
         if self.type is InputType.DECIMAL and isinstance(value, Decimal):
             separator = "," if "," in self.typed_as else "."
             places = len(self.typed_as.partition(separator)[2])
             rounded = value.quantize(Decimal(1).scaleb(-places), rounding=ROUND_HALF_UP)
             return f"{rounded:.{places}f}".replace(".", separator)
+        if self.type is InputType.STRING and "{}" in self.typed_as and isinstance(value, str):
+            return self.typed_as.replace("{}", value.strip())  # K0010%, words around the value
         if self.type in (InputType.STRING, InputType.INTEGER) and isinstance(value, str | int):
             digits = str(value).strip()  # 302 typed as 000000302; anything else as it is
             return digits.zfill(len(self.typed_as)) if digits.isdigit() else None
@@ -981,6 +1032,40 @@ class RecordsSpec(_Model):
     )
 
 
+class ProcessCard(_Model):
+    """What the process is for, in the words of the people who do it: what no recording shows
+    (Maptelo Lite asks for it after recording; the SOP and the AI brief start with it)."""
+
+    story: str | None = Field(
+        default=None,
+        description="The process in the person's own words, as told to someone new on the team: "
+        "where the data comes from, what is done in which program, what goes otherwise.",
+    )
+    goal: str | None = Field(default=None, description="What the process achieves, and for whom.")
+    data: str | None = Field(
+        default=None, description="Where its values come from (a sheet, a mail, a portal)."
+    )
+    scope: str | None = Field(
+        default=None, description="What a robot may do, and what stays with a person."
+    )
+    done: str | None = Field(
+        default=None, description="How one knows the work is done, and where one checks it."
+    )
+    failures: str | None = Field(
+        default=None, description="What goes wrong at times, and what is done then."
+    )
+    never: str | None = Field(default=None, description="What must never be done.")
+
+    def answered(self) -> dict[str, str]:
+        """The questions answered: field -> answer."""
+        return {
+            k: v.strip() for k, v in self.model_dump().items() if isinstance(v, str) and v.strip()
+        }
+
+
+CARD_FIELDS = ("story", "goal", "data", "scope", "done", "failures", "never")
+
+
 class ProcessModel(_Model):
     """An executor-independent description of one business process."""
 
@@ -989,6 +1074,9 @@ class ProcessModel(_Model):
     version: int = Field(ge=1, description="Revision of this process model.")
     title: str = Field(min_length=1)
     description: str | None = None
+    card: ProcessCard | None = Field(
+        default=None, description="What the process is for, as the people who do it say."
+    )
     application: Application
     preconditions: list[str] = Field(
         default_factory=list, description="What must hold before the process starts."

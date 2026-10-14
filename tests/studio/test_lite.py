@@ -43,6 +43,18 @@ def lite(workspace: Workspace) -> Iterator[httpx2.Client]:
         yield client
 
 
+def test_the_page_is_lites_before_the_key_is_given(workspace: Workspace) -> None:
+    """Without the key (the address of the start not used) Lite's page showed the full Studio's
+    menu, its robot's runs and AI agents among it: the page says it is Lite's at once."""
+    with running(workspace, TOKEN, lite=True) as base, httpx2.Client(base_url=base) as client:
+        page = client.get("/")
+        assert page.status_code == 200
+        assert '<body data-lite="1">' in page.text
+        assert client.get("/api/state").status_code == 401  # still nothing without the key
+    with running(workspace, TOKEN) as base, httpx2.Client(base_url=base) as client:
+        assert "data-lite" not in client.get("/").text
+
+
 def test_a_demonstration_becomes_its_map(lite: httpx2.Client, workspace: Workspace) -> None:
     assert lite.get("/api/state").json()["lite"] is True
     first = workspace.recording_folders(PROCESS)[0].name
@@ -128,6 +140,28 @@ def test_a_process_is_shown_by_the_name_it_was_given(
     assert titles[-1] == "Zmiana ceny klienta"
 
 
+def test_a_step_described_on_its_map_stays_with_the_recording(
+    lite: httpx2.Client, workspace: Workspace
+) -> None:
+    first = workspace.recording_folders(PROCESS)[0].name
+    lite.post("/api/maps", json={"process": PROCESS, "recording": first}).raise_for_status()
+    steps = lite.get(f"/api/recordings/{PROCESS}/{first}/steps").json()
+    save = next(s for s in steps if "Save" in s["intent"])
+    said = "Zapisuję dopiero po sprawdzeniu daty."
+    made = lite.put(
+        f"/api/recordings/{PROCESS}/{first}/notes", json={"first": save["first"], "text": said}
+    )
+    assert made.status_code == 200, made.text
+    again = lite.get(f"/api/recordings/{PROCESS}/{first}/steps").json()
+    assert [s["note"] for s in again if s["note"]] == [said]
+    sop = workspace.maps / PROCESS / first / "sop.md"
+    assert f"**Opis:** {said}" in sop.read_text(encoding="utf-8")
+    lite.post("/api/maps", json={"process": PROCESS, "recording": first}).raise_for_status()
+    assert f"**Opis:** {said}" in sop.read_text(encoding="utf-8")  # the map made again keeps it
+    nameless = lite.put(f"/api/recordings/{PROCESS}/{first}/notes", json={"first": "x"})
+    assert nameless.json()["problems"] == ["który krok: numer jego pierwszego działania"]
+
+
 @pytest.fixture
 def binned(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """What goes to the Recycle Bin, kept by the test (the computer's own Bin stays as it was)."""
@@ -168,3 +202,34 @@ def test_the_last_recording_deleted_takes_the_process_with_it(
         lite.delete(f"/api/recordings/{PROCESS}/{folder.name}").raise_for_status()
     assert not (workspace.recordings / PROCESS).exists()
     assert lite.get("/api/drafts").json() == []
+
+
+def test_the_process_card_goes_into_every_map(lite: httpx2.Client, workspace: Workspace) -> None:
+    """What no recording shows (the goal, what a robot may do, what never to do), written once
+    for the process: its maps are made again with it, the SOP and the AI brief start with it."""
+    first = workspace.recording_folders(PROCESS)[0].name
+    lite.post("/api/maps", json={"process": PROCESS, "recording": first}).raise_for_status()
+    assert lite.get(f"/api/processes/{PROCESS}/card").json() == {"card": {}}
+    answers = {
+        "goal": "Nowa cena klienta obowiązuje od daty z umowy.",
+        "never": "Nie zmieniać ceny wersji, która już obowiązuje.",
+        "scope": "",
+    }
+    written = lite.put(f"/api/processes/{PROCESS}/card", json={"card": answers})
+    assert written.status_code == 200, written.text
+    assert written.json()["card"] == {"goal": answers["goal"], "never": answers["never"]}
+    assert lite.get(f"/api/processes/{PROCESS}/card").json()["card"] == written.json()["card"]
+    folder = workspace.maps / PROCESS / first
+    sop = (folder / "sop.md").read_text(encoding="utf-8")
+    assert "## Cel i zakres" in sop
+    assert f"- **Cel:** {answers['goal']}" in sop
+    brief = (folder / "ai-brief.md").read_text(encoding="utf-8")
+    assert f"- **Cel:** {answers['goal']}" in brief
+    assert f"- **Czego nie robić nigdy:** {answers['never']}" in brief
+    unknown = brief.split("## 9.")[1]
+    assert "Czego robot nie może zrobić nigdy" not in unknown  # answered: no longer asked
+    assert "Co robot może zrobić sam" in unknown  # left empty: still asked
+    bad = lite.put(f"/api/processes/{PROCESS}/card", json={"card": "cel"})
+    assert bad.json()["problems"] == ["karta procesu: odpowiedzi na kolejne pytania"]
+    nobody = lite.put("/api/processes/nie_ma/card", json={"card": answers})
+    assert nobody.status_code == 400

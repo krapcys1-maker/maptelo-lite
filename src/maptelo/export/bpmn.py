@@ -163,7 +163,8 @@ def render_bpmn(model: ProcessModel, *, lang: Lang = "pl") -> str:
             connect(previous, guard)
             previous = guard
             x += GATEWAY + GAP
-        docs = escape(f"{step.action.value}: {step.intent}")
+        said = f" ({step.note})" if step.note else ""  # what the person said about the step
+        docs = escape(f"{step.action.value}: {step.intent}{said}")
         task = _Node(
             f"Task_{_xml_id(step.id)}",
             "subProcess" if loop_body is not None else "userTask",

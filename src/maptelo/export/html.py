@@ -7,6 +7,7 @@ from html import escape
 
 from maptelo import PRODUCT, __version__
 from maptelo.export.describe import (
+    choice_text,
     documented,
     evidence_note,
     input_source,
@@ -126,6 +127,17 @@ def _step_html(step: Step, model: ProcessModel, lang: Lang, image: str | None) -
     for other in step_alternatives(step, model, lang):
         details.append(f"{w('or_else')}: {escape(other)}")
     body = "".join(f'<p class="detail">{d}</p>' for d in details)
+    said = []  # what the person said about the step: first, in their words
+    if step.note:
+        said.append(f"<b>{w('person_note')}:</b> {escape(step.note)}")
+    if step.note_when:
+        said.append(f"<b>{w('person_when')}:</b> {escape(step.note_when)}")
+    if step.person_decides:
+        said.append(f"<i>{escape(w('person_decides'))}</i>")
+    if (choice := choice_text(step, model, lang)) is not None:
+        said.append(f"<b>{w('choice')}:</b> {escape(choice)}")
+    if said:
+        body = "".join(f'<p class="detail person-note">{s}</p>' for s in said) + body
     for exception_id, description in step_rejections(step, model):
         body += (
             f'<p class="detail reject">{escape(rejection_lead(step, exception_id, lang))} '

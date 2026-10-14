@@ -6,19 +6,27 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from urllib.parse import urlparse
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 from maptelo.mapping.build import MapResult
 from maptelo.model.schema import Action, ProcessModel
 from maptelo.trace.schema import Trace, TraceState
 
 _MARK = (220, 38, 38)
+_BADGE = (30, 41, 59)
+"""The step's number next to the frame: dark, so that the frame stays the only red."""
 
 
 def annotate(
-    source: Path, bbox: tuple[int, int, int, int] | None, target: Path, max_width: int = 960
+    source: Path,
+    bbox: tuple[int, int, int, int] | None,
+    target: Path,
+    max_width: int = 960,
+    *,
+    number: int | None = None,
 ) -> Path:
-    """Copy a screenshot, draw a frame around the element, scale it down for documents."""
+    """Copy a screenshot, draw a frame around the element (and the step's ``number`` by it, so
+    a document can name the picture), scale it down for documents."""
     with Image.open(source) as opened:
         image = opened.convert("RGB")
     if bbox is not None:
@@ -26,11 +34,27 @@ def annotate(
         draw = ImageDraw.Draw(image)
         for grow in range(4, 7):
             draw.rectangle([x - grow, y - grow, x + width + grow, y + height + grow], outline=_MARK)
+        if number is not None:
+            _badge(draw, image.size, (x - 7, y - 7), str(number))
     if image.width > max_width:
         image = image.resize((max_width, round(image.height * max_width / image.width)))
     target.parent.mkdir(parents=True, exist_ok=True)
     image.save(target, "JPEG", quality=82)
     return target
+
+
+def _badge(
+    draw: ImageDraw.ImageDraw, size: tuple[int, int], corner: tuple[int, int], text: str
+) -> None:
+    """The step's number in a dark box just above and left of the frame's corner (inside the
+    picture when the element is at its edge)."""
+    font = ImageFont.load_default(size=15)
+    left, top, right, bottom = draw.textbbox((0, 0), text, font=font)
+    width, height = right - left + 10, bottom - top + 8
+    x = min(max(0, corner[0] - width), max(0, size[0] - width))
+    y = min(max(0, corner[1] - height), max(0, size[1] - height))
+    draw.rectangle([x, y, x + width, y + height], fill=_BADGE)
+    draw.text((x + 5 - left, y + 4 - top), text, fill=(255, 255, 255), font=font)
 
 
 def _path(address: str) -> str:
@@ -86,7 +110,7 @@ def screenshots_for(
                 round(height * scale),
             )
         relative = f"images/step-{index:02d}.jpg"
-        annotate(source, bbox, out_dir / relative)
+        annotate(source, bbox, out_dir / relative, number=index)
         images[step.id] = relative
     return images
 

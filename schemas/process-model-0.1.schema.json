@@ -1465,6 +1465,105 @@
       "title": "Predicate",
       "type": "object"
     },
+    "ProcessCard": {
+      "additionalProperties": false,
+      "description": "What the process is for, in the words of the people who do it: what no recording shows\n(Maptelo Lite asks for it after recording; the SOP and the AI brief start with it).",
+      "properties": {
+        "story": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The process in the person's own words, as told to someone new on the team: where the data comes from, what is done in which program, what goes otherwise.",
+          "title": "Story"
+        },
+        "goal": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What the process achieves, and for whom.",
+          "title": "Goal"
+        },
+        "data": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Where its values come from (a sheet, a mail, a portal).",
+          "title": "Data"
+        },
+        "scope": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What a robot may do, and what stays with a person.",
+          "title": "Scope"
+        },
+        "done": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How one knows the work is done, and where one checks it.",
+          "title": "Done"
+        },
+        "failures": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What goes wrong at times, and what is done then.",
+          "title": "Failures"
+        },
+        "never": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What must never be done.",
+          "title": "Never"
+        }
+      },
+      "title": "ProcessCard",
+      "type": "object"
+    },
     "RecordsSpec": {
       "additionalProperties": false,
       "description": "Where the rows of a batch come from when people work from a table (a sheet of a\nworkbook or a CSV file): one run per row. Inputs name their ``column``; other columns\nof the table are left alone.",
@@ -1634,6 +1733,16 @@
           "description": "Column -> the value the record's row shows ($inputs.name allowed).",
           "title": "Expect",
           "type": "object"
+        },
+        "rows": {
+          "default": "one",
+          "description": "'one': the values name the record's one row; 'all': the record wrote several rows the values name (the lines of an imported file, benchmark M3), each to show what expect says.",
+          "enum": [
+            "one",
+            "all"
+          ],
+          "title": "Rows",
+          "type": "string"
         }
       },
       "required": [
@@ -1707,6 +1816,46 @@
           "minLength": 1,
           "title": "Intent",
           "type": "string"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What the person who showed the process said about the step, while showing it or on its map afterwards: why it is done, the rule they follow („the newest SBI”).",
+          "title": "Note"
+        },
+        "note_when": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "When the step is done, as the person said it („only when the invoice's amount differs from the WZ”): for people and for whoever builds the automation; a robot follows only a rule (when).",
+          "title": "Note When"
+        },
+        "person_decides": {
+          "default": false,
+          "description": "The person said a person decides at this step: a robot stops before it.",
+          "title": "Person Decides",
+          "type": "boolean"
+        },
+        "alternatives": {
+          "description": "The other decisions offered where this one was chosen („Korekta (CN)” beside „Akceptuj” in the invoice's row): no recording showed when they are made. Unless the owner says it is always this one, a person decides, or the robot makes it only while its rule ('requires') holds and stops before it otherwise.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Alternatives",
+          "type": "array"
         },
         "action": {
           "$ref": "#/$defs/Action"
@@ -2029,6 +2178,21 @@
           "title": "Control",
           "type": "boolean"
         },
+        "clicks": {
+          "anyOf": [
+            {
+              "maximum": 2,
+              "minimum": 2,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "For 'click': 2, a double click (a row of a list opens its record: WCR's requests to approve, Oracle Forms' lists).",
+          "title": "Clicks"
+        },
         "no_suggestion": {
           "anyOf": [
             {
@@ -2218,7 +2382,7 @@
     },
     "WithinRow": {
       "additionalProperties": false,
-      "description": "Restricts a step's target to one table row. 'only' refuses to guess between rows.",
+      "description": "Restricts a step's target to one table row. 'only' refuses to guess between rows;\n'each' does the step in every row that fits, none being fine (a box unticked in each row\nwith an error).",
       "properties": {
         "table": {
           "items": {
@@ -2260,10 +2424,39 @@
           "enum": [
             "only",
             "first",
-            "last"
+            "last",
+            "each"
           ],
           "title": "Pick",
           "type": "string"
+        },
+        "where_not": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": "Columns the row must not hold the value in (null: must not be empty: the rows with an error, benchmark M3).",
+          "title": "Where Not",
+          "type": "object"
         }
       },
       "required": [
@@ -2309,6 +2502,18 @@
       ],
       "default": null,
       "title": "Description"
+    },
+    "card": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ProcessCard"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "What the process is for, as the people who do it say."
     },
     "application": {
       "$ref": "#/$defs/Application"

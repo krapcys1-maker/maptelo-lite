@@ -1176,6 +1176,14 @@ class Bridge:
 
         self.call(lambda: self._with(hwnd, path, expect, act))
 
+    def clear_selection(self, hwnd: int, path: str, expect: Node | None = None) -> None:
+        """Nothing chosen in the list or table (a click must then choose a row itself)."""
+
+        def act(vm: int, obj: int) -> None:
+            self._d.clearAccessibleSelectionFromContext(vm, obj)
+
+        self.call(lambda: self._with(hwnd, path, expect, act))
+
     def do_action(self, hwnd: int, path: str, action: str, expect: Node | None = None) -> bool:
         """The element's own action (``click``, ``toggle``...). Only for what opens no modal
         window (a menu of the menu bar): a modal Swing dialog keeps the bridge waiting."""

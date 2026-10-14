@@ -293,7 +293,7 @@ def test_next_press_keeps_the_previous_result_in_its_window_before_new_dialog(
     rec._pending = [(Act("check", 1.0, None), "before-checkbox")]
     captures, writes = [], []
     monkeypatch.setattr(rec, "_app_windows", lambda: [main, error])
-    monkeypatch.setattr(rec, "_window_of", lambda source: source["window"])
+    monkeypatch.setattr(rec, "_window_of", lambda source, t=None: source["window"])
     monkeypatch.setattr(rec, "_refresh_windows", lambda: None)
     monkeypatch.setattr(rec, "_front_window", lambda since=None: 9)
     monkeypatch.setattr(
@@ -759,6 +759,26 @@ def test_the_program_writing_a_field_again_after_enter_is_its_reaction() -> None
     ]
 
 
+def test_the_last_change_of_a_long_text_told_late_is_still_the_typing() -> None:
+    """Benchmark M3: a file's path of 75 characters typed at once into Plik; the bridge tells
+    its last change 0.45 s after the first, with the same text. Then Wczytaj, whose table comes
+    with its press: no Enter in Plik (it made the typed path a way of its own)."""
+    path = "C:/Zespol/Cenniki/" + "x" * 39 + "_cennik_K0018_2026-11.csv"
+    it = Interpreter()
+    it.feed(ev("focus", 0.9, "text", "Plik", "0/1", text=""))
+    it.feed(ev("mouse_pressed", 1.252, "text", "Plik", "0/1", text=path))
+    it.feed(ev("mouse_clicked", 1.265, "text", "Plik", "0/1", text=path))
+    it.feed(ev("text_changed", 1.276, "text", "Plik", "0/1", text=path))
+    it.feed(ev("text_changed", 1.723, "text", "Plik", "0/1", text=path))
+    it.feed(ev("mouse_pressed", 2.23, "push button", "Wczytaj", "0/3"))
+    it.feed(ev("visible_data_changed", 2.232, "table", "Wiersze pliku", "0/5"))
+    it.feed(ev("mouse_clicked", 2.25, "push button", "Wczytaj", "0/3"))
+    it.feed(ev("focus", 2.27, "push button", "Wczytaj", "0/3"))
+    it.tick(4.0)
+    acts = it.take()
+    assert [(a.type, a.value) for a in acts] == [("fill", path), ("click", None)]
+
+
 def test_a_button_whose_click_never_comes_was_clicked() -> None:
     """Benchmark D06: Find in the Find window gives way to the form before the release is told."""
     it = Interpreter()
@@ -996,3 +1016,388 @@ def test_a_person_clicking_twice_quickly_is_no_echo() -> None:
     across = Echoes()  # an echo told in the next batch is dropped too
     assert across.drop(told[:1]) == told[:1]
     assert across.drop([ev("mouse_clicked", 1.008, "push button", "Dalej", "0/4")]) == []
+
+
+# -- WCR (benchmark M1, M2: a program built like Oracle Forms, Java 8) ------------------------
+
+LINES = [("internal frame", "Cennik – linie: K0010 kontrakt 2026"), ("frame", "WCR 7.1.4")]
+REQUEST = [("dialog", "Nowa wersja ceny"), ("frame", "WCR 7.1.4")]
+
+
+def test_a_combo_box_the_program_sets_with_a_row_is_no_step() -> None:
+    """A row of a list of values taken: WCR writes the item, its description and its unit (J.m.)
+    into the line. The person never touched J.m.: its value is the program's, not a choice
+    (the map asked for a unit no sheet has, and the robot did not start)."""
+    item, about, unit = "0/0/1/0/1/14", "0/0/1/0/1/16", "0/0/1/0/1/17"
+    it = Interpreter()
+    it.feed(ev("text_changed", 14.798, "text", "Indeks", item, chain=LINES, text="26386-F"))
+    it.feed(ev("text_changed", 14.823, "text", "Opis", about, chain=LINES, text="Pudło"))
+    it.feed(ev("active_descendant", 14.882, "combo box", "J.m.", unit, chain=LINES,
+               new={"role": "label", "name": "szt."}))  # fmt: skip
+    it.feed(ev("mouse_clicked", 14.89, "push button", "OK", "0/1/2", chain=[("dialog", "Indeksy")]))
+    it.feed(ev("focus", 14.944, "combo box", "J.m.", unit, chain=LINES))
+    typed(it, 15.4, "Cena", "0/0/1/0/1/18", "6.04")
+    it.finish(17.0)
+    assert [(a.type, a.seen.node.name if a.seen else None) for a in it.take()] == [
+        ("click", "OK"),
+        ("fill", "Cena"),
+    ]
+    chosen = Interpreter()  # the person's own choice in the same box: a step
+    chosen.feed(ev("mouse_clicked", 3.0, "combo box", "J.m.", unit, chain=LINES))
+    chosen.feed(ev("text_changed", 3.05, "text", "Opis", about, chain=LINES, text="Pudło"))
+    chosen.feed(ev("active_descendant", 3.1, "combo box", "J.m.", unit, chain=LINES,
+                   new={"role": "label", "name": "kg"}))  # fmt: skip
+    chosen.finish(4.0)
+    assert [(a.type, a.value) for a in chosen.take()] == [("select", "kg")]
+
+
+def test_a_field_the_program_emptied_then_typed_as_before_is_typing() -> None:
+    """WCR's query mode (F11) empties the block, then the person types the item the line had:
+    the screen read before the query showed that item, yet the typing is a step."""
+    item = "0/0/1/0/1/7"
+    it = Interpreter()
+    it.remember(1, {item: "26386-F"}, 6.5)  # the block as it opened, before the query
+    it.feed(ev("text_changed", 7.125, "text", "Indeks", item, chain=LINES, text=""))
+    it.feed(ev("focus", 7.482, "text", "Indeks", item, chain=LINES, text=""))
+    for i, _ in enumerate("26386-F", start=1):
+        it.feed(
+            ev(
+                "text_changed",
+                7.5 + 0.01 * i,
+                "text",
+                "Indeks",
+                item,
+                chain=LINES,
+                text="26386-F"[:i],
+            )
+        )
+    it.feed(ev("focus", 8.15, "text", "Cena", "0/0/1/0/1/11", chain=LINES, text=""))
+    it.finish(9.0)
+    assert [(a.type, a.value) for a in it.take()] == [("fill", "26386-F")]
+
+
+def test_a_choice_is_kept_when_the_next_box_opens_at_once() -> None:
+    """„Powód zmiany” taken as its list opened (its first row), then „Kanał sprzedaży” opened:
+    the first box's choice is a step before the second's (benchmark M1 lost it)."""
+    reason, channel = "0/0/1/0/0/16", "0/0/1/0/0/18"
+    it = Interpreter()
+    it.feed(ev("mouse_clicked", 11.221, "combo box", "Powód zmiany", reason, chain=REQUEST))
+    it.feed(ev("active_descendant", 11.284, "combo box", "Powód zmiany", reason, chain=REQUEST,
+               new={"role": "label", "name": "Negocjacje handlowe", "index": 0}))  # fmt: skip
+    it.feed(ev("active_descendant", 11.917, "combo box", "Kanał sprzedaży", channel, chain=REQUEST,
+               new={"role": "label", "name": "Sklep", "index": 0}))  # fmt: skip
+    it.feed(ev("mouse_clicked", 11.926, "combo box", "Kanał sprzedaży", channel, chain=REQUEST))
+    it.feed(ev("active_descendant", 12.052, "combo box", "Kanał sprzedaży", channel, chain=REQUEST,
+               new={"role": "label", "name": "Hurt", "index": 1}))  # fmt: skip
+    it.finish(13.0)
+    assert [(a.type, a.value) for a in it.take()] == [
+        ("select", "Negocjacje handlowe"),
+        ("select", "Hurt"),
+    ]
+
+
+def test_a_value_typed_into_a_combo_box_is_one_step() -> None:
+    """WCR's Waluta takes typing and completes it (EU: EUR); the box then says EUR is chosen:
+    the typing is the step, not a choice besides it."""
+    box, editor = "0/0/1/0/0/9", "0/0/1/0/0/9/1"
+    it = Interpreter()
+    typed(it, 7.9, "Waluta", editor, "EUR")
+    it.feed(ev("active_descendant", 8.099, "combo box", "Waluta", box, chain=FRAME,
+               new={"role": "label", "name": "EUR"}))  # fmt: skip
+    it.feed(ev("focus", 8.2, "text", "Nowa cena netto", "0/0/1/0/0/11"))
+    it.finish(9.0)
+    assert [(a.type, a.value) for a in it.take()] == [("fill", "EUR")]
+
+
+def test_a_swing_list_s_row_is_read_when_the_bridge_tells_its_selection(tmp_path) -> None:
+    """A Swing list (WCR's Navigator, „Funkcje”) tells only that its selection changed: the
+    recorder reads the row chosen, and the click on the list is a click on that row."""
+    from types import SimpleNamespace
+
+    from maptelo.capture.java import JavaRecorder, JavaRecorderOptions
+    from maptelo.desktop.jab import Node
+
+    nav = [("internal frame", "Nawigator – WCR"), ("frame", "WCR 7.1.4")]
+    functions = "0/0/1/0/0/0/0/1/0/0/0/0"
+    told = [ev("selection_changed", 1.475, "list", "Funkcje", functions, chain=nav)]
+    for event in told:
+        event["source"]["node"]["children"] = 6
+    told += [
+        ev("mouse_pressed", 1.492, "list", "Funkcje", functions, chain=nav),
+        ev("mouse_clicked", 1.527, "list", "Funkcje", functions, chain=nav),
+    ]
+    rec = JavaRecorder(tmp_path, JavaRecorderOptions())
+    rec.bridge = SimpleNamespace(
+        events=lambda: told,
+        children_selected=lambda hwnd, path, count: [0] if path == functions else [],
+        node=lambda hwnd, path: (
+            Node(path, "label", "Cenniki", states=frozenset({"showing"}), box=(1, 1, 9, 9))
+            if path == functions + "/0"
+            else None
+        ),
+    )
+    rec._window_of = lambda source, t=None: 1  # type: ignore[method-assign]
+    events = rec._take_events()
+    assert [e["kind"] for e in events] == [
+        "selection_changed",
+        "active_descendant",
+        "mouse_pressed",
+        "mouse_clicked",
+    ]
+    it = Interpreter()
+    for event in events:
+        it.feed(event)
+    it.finish(3.0)
+    [act] = it.take()
+    assert (act.type, act.seen.node.name if act.seen else None) == ("click", "Cenniki")
+
+
+def test_a_row_of_a_list_of_values_taken_with_the_keys_is_a_step() -> None:
+    """A person at Oracle Forms keeps to the keys: the arrows to the item's row in the list of
+    values, then Enter. The row is the step, as a click on it would be; the arrows and the Enter
+    pressed on another day would take another record's row (benchmark M2, the keys way)."""
+    lov = [("dialog", "Indeksy"), ("frame", "WCR 7.1.4")]
+    table = "0/0/0/1/0/1/0/0"
+    it = Interpreter()
+    it.feed(ev("focus", 14.12, "table", "Indeksy", table, chain=lov))
+    for n, row in enumerate(["12187-H", "15380-F", "26386-F"]):
+        it.feed({"kind": "key", "t": 14.2 + 0.1 * n, "key": "ArrowDown"})
+        it.feed(ev("active_descendant", 14.21 + 0.1 * n, "table", "Indeksy", table, chain=lov,
+                   new={"role": "label", "name": row, "index": n + 1}))  # fmt: skip
+    it.feed({"kind": "key", "t": 14.6, "key": "Enter"})
+    it.finish(15.0)
+    [act] = it.take()
+    assert (act.type, act.seen.node.name if act.seen else None, act.cell) == (
+        "click",
+        "Indeksy",
+        "26386-F",
+    )
+
+
+def test_a_menu_command_after_a_click_that_opened_a_form_is_on_that_form(tmp_path):
+    """WCR's Znajdź opens the price list's lines over the find window: Zapytanie > Wprowadź
+    zapytanie chosen next is for the lines, not for the find window under them (benchmark M2
+    r2: the command's screen was the find window, and every row stopped on it)."""
+    from types import SimpleNamespace
+
+    from maptelo.capture.java import Act, JavaRecorder, JavaRecorderOptions, Seen
+    from maptelo.desktop.jab import Node, Window
+    from maptelo.desktop.screen import build_screen
+
+    shown = frozenset({"enabled", "showing", "visible"})
+    lines = "Cennik – linie: K0010 kontrakt 2026"
+    main = Window(1, "WCR 7.1.4 – Wiórek Ceny i Rozliczenia", 7, True)
+    rec = JavaRecorder(tmp_path, JavaRecorderOptions())
+    rec.app = "wcr"
+    rec._windows = {1: main}
+    written = []
+    rec.writer = SimpleNamespace(write=written.append)
+    screen = build_screen(
+        main.title,
+        1,
+        [
+            Node("0", "frame", main.title, states=shown, box=(0, 0, 1180, 760)),
+            Node("0/1", "internal frame", "Znajdź cennik", states=shown, box=(20, 60, 400, 200)),
+            Node("0/1/0", "push button", "Znajdź", states=shown, box=(30, 200, 70, 26)),
+            Node("0/2", "internal frame", lines, states=shown, box=(300, 40, 800, 500)),
+        ],
+    )
+    rec._state_screens = {"s004": screen}
+    rec._screens = {1: screen}
+    rec._worked_in, rec._worked_at = "Znajdź cennik", 4.9  # its Znajdź was clicked
+    rec._note_frames(
+        [
+            {
+                "kind": "child_changed",
+                "t": 4.88,  # told between the press and the click of Znajdź (M2 r3)
+                "old": None,
+                "new": {"role": "internal frame", "name": lines},
+            }
+        ]
+    )
+    query = Seen(Node("0/0/1/0/1", "menu item", "Wprowadź zapytanie"), [("frame", main.title)], 1)
+    rec._write_act(Act("click", 5.9, query, menu="Zapytanie"), "s004", "s005")
+    assert written[-1].url == "java://wcr/Cennik – *"  # the lines' form (its record left out)
+    rec._worked_in, rec._worked_at = lines, 6.6  # typed into the lines since: nothing new opened
+    rec._write_act(Act("click", 8.8, query, menu="Zapytanie"), "s004", "s006")
+    assert written[-1].url == "java://wcr/Cennik – *"
+
+
+def test_a_row_double_clicked_in_a_list_that_closed_at_once_is_read_from_the_screen_before(
+    tmp_path,
+) -> None:
+    """WCR's „Indeksy”: a double click takes the row and closes the list at once, before the
+    recorder can read the table (benchmark M2 r2: „click table Indeksy” without its row, so the
+    step was not the one the click-and-OK recordings made). The table as the screen before the
+    click showed it, and the cell the table told chosen, give the row."""
+    from types import SimpleNamespace
+
+    from maptelo.capture.java import JavaRecorder, JavaRecorderOptions
+    from maptelo.desktop.jab import Table
+
+    lov = "0/0/0/1/0/1/0/0"
+    chain = [("dialog", "Indeksy"), ("frame", "WCR 7.1.4 – Wiórek Ceny i Rozliczenia")]
+    it = Interpreter()
+    it.feed(ev("active_descendant", 12.501, "table", "Indeksy", lov, chain=chain,
+               new={"role": "label", "name": "31830-E", "index": 3}))  # fmt: skip
+    it.feed(ev("mouse_pressed", 12.514, "table", "Indeksy", lov, chain=chain))
+    it.feed(ev("mouse_clicked", 12.544, "table", "Indeksy", lov, chain=chain))
+    it.finish(13.0)
+    acts = it.take()
+    assert [(a.type, a.cell, a.told_index) for a in acts] == [("click", "31830-E", 3)]
+    rec = JavaRecorder(tmp_path, JavaRecorderOptions())
+    rec.bridge = SimpleNamespace(table=lambda window, path: None)  # the list is gone
+    before = Table(
+        ["Indeks", "Opis", "J.m."],
+        [
+            ["31830-D", "Pudło fasonowe 250x250x100", "szt."],
+            ["31830-E", "Pudło fasonowe 300x300", "szt."],
+        ],
+    )
+    rec._last_screen = SimpleNamespace(hwnd=1, tables={lov: before})  # type: ignore[assignment]
+    act = acts[0]
+    rec._row_of(act)
+    assert act.row is not None
+    assert (act.row.table, act.row.index, act.row.cells["Indeks"]) == ("Indeksy", 1, "31830-E")
+    assert act.column == "Indeks"
+
+
+def test_a_swing_status_line_shows_its_message_as_its_name() -> None:
+    """A Swing label tells the bridge no text unless it is HTML: its message is its name (WCR's
+    status line once it no longer hid its messages under a name of its own)."""
+    from maptelo.desktop.jab import Node
+    from maptelo.desktop.screen import build_screen
+
+    shown = frozenset({"enabled", "showing", "visible"})
+    said = "FRM-40400: Transakcja zakończona: zapisano rekordów: 2."
+    nodes = [
+        Node("0", "frame", "WCR", states=shown, box=(0, 0, 1000, 700)),
+        Node("0/1", "label", said, states=shown, box=(6, 680, 900, 18)),
+    ]
+    screen = build_screen("WCR", 1, nodes)
+    assert screen.status == [said]
+    assert f"- status: {said}" in screen.aria()
+
+
+def test_a_question_s_button_told_without_its_window_is_in_the_question_opened_last(
+    tmp_path,
+) -> None:
+    """Java 8's bridge told „Tak” of WCR's question as the question closed: no window, only
+    the option pane around it (benchmark M1 r2). Its window is the dialog opened last before
+    the click, not none (a step of no window was a decision nobody could explain)."""
+    from maptelo.capture.java import JavaRecorder, JavaRecorderOptions
+    from maptelo.desktop.jab import Window
+
+    main = Window(1, "WCR 7.1.4 – Wiórek Ceny i Rozliczenia", 7, True)
+    calendar = Window(8, "Kalendarz", 7, True, owner=1)
+    question = Window(9, "WCR – pytanie", 7, True, owner=1)
+    rec = JavaRecorder(tmp_path, JavaRecorderOptions())
+    rec.main = main
+    rec._windows = {1: main}  # the question has closed
+    rec._ever = {1: main, 8: calendar, 9: question}
+    rec._opened_at = {1: 0.0, 8: 10.2, 9: 12.4}
+    source = {
+        "node": {"role": "push button", "name": "Tak"},
+        "chain": [["option pane", ""]],
+        "window": 0,
+    }
+    assert rec._window_of(source, 14.2) == 9
+    assert rec._window_of(dict(source, chain=[]), 14.2) == 0  # nothing says it was a question
+
+
+def test_a_row_double_clicked_is_one_click_of_two() -> None:
+    """WCR's „Wnioski do akceptacji”: the request opens with a double click on its row. Its
+    second click is no step of its own, and the step is a double click (benchmark M4 r1: the
+    robot clicked once and nothing opened)."""
+    table = "0/0/1/0/1/0/0"
+    chain = [("internal frame", "Akceptacje wniosków"), ("frame", "WCR")]
+    it = Interpreter()
+    it.feed(ev("active_descendant", 3.0, "table", "Wnioski do akceptacji", table, chain=chain,
+               new={"role": "label", "name": "WC/2026/000104", "index": 0}))  # fmt: skip
+    it.feed(ev("mouse_pressed", 3.01, "table", "Wnioski do akceptacji", table, chain=chain))
+    it.feed(ev("mouse_clicked", 3.03, "table", "Wnioski do akceptacji", table, chain=chain))
+    it.feed(ev("mouse_pressed", 3.17, "table", "Wnioski do akceptacji", table, chain=chain))
+    it.feed(ev("mouse_clicked", 3.19, "table", "Wnioski do akceptacji", table, chain=chain))
+    it.finish(4.0)
+    acts = it.take()
+    assert [(a.type, a.clicks) for a in acts] == [("click", 2)]
+    assert (acts[0].t, acts[0].end) == (3.03, 3.19)  # over at its second click
+    once = Interpreter()  # one click, and another a second later: two clicks
+    once.feed(ev("mouse_clicked", 1.0, "table", "Wnioski do akceptacji", table, chain=chain))
+    once.feed(ev("mouse_clicked", 2.0, "table", "Wnioski do akceptacji", table, chain=chain))
+    once.finish(3.0)
+    assert [a.clicks for a in once.take()] == [1, 1]
+
+
+def test_the_screen_after_a_double_click_is_read_after_its_second_click() -> None:
+    """Benchmark M2 r8: the list of values closed by a double click; WCR put the chosen Indeks
+    and its Opis into the line 10 to 30 ms after the second click, and the person typed the price
+    half a second later. The second click counted as the person going on, so the screen after
+    the double click was read as of it: the line still had the typed pattern and no Opis, and
+    the price's row rule named no row of an item already in the price list."""
+    from maptelo.capture.java import Act, JavaRecorder
+
+    rec: Any = JavaRecorder.__new__(JavaRecorder)
+    double = Act("click", 13.614, None, clicks=2, ended=13.759)
+    price = Act("fill", 14.603, None, value="5.30")
+    rec._pending = [(double, "s010"), (price, "s010")]
+    rec._human = [13.601, 13.614, 13.739, 13.759, 14.501, 14.526]
+    rec._human_windows = {}
+    rec._windows = {}
+    rec._captured_at = 0.0
+    read: list[float] = []
+    written: list[tuple[str, str, str]] = []
+    rec._refresh_windows = lambda: None
+    rec._front_window = lambda since: 1
+    rec._capture = lambda hwnd, until: read.append(until) or "s011"
+    rec._write_act = lambda act, before, after: written.append((act.type, before, after))
+    assert rec._settle_earlier() == 1
+    assert read == [14.501]  # the price's press, not the double click's own second click
+    assert written == [("click", "s010", "s011")]
+    assert rec._pending == [(price, "s011")]
+
+
+def test_a_screen_not_read_is_told_in_the_raw_events() -> None:
+    """Java's file chooser never had a screen in benchmark M3 r3: the window that could not be
+    read, and why, is kept for whoever reads the raw events."""
+    from types import SimpleNamespace
+
+    from maptelo.capture.java import JavaRecorder
+    from maptelo.desktop.jab import Window
+
+    def broken(hwnd: int) -> None:
+        raise RuntimeError("the window went away")
+
+    recorder = JavaRecorder.__new__(JavaRecorder)
+    recorder.bridge = SimpleNamespace(tree=broken, clock=lambda: 3.0)  # type: ignore[assignment]
+    recorder._windows = {7: Window(7, "Otwórz plik cennika", 1, True)}
+    recorder._ever = {}
+    recorder._buffer = []
+    assert recorder._screen(7) is None
+    assert recorder._screen(8) is None
+    told = [(e["kind"], e["title"], e["why"]) for e in recorder._buffer]
+    assert told == [
+        ("screen_unread", "Otwórz plik cennika", "RuntimeError: the window went away"),
+        ("screen_unread", None, "not among the program's windows"),
+    ]
+
+
+def test_a_double_click_whose_window_changed_between_its_clicks_is_one() -> None:
+    """Benchmark M4 r4: the first click of the double click on the request's row opened its
+    frame in the same window, and the bridge told the second click on the list's table at
+    another place (M3 r4: the list of values closing). The same table, named so: one double
+    click, not two steps (the robot was then stopped at the second as a decision)."""
+    chain = [("internal frame", "Akceptacje wniosków"), ("frame", "WCR")]
+    name = "Wnioski do akceptacji"
+    it = Interpreter()
+    it.feed(ev("mouse_pressed", 3.00, "table", name, "0/0/1/0/0/0/0/1/0/1/0/0", chain=chain))
+    it.feed(ev("mouse_clicked", 3.03, "table", name, "0/0/1/0/0/0/0/1/0/1/0/0", chain=chain))
+    it.feed(ev("mouse_pressed", 3.17, "table", name, "0/0/1/0/0/1/0/1/0/1/0/0", chain=chain))
+    it.feed(ev("mouse_clicked", 3.19, "table", name, "0/0/1/0/0/1/0/1/0/1/0/0", chain=chain))
+    it.finish(4.0)
+    assert [(a.type, a.clicks) for a in it.take()] == [("click", 2)]
+    other = Interpreter()  # another table of the window, named otherwise: two clicks
+    other.feed(ev("mouse_clicked", 3.03, "table", name, "0/0/1/0/0/0/0/1/0/1/0/0", chain=chain))
+    other.feed(ev("mouse_clicked", 3.19, "table", "Linie", "0/0/1/0/0/0/0/1/0/2/0/0", chain=chain))
+    other.finish(4.0)
+    assert [a.clicks for a in other.take()] == [1, 1]

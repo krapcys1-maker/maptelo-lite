@@ -19,8 +19,10 @@ from typing import Any
 from maptelo.browser import profile_dir
 from maptelo.capture import RecorderOptions, new_recording_id, record_session
 from maptelo.export import write_map_bundle
+from maptelo.export.describe import choice_text
 from maptelo.mapping import map_trace
 from maptelo.mapping.naming import Lang
+from maptelo.model import load_model
 from maptelo.studio.common import BROWSERS, RunProblemError
 from maptelo.studio.discard import discard
 from maptelo.studio.jobs import Job
@@ -28,6 +30,7 @@ from maptelo.studio.polish import polish
 from maptelo.studio.window import bring_forward, browser_windows, out_of_the_way
 from maptelo.studio.workspace import KEY, SHEET_SUFFIXES, Workspace, process_key
 from maptelo.trace import TraceError, load_trace, summarize
+from maptelo.trace.schema import ACTION_TYPES
 
 
 @dataclass(frozen=True)
@@ -47,6 +50,8 @@ class RecordRequest:
     java: str | None = None
     """A part of a Java program's main window title: the demonstration is done in that
     program (seen through the Java Access Bridge), not in a browser."""
+    lang: str = "pl"
+    """The language of the words the page shows for the steps as they are recorded."""
 
     @classmethod
     def from_json(cls, data: Mapping[str, Any]) -> RecordRequest:
@@ -72,6 +77,7 @@ class RecordRequest:
             profile=text("profile"),
             session=text("session"),
             java=text("java"),
+            lang="en" if text("lang") == "en" else "pl",
         )
 
 
@@ -116,6 +122,8 @@ def record_work(workspace: Workspace, request: RecordRequest) -> Callable[[Job],
 
     def work(job: Job) -> dict[str, Any]:
         folder = workspace.recordings / request.process / new_recording_id()
+        job.folder = folder
+        feed = StepFeed(folder / "trace.jsonl", request.lang)
         job.emit("start", folder=workspace.relative(folder), url=request.url)
         options = RecorderOptions(
             process=request.process,
@@ -141,12 +149,112 @@ def record_work(workspace: Workspace, request: RecordRequest) -> Callable[[Job],
                 profile=profile_dir(request.profile) if request.profile else None,
                 storage_state=session,
                 stop=lambda: job.stop_requested,
-                progress=lambda events: job.emit("progress", events=events),
+                progress=lambda events: feed.tell(job, events),
                 on_open=in_front,
+                listen=lambda ear: setattr(job, "hear", ear),
             )
+        feed.tell(job)  # what it wrote as it ended
         return _recorded(workspace, request, folder, path)
 
     return work
+
+
+STEP_WORDS: dict[str, dict[str, str]] = {
+    "pl": {
+        "click": "Kliknięcie {name}",
+        "fill": "Wpisanie w {name}",
+        "select": "Wybór w {name}",
+        "check": "Zaznaczenie {name}",
+        "uncheck": "Odznaczenie {name}",
+        "press": "Klawisz {value}",
+        "navigate": "Otwarcie strony {value}",
+        "upload": "Załączenie pliku w {name}",
+        "window": "okno {window}",
+        "element": "elementu",
+    },
+    "en": {
+        "click": "Click on {name}",
+        "fill": "Typing into {name}",
+        "select": "Choice in {name}",
+        "check": "Ticking {name}",
+        "uncheck": "Unticking {name}",
+        "press": "Key {value}",
+        "navigate": "Opening the page {value}",
+        "upload": "File attached in {name}",
+        "window": "window {window}",
+        "element": "an element",
+    },
+}
+"""A recorded action in a few words, as Studio's list of steps shows it while recording."""
+
+
+def step_words(event: Mapping[str, Any], lang: str) -> str:
+    """„Kliknięcie „Przeglądaj…” · okno „Import cennika”” for an action of a trace: what was
+    done, on what, where (a field's value only when it is no secret, shortened)."""
+    w = STEP_WORDS["en" if lang == "en" else "pl"]
+    open_, close = ("“", "”") if lang == "en" else ("„", "”")
+    target = event.get("target") or {}
+    named = next(
+        (
+            str(target[k]).strip()
+            for k in ("name", "label", "text", "column")
+            if isinstance(target.get(k), str) and str(target[k]).strip()
+        ),
+        "",
+    )
+    name = f"{open_}{named[:60]}{close}" if named else w["element"]
+    value = str(event.get("value") or "")
+    words = w.get(str(event.get("type")), w["click"]).format(name=name, value=value[:80])
+    if event.get("type") in ("fill", "select") and value and not event.get("secret"):
+        words += f": {value[:40]}"
+    url = str(event.get("url") or "")
+    window = url.rsplit("/", 1)[-1] if url.startswith("java://") else str(event.get("title") or "")
+    if window.strip():
+        words += " · " + w["window"].format(window=f"{open_}{window.strip()[:60]}{close}")
+    return words
+
+
+class StepFeed:
+    """The actions of a recording as it runs, read from its trace file as the recorder writes
+    them: each told once to the page, with its number, to be described there one by one (the
+    person saw only how many events there were, and what they said went to the last step)."""
+
+    def __init__(self, path: Path, lang: str) -> None:
+        self.path = path
+        self.lang = lang
+        self.offset = 0
+
+    def new(self) -> list[dict[str, Any]]:
+        try:
+            with self.path.open("rb") as handle:
+                handle.seek(self.offset)
+                chunk = handle.read()
+        except OSError:
+            return []
+        end = chunk.rfind(b"\n")
+        if end < 0:
+            return []  # a line still being written: next time
+        self.offset += end + 1
+        steps = []
+        for line in chunk[: end + 1].decode("utf-8", errors="replace").splitlines():
+            try:
+                item = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(item, dict) or item.get("kind") != "event":
+                continue
+            if item.get("type") not in ACTION_TYPES or not isinstance(item.get("seq"), int):
+                continue
+            steps.append({"action": item["seq"], "words": step_words(item, self.lang)})
+        return steps
+
+    def tell(self, job: Job, events: int | None = None) -> None:
+        """The job hears how many events there are, then the new steps (``events`` None: only
+        the steps, the last ones a recording wrote as it ended)."""
+        if events is not None:
+            job.emit("progress", events=events)
+        for step in self.new():
+            job.emit("step", **step)
 
 
 def _recorded(
@@ -202,6 +310,8 @@ def _java_work(
 
     def work(job: Job) -> dict[str, Any]:
         folder = workspace.recordings / request.process / new_recording_id()
+        job.folder = folder
+        feed = StepFeed(folder / "trace.jsonl", request.lang)
         mine = [w for w in jab.java_frames() if wanted.casefold() in w.title.casefold()]
         own = [jab.program_folder(w.pid) for w in mine]
         options = java.JavaRecorderOptions(
@@ -228,19 +338,30 @@ def _java_work(
                     "again"
                 ]
             ) from exc
+        job.hear = recorder.note
         job.emit("start", folder=workspace.relative(folder), program=main.title)
         with out_of_the_way():  # the program in front, Studio back when the recording ends
             bring_forward(main.hwnd)
             path = recorder.record_until(
                 stop=lambda: job.stop_requested,
-                progress=lambda events: job.emit("progress", events=events),
+                progress=lambda events: feed.tell(job, events),
             )
+        feed.tell(job)  # what it wrote as it ended
         return _recorded(workspace, request, folder, path)
 
     return work
 
 
-MAP_FILES = ("report.html", "process.svg", "sop.md", "process.bpmn", "process.mmd", "model.yaml")
+MAP_FILES = (
+    "report.html",
+    "process.svg",
+    "sop.md",
+    "process.bpmn",
+    "process.mmd",
+    "model.yaml",
+    "ai-brief.md",
+    "ai-brief.json",
+)
 """What the map of one demonstration is (export.write_map_bundle), in the order it is shown."""
 
 
@@ -313,6 +434,128 @@ def forget_recording(workspace: Workspace, key: str, recording: str) -> list[str
     return removed
 
 
+CARD = "card.json"
+"""What the process is for, in the person's words (the process card: goal, data, scope, done,
+failures, never), next to its recordings; every map of the process starts with it."""
+
+
+def process_card(workspace: Workspace, key: str) -> dict[str, str]:
+    """The process card as the person wrote it (only what was answered)."""
+    from maptelo.model.schema import CARD_FIELDS
+
+    if not KEY.fullmatch(key):
+        return {}
+    try:
+        kept = json.loads((workspace.recordings / key / CARD).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(kept, dict):
+        return {}
+    return {
+        k: v.strip()
+        for k, v in kept.items()
+        if k in CARD_FIELDS and isinstance(v, str) and v.strip()
+    }
+
+
+def write_process_card(
+    workspace: Workspace, key: str, answers: dict[str, Any], lang: str = "pl"
+) -> dict[str, str]:
+    """The card written (an empty answer removes one), and every map of the process made again
+    with it."""
+    from maptelo.model.schema import CARD_FIELDS
+
+    folders = workspace.recording_folders(key)
+    if not folders:
+        raise RunProblemError([f"there is no process {key!r}"])
+    card = {k: str(answers.get(k) or "").strip() for k in CARD_FIELDS}
+    card = {k: v for k, v in card.items() if v}
+    (workspace.recordings / key / CARD).write_text(
+        json.dumps(card, ensure_ascii=False, indent=1), encoding="utf-8"
+    )
+    for folder in folders:
+        if map_files(workspace, key, folder.name) is not None:
+            map_recording(workspace, key, folder.name, lang)
+    return card
+
+
+NOTES = "notes.json"
+"""Descriptions of steps written on a recording's map afterwards, by the step's first action
+(the recording's own folder: a map made again keeps them)."""
+
+
+def written_notes(folder: Path) -> dict[int, str | dict[str, Any]]:
+    """By an action's number: why (plain words), or why, when, whether a person decides."""
+    try:
+        kept = json.loads((folder / NOTES).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(kept, dict):
+        return {}
+    return {int(k): v for k, v in kept.items() if str(k).isdigit() and isinstance(v, str | dict)}
+
+
+def keep_note(folder: Path, seq: int, text: str, when: str = "", person: bool = False) -> None:
+    """A step's description kept with its recording, by an action of the step (an empty one
+    takes back what was said)."""
+    kept = written_notes(folder)
+    said: str | dict[str, Any] = text.strip()
+    if when.strip() or person:
+        said = {"text": text.strip(), "when": when.strip(), "person": bool(person)}
+    kept[seq] = said
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / NOTES).write_text(
+        json.dumps({str(k): v for k, v in sorted(kept.items())}, ensure_ascii=False, indent=1),
+        encoding="utf-8",
+    )
+
+
+def write_note(
+    workspace: Workspace,
+    key: str,
+    recording: str,
+    first: int,
+    text: str,
+    when: str = "",
+    person: bool = False,
+) -> None:
+    """A step's description written on the map (an empty one removes what was said)."""
+    folder = {f.name: f for f in workspace.recording_folders(key)}.get(recording)
+    if folder is None:
+        raise RunProblemError([f"there is no recording {recording!r} of {key!r}"])
+    keep_note(folder, first, text, when, person)
+
+
+def map_steps_view(
+    workspace: Workspace, key: str, recording: str, lang: Lang = "pl"
+) -> list[dict[str, Any]]:
+    """A recording's map, step by step, with what describes each (to write it on the page)
+    and, for a decision the recording made one way, what else was offered."""
+    path = workspace.maps / key / recording / "model.yaml"
+    if not path.is_file():
+        raise RunProblemError([f"there is no map of the recording {recording!r} of {key!r}"])
+    model = load_model(path)
+    steps = []
+    for number, step in enumerate(model.steps, start=1):
+        seqs = [
+            int(trace.rsplit("#", 1)[1])
+            for trace in (step.evidence.traces if step.evidence else [])
+            if trace.rsplit("#", 1)[-1].isdigit()
+        ]
+        steps.append(
+            {
+                "number": number,
+                "intent": step.intent,
+                "note": step.note,
+                "when": step.note_when,
+                "person": step.person_decides,
+                "choice": choice_text(step, model, lang),
+                "first": min(seqs, default=None),
+            }
+        )
+    return steps
+
+
 def map_files(workspace: Workspace, key: str, recording: str) -> dict[str, str] | None:
     """The files of a demonstration's own map (None: not mapped yet), as workspace paths."""
     folder = workspace.maps / key / recording
@@ -338,7 +581,12 @@ def map_recording(
     except (TraceError, OSError, ValueError) as exc:
         raise RunProblemError([str(exc)]) from exc
     language: Lang = "en" if lang == "en" else "pl"
-    result = map_trace(trace, lang=language, process_id=key)
+    result = map_trace(trace, lang=language, process_id=key, notes=written_notes(folder))
+    card = process_card(workspace, key)
+    if card:
+        from maptelo.model.schema import ProcessCard
+
+        result.model = result.model.model_copy(update={"card": ProcessCard.model_validate(card)})
     write_map_bundle(result, workspace.maps / key / recording, lang=language)
     return {
         "process": key,

@@ -12,8 +12,14 @@ let workspace = "";
 let flash = null;  // a message for the next view (after a build, say)
 let preferredBrowser = null;  // one this computer has and no policy forbids driving (from /api/state)
 let browserRequired = false;  // IT's policy names the browser: nobody chooses another
-let lite = false;  // Maptelo Lite: a demonstration and its map, no robot (from /api/state)
+// Maptelo Lite: a demonstration and its map, no robot. The page says so before the key is given
+// (no robot's menu on „Brak dostępu”), /api/state after it.
+let lite = document.body.dataset.lite === "1";
+let liteSet = false;  // the language /api/state gives Lite was taken (once: the person may change it)
 let lang = "pl";  // the page's language: Polish; Maptelo Lite also English
+// the small window kept next to the program while recording (?describe): only the steps to describe
+const compact = new URLSearchParams(location.search).has("describe");
+if (compact) document.body.classList.add("compact");
 
 function takeFlash() {
   const message = flash;
@@ -210,6 +216,37 @@ const EN = {
   "Usuń proces": "Delete the process",
   "Usuń nagranie": "Delete the recording",
   "Usuwanie…": "Deleting…",
+  "Opisz, co teraz robisz": "Describe what you are doing now",
+  "Opis trafi do ostatnio wykonanego kroku: dlaczego się go wykonuje albo jaką regułą należy się kierować. Pojawi się w instrukcji (SOP) i na mapie.":
+    "The description goes to the step done last: why it is done, or the rule to follow. It appears in the work instruction (SOP) and on the map.",
+  "np. wybieram najnowsze SBI według daty wystawienia": "e.g. I pick the newest self-billing invoice by its issue date",
+  "Dodaj opis": "Add a description",
+  "Zmień opis": "Change the description",
+  "Zapisz opis": "Save the description",
+  "Bez opisu": "No description",
+  "Decyzja": "Decision",
+  "Kroki nagrania": "The recording's steps",
+  "Każdy krok możesz opisać od razu: po co go robisz, kiedy i czy decyzję podejmuje człowiek. Opis trafi do mapy, instrukcji i pakietu dla AI.":
+    "You can describe each step at once: why you do it, when, and whether a person decides. The description goes into the map, the instruction and the AI brief.",
+  "Otwórz małe okno opisu": "Open a small window to describe",
+  "Okno opisu: zostaw je obok programu i opisuj kroki, gdy się pojawiają.": "The describing window: keep it next to the program and describe the steps as they appear.",
+  "Kroki pojawią się tu, gdy je wykonasz.": "The steps appear here as you do them.",
+  "Opisz": "Describe",
+  "Po co jest ten krok": "What the step is for",
+  "Kiedy się go robi": "When it is done",
+  "np. zawsze; tylko gdy kwota różni się od WZ": "e.g. always; only when the amount differs from the WZ",
+  "Tu decyduje człowiek (robot zatrzyma się przed tym krokiem)": "A person decides here (a robot stops before this step)",
+  "Kiedy: {}": "When: {}",
+  "Decyduje człowiek": "A person decides",
+  "Opis zapisany.": "Description saved.",
+  "Opis procesu własnymi słowami": "The process in your own words",
+  "np. Co tydzień dostaję pliki z nowymi cenami. Każdy plik wczytuję do systemu: odznaczam wiersze z błędem, wybieram cennik klienta i osobę zatwierdzającą. Plik, w którym wszystko jest błędne, odsyłam nadawcy.":
+    "e.g. Every week I receive files with new prices. I load each file into the system: I untick the rows with an error, choose the customer's price list and who approves. A file in which everything is wrong goes back to its sender.",
+  "Opisy kroków": "Step descriptions",
+  "Wczytywanie kroków…": "Loading the steps…",
+  "Opisy przy krokach trafiają do instrukcji (SOP), raportu i diagramu. Pozostają po ponownym utworzeniu mapy.":
+    "Step descriptions go to the work instruction (SOP), the report and the diagram. They stay when the map is created again.",
+  "Opis kroku {} zapisany; mapę utworzono ponownie.": "The description of step {} is saved; the map was created again.",
   "Usunąć proces „{}”?": "Delete the process “{}”?",
   "Usunięte zostaną nagrania ({}) i mapy tego procesu. W systemie Windows pliki trafią do Kosza.":
     "Its recordings ({}) and maps will be deleted. On Windows the files go to the Recycle Bin.",
@@ -233,6 +270,30 @@ const EN = {
   "Folder z plikami": "Folder with the files",
   "Diagram procesu {}": "Diagram of the process {}",
   "Instrukcja stanowiskowa (SOP)": "Work instruction (SOP)",
+  "Pakiet dla AI": "AI brief",
+  "Karta procesu": "Process card",
+  "To, czego nagranie nie pokazuje. Odpowiedzi trafiają do instrukcji (SOP) i do pakietu dla AI; bez nich pakiet wypisze te sprawy jako pytania.":
+    "What a recording does not show. The answers go into the instruction (SOP) and the AI brief; without them the brief lists these matters as questions.",
+  "Cel procesu": "Goal of the process",
+  "Skąd są dane": "Where the data come from",
+  "Co robi robot, a co człowiek": "What a robot does, what a person does",
+  "Po czym poznać, że gotowe": "How one knows it is done",
+  "Co bywa nie tak i co wtedy": "What goes wrong, and what then",
+  "Czego nie robić nigdy": "What never to do",
+  "np. Nowe ceny od negocjatora mają być w systemie przed datą obowiązywania.": "e.g. The negotiator's new prices are in the system before they take effect.",
+  "np. Arkusz „Nowe ceny” od negocjatora, kilkanaście wierszy tygodniowo.": "e.g. The negotiator's sheet “New prices”, a dozen rows a week.",
+  "np. Robot wpisuje ceny; zmianę powyżej 20% zatwierdza kierownik.": "e.g. The robot types the prices; a change above 20% is approved by the manager.",
+  "np. Linia z nową ceną jest w podglądzie linii cennika.": "e.g. The line with the new price is in the price list's lines.",
+  "np. Indeks wycofany: wiersz wraca do negocjatora.": "e.g. A withdrawn item: the row goes back to the negotiator.",
+  "np. Nie zmieniać ceny starej linii, nie zapisywać dwa razy.": "e.g. Never change the old line's price, never save twice.",
+  "Zapisz kartę": "Save the card",
+  "Zapisywanie i tworzenie map…": "Saving and making the maps…",
+  "Zapisano. Mapy, instrukcje i pakiety dla AI zawierają już kartę.": "Saved. The maps, instructions and AI briefs now include the card.",
+  "Plik dla modelu językowego (np. Claude, ChatGPT, Copilot), który ma zbudować automatyzację tego procesu: cel, dane i ich format, ekrany, skutek każdego kroku, reguły, wyjątki oraz pytania, na które mapa jeszcze nie zna odpowiedzi.":
+    "A file for a language model (e.g. Claude, ChatGPT, Copilot) that is to build an automation of this process: its goal, the inputs and their format, the screens, what each step does, the rules, the exceptions and the questions the map cannot answer yet.",
+  "Kopiuj do schowka": "Copy to the clipboard",
+  "Skopiowane": "Copied",
+  "Otwórz plik i skopiuj ręcznie": "Open the file and copy it by hand",
 };
 const EN_PLURALS = { krok: ["step", "steps"], proces: ["process", "processes"],
                      nagranie: ["recording", "recordings"], "działanie": ["action", "actions"] };
@@ -504,7 +565,7 @@ async function showRecordForm(key) {
       : { url: url.value, browser: browser.value, profile: profile.select.value, session: session.input.value };
     try {
       const job = await api("/api/recordings", { method: "POST", body: {
-        process: name.value, note: note.value, private: priv.checked, ...place,
+        process: name.value, note: note.value, private: priv.checked, lang, ...place,
         sheet: state.sheet, sheet_name: sheetPick.hidden ? null : sheetPick.value } });
       location.hash = `#/job/${job.id}`;
     } catch (error) { fill(problems, problemsBox(error.problems || [error.message])); start.disabled = false; }
@@ -545,9 +606,41 @@ async function showRecordJob(id, first) {
     finish.disabled = true;
     try { await api(`/api/jobs/${id}/stop`, { method: "POST" }); } catch (error) { alert(error.message); }
   } }, t("Zakończ nagrywanie"));
+  // what the person says about what they are doing: it goes with the step done last
+  const said = h("ul", { class: "said" });
+  const saying = h("textarea", { rows: 2, class: "lines", placeholder: t("np. wybieram najnowsze SBI według daty wystawienia") });
+  const sayProblems = h("div");
+  const say = h("button", { type: "button", onclick: async () => {
+    const text = saying.value.trim();
+    if (!text) return;
+    say.disabled = true;
+    try { await api(`/api/jobs/${id}/notes`, { method: "POST", body: { text } }); saying.value = ""; fill(sayProblems); }
+    catch (error) { fill(sayProblems, problemsBox(error.problems || [error.message])); }
+    say.disabled = false;
+  } }, t("Dodaj opis"));
+  const describe = h("div", { class: "card describe hide-compact" },
+    h("h2", {}, t("Opisz, co teraz robisz")),
+    h("p", { class: "muted" }, t("Opis trafi do ostatnio wykonanego kroku: dlaczego się go wykonuje albo jaką regułą należy się kierować. Pojawi się w instrukcji (SOP) i na mapie.")),
+    saying, sayProblems, h("div", { class: "actions" }, say), said);
+  // each step as it is recorded, to describe on its own (why, when, who decides)
+  const steps = h("ol", { class: "live-steps" });
+  const waiting = h("p", { class: "muted" }, t("Kroki pojawią się tu, gdy je wykonasz."));
+  const byAction = new Map();
+  const popout = h("button", { type: "button", class: "hide-compact", onclick: () => {
+    window.open(`${location.pathname}?describe#/job/${id}`, "maptelo-describe", "width=460,height=820");
+  } }, t("Otwórz małe okno opisu"));
+  const listed = h("div", { class: "card" },
+    h("h2", {}, t("Kroki nagrania")),
+    h("p", { class: "muted" }, compact
+      ? t("Okno opisu: zostaw je obok programu i opisuj kroki, gdy się pojawiają.")
+      : t("Każdy krok możesz opisać od razu: po co go robisz, kiedy i czy decyzję podejmuje człowiek. Opis trafi do mapy, instrukcji i pakietu dla AI.")),
+    h("div", { class: "actions" }, popout),
+    waiting, steps);
   leave = () => { alive = false; };
   show(h("div", { class: "head" }, h("div", { class: "titles" }, h("div", { class: "crumbs" }, h("a", { href: "#/" }, t("Procesy")), t(" / nagranie")), h("h1", {}, first.title)), h("div", { class: "actions" }, status, finish)),
-       h("div", { class: "card" }, what, count),
+       h("div", { class: "card hide-compact" }, what, count),
+       listed,
+       describe,
        footer);
   while (alive) {
     let job;
@@ -556,6 +649,16 @@ async function showRecordJob(id, first) {
     for (const event of job.events) {
       after = event.seq;
       if (event.type === "progress") events = event.events;
+      if (event.type === "note" && event.action) byAction.get(event.action)?.showSaid(event);
+      else if (event.type === "note") said.append(h("li", {}, event.text));
+      if (event.type === "step" && !byAction.has(event.action)) {
+        const item = liveStep(id, event, steps.children.length + 1);
+        byAction.set(event.action, item);
+        for (const older of steps.children) older.classList.remove("latest");
+        item.classList.add("latest");
+        steps.append(item);
+        waiting.hidden = true;
+      }
       if (event.type === "start") {  // a Java program has no window to close
         fill(what, event.program
           ? t("Trwa nagrywanie programu „{}”. Wykonaj w nim proces w zwykły sposób. Po zakończeniu wróć do tego okna ({} na pasku zadań) i kliknij „Zakończ nagrywanie”. Maptelo zapisuje wyłącznie działania w tym programie.", event.program, lite ? "Maptelo Lite" : "Studio")
@@ -568,6 +671,7 @@ async function showRecordJob(id, first) {
       ? h("span", { class: "chip bad" }, h("span", { class: "spin" }), t("nagrywanie"))
       : job.state === "failed" ? h("span", { class: "chip bad" }, t("błąd")) : h("span", { class: "chip ok" }, t("nagranie zapisane")));
     finish.hidden = !running;
+    describe.hidden = !running;
     if (!running) {
       const key = job.process;
       if (lite && !job.error && job.result) {  // Lite: the map of this demonstration, at once
@@ -705,7 +809,10 @@ function applyLite() {
   }
   const langs = document.getElementById("langs");
   langs.hidden = false;
-  for (const button of langs.querySelectorAll("button")) button.addEventListener("click", () => setLanguage(button.dataset.lang));
+  if (!langs.dataset.ready) {  // applied twice (the page's mark, then /api/state): one listener
+    langs.dataset.ready = "1";
+    for (const button of langs.querySelectorAll("button")) button.addEventListener("click", () => setLanguage(button.dataset.lang));
+  }
   applyLanguage();
 }
 
@@ -808,7 +915,55 @@ async function showLiteProcess(key) {
       ? h("div", { class: "table-wrap" }, h("table", {},
           h("thead", {}, h("tr", {}, ["Data", "Uwagi", "Działania", "Mapa"].map((head) => h("th", {}, t(head))))),
           h("tbody", {}, found.map(row))))
-      : h("p", {}, t("Ten proces nie ma jeszcze nagrań.")));
+      : h("p", {}, t("Ten proces nie ma jeszcze nagrań.")),
+    found.length ? processCard(key) : null);
+}
+
+/* The process card: what no recording shows (the goal, the data, what a robot may do, when it
+   is done, what goes wrong, what never to do), in the person's words. Every map of the process,
+   its SOP and its AI brief start with it. */
+const CARD_QUESTIONS = [
+  ["story", "Opis procesu własnymi słowami", "np. Co tydzień dostaję pliki z nowymi cenami. Każdy plik wczytuję do systemu: odznaczam wiersze z błędem, wybieram cennik klienta i osobę zatwierdzającą. Plik, w którym wszystko jest błędne, odsyłam nadawcy."],
+  ["goal", "Cel procesu", "np. Nowe ceny od negocjatora mają być w systemie przed datą obowiązywania."],
+  ["data", "Skąd są dane", "np. Arkusz „Nowe ceny” od negocjatora, kilkanaście wierszy tygodniowo."],
+  ["scope", "Co robi robot, a co człowiek", "np. Robot wpisuje ceny; zmianę powyżej 20% zatwierdza kierownik."],
+  ["done", "Po czym poznać, że gotowe", "np. Linia z nową ceną jest w podglądzie linii cennika."],
+  ["failures", "Co bywa nie tak i co wtedy", "np. Indeks wycofany: wiersz wraca do negocjatora."],
+  ["never", "Czego nie robić nigdy", "np. Nie zmieniać ceny starej linii, nie zapisywać dwa razy."],
+];
+
+function processCard(key) {
+  const fields = {};
+  const problems = h("div");
+  const said = h("p", { class: "muted", role: "status" });
+  const rows = CARD_QUESTIONS.map(([id, label, example]) => {
+    fields[id] = h("textarea", { rows: id === "story" ? 5 : 2, class: "lines", id: `card-${id}`, placeholder: t(example) });
+    return h("div", { class: "field" }, h("label", { for: `card-${id}` }, t(label)), fields[id]);
+  });
+  load(`/api/processes/${encodeURIComponent(key)}/card`)
+    .then((kept) => { for (const [id, text] of Object.entries(kept.card || {})) if (fields[id]) fields[id].value = text; })
+    .catch(() => {});
+  const save = h("button", { type: "button", class: "primary", onclick: async () => {
+    save.disabled = true;
+    fill(problems);
+    said.textContent = t("Zapisywanie i tworzenie map…");
+    try {
+      const card = Object.fromEntries(Object.entries(fields).map(([id, area]) => [id, area.value]));
+      await api(`/api/processes/${encodeURIComponent(key)}/card`, { method: "PUT", body: { card, lang } });
+      said.textContent = t("Zapisano. Mapy, instrukcje i pakiety dla AI zawierają już kartę.");
+    } catch (error) {
+      said.textContent = "";
+      fill(problems, problemsBox(error.problems || [error.message]));
+    }
+    save.disabled = false;
+  } }, t("Zapisz kartę"));
+  return h("div", { class: "card" },
+    h("h2", {}, t("Karta procesu")),
+    h("p", { class: "muted" }, t("To, czego nagranie nie pokazuje. Odpowiedzi trafiają do instrukcji (SOP) i do pakietu dla AI; bez nich pakiet wypisze te sprawy jako pytania.")),
+    problems,
+    ...rows,
+    h("div", { class: "actions" }, save),
+    said);
 }
 
 /* The SOP as a page: its headings, the table of data, the numbered steps with their notes and
@@ -929,6 +1084,10 @@ async function showLiteMap(key, recording) {
     catch (error) { fill(problems, problemsBox(error.problems || [error.message])); again.disabled = false; }
   } }, t("Utwórz mapę ponownie"));
   const when = r.started ? new Date(r.started).toLocaleString(locale(), { dateStyle: "medium", timeStyle: "short" }) : recording;
+  const steps = h("div", {}, h("p", { class: "muted" }, t("Wczytywanie kroków…")));
+  load(`/api/recordings/${encodeURIComponent(key)}/${encodeURIComponent(recording)}/steps`)
+    .then((list) => fill(steps, list.map((step) => describedStep(key, recording, step))))
+    .catch(() => fill(steps));
   show(
     h("div", { class: "head" }, h("div", { class: "titles" },
       h("div", { class: "crumbs" }, h("a", { href: "#/" }, t("Procesy")), " / ", h("a", { href: `#/p/${encodeURIComponent(key)}` }, named), t(" / mapa")),
@@ -941,12 +1100,141 @@ async function showLiteMap(key, recording) {
     problems,
     files["process.svg"] ? h("div", { class: "card diagram" }, h("img", { src: fileUrl(files["process.svg"]), alt: t("Diagram procesu {}", named) })) : null,
     h("div", { class: "card" },
+      h("h2", {}, t("Opisy kroków")),
+      h("p", { class: "muted" }, t("Opisy przy krokach trafiają do instrukcji (SOP), raportu i diagramu. Pozostają po ponownym utworzeniu mapy.")),
+      steps),
+    files["ai-brief.md"] ? h("div", { class: "card" },
+      h("div", { class: "head" },
+        h("div", { class: "titles" }, h("h2", {}, t("Pakiet dla AI")),
+          h("p", { class: "muted" }, t("Plik dla modelu językowego (np. Claude, ChatGPT, Copilot), który ma zbudować automatyzację tego procesu: cel, dane i ich format, ekrany, skutek każdego kroku, reguły, wyjątki oraz pytania, na które mapa jeszcze nie zna odpowiedzi."))),
+        h("div", { class: "actions" },
+          briefCopy(files["ai-brief.md"]),
+          h("a", { class: "button", href: fileUrl(files["ai-brief.md"]), download: "" }, "Markdown"),
+          files["ai-brief.json"] ? h("a", { class: "button", href: fileUrl(files["ai-brief.json"]), download: "" }, "JSON") : null))) : null,
+    h("div", { class: "card" },
       h("div", { class: "head" }, h("h2", {}, t("Instrukcja stanowiskowa (SOP)")),
         h("div", { class: "actions" },
           files["sop.md"] ? h("a", { class: "button", href: fileUrl(files["sop.md"]), download: "" }, "SOP (Markdown)") : null,
           files["process.bpmn"] ? h("a", { class: "button", href: fileUrl(files["process.bpmn"]), download: "" }, "BPMN") : null,
           again)),
       sop));
+}
+
+/* The AI brief copied whole to the clipboard, to be pasted into a language model's chat. Read
+   when the page opens, so the click writes it at once (a browser lets a page write to the
+   clipboard only right after a person's click). */
+function briefCopy(path) {
+  const label = t("Kopiuj do schowka");
+  const button = h("button", { type: "button", class: "primary" }, label);
+  let text = null;
+  fetch(fileUrl(path))
+    .then((answer) => (answer.ok ? answer.text() : null))
+    .then((read) => { text = read; })
+    .catch(() => {});
+  button.addEventListener("click", async () => {
+    try {
+      if (text === null) throw new Error("not read yet");
+      await navigator.clipboard.writeText(text);
+      button.textContent = t("Skopiowane");
+    } catch {
+      button.textContent = t("Otwórz plik i skopiuj ręcznie");
+    }
+    setTimeout(() => { button.textContent = label; }, 2500);
+  });
+  return button;
+}
+
+/* A step's description in full: why it is done, when (always, or only when …), whether a
+   person decides there (a robot then stops before it). ``save`` keeps it; the box closes. */
+function saidEditor(said, save, close) {
+  const why = h("textarea", { rows: 2, class: "lines", placeholder: t("np. wybieram najnowsze SBI według daty wystawienia") });
+  const when = h("input", { type: "text", placeholder: t("np. zawsze; tylko gdy kwota różni się od WZ") });
+  const person = h("input", { type: "checkbox" });
+  why.value = said.note || "";
+  when.value = said.when || "";
+  person.checked = Boolean(said.person);
+  const problems = h("div");
+  const keep = h("button", { type: "button", class: "primary", onclick: async () => {
+    keep.disabled = true;
+    fill(problems);
+    try { await save({ text: why.value, when: when.value, person: person.checked }); }
+    catch (error) { fill(problems, problemsBox(error.problems || [error.message])); }
+    keep.disabled = false;
+  } }, t("Zapisz opis"));
+  const cancel = h("button", { type: "button", onclick: close }, t("Anuluj"));
+  const box = h("div", { class: "describe-edit" },
+    h("label", {}, t("Po co jest ten krok"), why),
+    h("label", {}, t("Kiedy się go robi"), when),
+    h("label", { class: "check" }, person, t("Tu decyduje człowiek (robot zatrzyma się przed tym krokiem)")),
+    problems, h("div", { class: "actions" }, keep, cancel));
+  box.focusFirst = () => why.focus();
+  return box;
+}
+
+/* What was said of a step, in one line under it: why · when · that a person decides. */
+function saidLine(said) {
+  const parts = [];
+  if (said.note) parts.push(said.note);
+  if (said.when) parts.push(t("Kiedy: {}", said.when));
+  if (said.person) parts.push(t("Decyduje człowiek"));
+  return parts.join(" · ");
+}
+
+/* A step of a recording as it is recorded, to describe at once: kept with the recording by
+   the step's action, so the map gives the description to that step (not to the last one). */
+function liveStep(job, event, number) {
+  let said = {};
+  const shown = h("p", { class: "muted" }, t("Bez opisu"));
+  const open = h("button", { type: "button", class: "link" }, t("Opisz"));
+  const item = h("li", {}, h("div", { class: "words" }, h("span", { class: "num" }, `${number}.`), h("span", {}, event.words)), shown, open);
+  item.showSaid = (written) => {
+    said = { note: written.text, when: written.when, person: written.person };
+    const line = saidLine(said);
+    shown.className = line ? "said-note" : "muted";
+    shown.textContent = line || t("Bez opisu");
+    open.textContent = line ? t("Zmień opis") : t("Opisz");
+  };
+  open.addEventListener("click", () => {
+    let editor = null;
+    const close = () => { editor.remove(); open.hidden = false; };
+    editor = saidEditor(said, async (written) => {
+      await api(`/api/jobs/${job}/notes`, { method: "POST", body: { action: event.action, ...written } });
+      item.showSaid(written);
+      close();
+    }, close);
+    open.hidden = true;
+    item.append(editor);
+    editor.focusFirst();
+  });
+  return item;
+}
+
+/* One step of a recording's map with its description, written or changed on the page: the map
+   is made again with it (the description stays with the recording). */
+function describedStep(key, recording, step) {
+  const line = saidLine(step);
+  const shown = h("p", { class: line ? "said-note" : "muted" }, line || t("Bez opisu"));
+  const item = h("div", { class: "described" },
+    h("div", { class: "described-head" }, h("span", { class: "num" }, `${step.number}.`), h("strong", {}, step.intent)),
+    shown);
+  if (step.choice) item.append(h("p", { class: "choice-note" }, `${t("Decyzja")}: ${step.choice}`));
+  const open = h("button", { type: "button", class: "link" }, line ? t("Zmień opis") : t("Dodaj opis"));
+  open.addEventListener("click", () => {
+    let editor = null;
+    const close = () => { editor.remove(); open.hidden = false; };
+    editor = saidEditor(step, async (written) => {
+      await api(`/api/recordings/${encodeURIComponent(key)}/${encodeURIComponent(recording)}/notes`,
+        { method: "PUT", body: { first: step.first, ...written, lang } });
+      flash = { tone: "ok", text: t("Opis kroku {} zapisany; mapę utworzono ponownie.", step.number) };
+      await showLiteMap(key, recording);
+    }, close);
+    open.hidden = true;
+    item.append(editor);
+    editor.focusFirst();
+  });
+  if (step.first === null || step.first === undefined) open.hidden = true;
+  item.append(open);
+  return item;
 }
 
 // --- routes and the banner ----------------------------------------------------------------
@@ -992,7 +1280,8 @@ async function watchState() {
     workspace = state.workspace;
     preferredBrowser = state.browser || null;
     browserRequired = Boolean(state.browser_required);
-    if (state.lite && !lite) {
+    if (state.lite && !liteSet) {
+      liteSet = true;
       lite = true;
       lang = state.lang || computerLanguage();
       applyLite();
@@ -1017,6 +1306,10 @@ async function watchState() {
 
 window.addEventListener("hashchange", route);
 (async () => {
+  if (lite) {  // Lite's frame at once, in the computer's language until /api/state says
+    lang = computerLanguage();
+    applyLite();
+  }
   if (await watchState()) {
     await route();
     setInterval(watchState, 3000);

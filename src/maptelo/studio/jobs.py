@@ -13,6 +13,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 log = logging.getLogger(__name__)
@@ -36,6 +37,10 @@ class Job:
     result: dict[str, Any] | None = None
     error: str | None = None
     stop_requested: bool = False
+    hear: Callable[[str], None] | None = None
+    """A recording's ear: what the person says about what they are doing (Studio's box)."""
+    folder: Path | None = None
+    """A recording's folder: a step described on Studio's list while it runs is kept there."""
     _events: list[dict[str, Any]] = field(default_factory=list)
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
