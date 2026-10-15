@@ -32,6 +32,13 @@ SENTENCES: list[tuple[str, str]] = [
      "nie da się sprawdzić, czy to już zrobione ({detail}); nic nie zapisano"),
     ("the process keeps jumping between steps", "proces krąży między krokami"),
     ("the model declares no effect to verify", "model nie mówi, jak sprawdzić wynik"),
+    ("the list has no option “{value}”", "lista nie ma opcji „{value}”"),
+    ("the process only reads: nothing was changed, and what it read is its result",
+     "proces tylko odczytuje: nic nie zmieniono, a jego wynikiem jest to, co odczytał"),
+    ("the process only reads, and this run read nothing: the steps that read were not done, so "
+     "a person looks it up",
+     "proces tylko odczytuje, a ten przebieg nic nie odczytał: kroki odczytu nie zostały "
+     "wykonane, więc sprawdza to człowiek"),
     ("effect '{effect}' not confirmed: {detail}", "efekt „{effect}” niepotwierdzony: {detail}"),
     (
         "effect '{effect}' not confirmed yet after “{step}” ({detail}); the steps left write "
@@ -232,6 +239,13 @@ SENTENCES: list[tuple[str, str]] = [
      "{item}: menu {menu} nie przyjęło klawiszy, które wybierają pozycję (zostało otwarte, "
      "więc je zamknięto)"),
     ("the menu “{menu}” is open", "menu „{menu}” jest otwarte"),
+    ("whether “{intent}” is to be done cannot be told: the table “{table}” has no column "
+     "{columns} (the screen changed)",
+     "nie da się ustalić, czy wykonać krok „{intent}”: tabela „{table}” nie ma kolumny "
+     "{columns} (ekran się zmienił)"),
+    ("the application answered “{intent}” with an error: {said}",
+     "aplikacja odpowiedziała na krok „{intent}” błędem: {said}"),
+    ("the application answered: {said}", "aplikacja odpowiedziała: {said}"),
     ("the application refused the record, which no recording showed: {refusal}; nothing "
      "was written ({checked})",
      "aplikacja odmówiła przyjęcia rekordu, czego nie pokazało żadne nagranie: {refusal}; "
@@ -253,6 +267,10 @@ SENTENCES: list[tuple[str, str]] = [
     ("the save did not happen: {count} lines this record had added to “{table}” were taken "
      "out again",
      "zapis się nie udał: {count} pozycji dodanych przez ten rekord do „{table}” usunięto"),
+    ("the save was confirmed, but its {count} lines stayed in the draft “{table}”: taken out of "
+     "the draft for the next record",
+     "zapis potwierdzono, ale jego pozycje ({count}) zostały w szkicu „{table}”: usunięto je ze "
+     "szkicu przed następnym rekordem"),
     ("{count} could not be taken out", "{count} nie dało się usunąć"),
     ("every effect confirmed by an independent read (a moment after the first read)",
      "każdy efekt potwierdzony niezależnym odczytem (chwilę po pierwszym odczycie)"),
@@ -345,6 +363,16 @@ SENTENCES: list[tuple[str, str]] = [
     ("no unique visible element for {tried}", "brak jednego widocznego elementu dla: {tried}"),
     ("{count} rows match {where}; the model says pick only one",
      "pasujących wierszy: {count} ({where}); model każe wybrać tylko jeden"),
+    ("the box did not change when its label was clicked",
+     "pole wyboru nie zmieniło się po kliknięciu jego etykiety"),
+    ("the table to pick the row from is not shown",
+     "nie widać tabeli, z której trzeba wybrać wiersz"),
+    ("the table has no column “{column}” to order the rows by",
+     "tabela nie ma kolumny „{column}”, według której trzeba uporządkować wiersze"),
+    ("“{column}” of a row is no date it can read",
+     "„{column}” jednego z wierszy to nie data, którą da się odczytać"),
+    ("two rows have the same “{column}”: neither is picked",
+     "dwa wiersze mają tę samą wartość „{column}”: żaden nie zostaje wybrany"),
     ("{element} in the row where {where}", "{element} w wierszu, gdzie {where}"),
     ("{element} in rows {where}", "{element} w wierszach {where}"),
     ("no row fits", "żaden wiersz nie pasuje"),
@@ -456,6 +484,40 @@ SENTENCES: list[tuple[str, str]] = [
     ("the model API answered HTTP {code}", "API modelu odpowiedziało HTTP {code}"),
     ("the model API did not return JSON", "API modelu nie zwróciło JSON"),
     ("the API key was refused (HTTP {code})", "klucz API został odrzucony (HTTP {code})"),
+    ("the model API answered HTTP {code}: {detail}",
+     "API modelu odpowiedziało HTTP {code}: {detail}"),
+    ("the model declined to answer the question (a refusal)",
+     "model odmówił odpowiedzi"),
+    ("the model's answer was cut off: it ran out of room to answer",
+     "odpowiedź modelu została ucięta: przekroczono limit długości"),
+    ("the AI's address must start with https:// or http://",
+     "adres AI musi zaczynać się od https:// albo http://"),
+    ("the AI's protocol is openai (chat completions) or anthropic (messages)",
+     "protokół AI to openai (chat completions) albo anthropic (messages)"),
+    # the AI assistant
+    ("the AI assistant is off: turn it on in its settings",
+     "asystent AI jest wyłączony: można go włączyć w ustawieniach asystenta"),
+    ("this process is private: only the company's own AI or a model on this computer may see it",
+     "ten proces jest prywatny: może go zobaczyć tylko AI firmy albo model na tym komputerze"),
+    ("agree first to what the assistant sends to {where}: see the assistant's settings",
+     "wymagane potwierdzenie wysyłania danych do {where} w ustawieniach asystenta"),
+    ("there is no key for {provider}: type it in the assistant's settings",
+     "brak klucza dla {provider}: należy go wprowadzić w ustawieniach asystenta"),
+    ("give the model's name: this AI has no default one",
+     "brak nazwy modelu: ten dostawca nie ma modelu domyślnego"),
+    ("give the address of the AI (its API, ending /v1 or similar)",
+     "brak adresu AI (adres API, zwykle zakończony na /v1)"),
+    ("the key is empty", "klucz jest pusty"),
+    ("this does not look like a key: it has spaces or is too long",
+     "nieprawidłowy klucz: zawiera spacje lub jest za długi"),
+    ("the key was kept on another system and cannot be read here",
+     "klucz zapisano w innym systemie i nie da się go tu odczytać"),
+    ("choose whose key it is", "nie wskazano dostawcy klucza"),
+    ("type the key", "brak klucza"),
+    ("the assistant is already looking at this process", "przegląd tego procesu już trwa"),
+    ("choose the process for the automat", "nie wybrano procesu dla automatu"),
+    ("the automat is off: choose it in the assistant's settings",
+     "automat jest wyłączony: można go włączyć w ustawieniach asystenta"),
     # IT's policy
     ("{problem}; nothing is done until it is fixed",
      "{problem}; do czasu poprawki nic nie zostanie zrobione"),
@@ -508,9 +570,16 @@ SENTENCES: list[tuple[str, str]] = [
      "niego wyłączony: dział IT włącza go poleceniem jabswitch -enable, potem program trzeba "
      "uruchomić ponownie"),
     # a menu clicked before the page was ready, clicked once more
+    ("“{step}” clicked once more: its menu had not opened",
+     "„{step}” kliknięto jeszcze raz: menu się nie otworzyło"),
     ("“{step}” clicked once more: only then was “{next}” there",
      "„{step}” kliknięte jeszcze raz: dopiero wtedy było „{next}”"),
     ("{via} (after “{step}” once more)", "{via} (po ponownym „{step}”)"),
+    ("{via} (in other letters)", "{via} (inną wielkością liter)"),
+    ("{via} (exactly)", "{via} (dokładnie)"),
+    ("{via} (among other words)", "{via} (wśród innych słów)"),
+    ("{via} (the close button)", "{via} (przycisk zamykania)"),
+    ("{via} (the one made to be clicked)", "{via} (ten do klikania)"),
     ("there is no step {name}", "nie ma kroku {name}"),
     ("paused for a person", "pauza dla osoby"),
     ("pointed at in Studio: {element}", "wskazane w Studio: {element}"),
@@ -531,6 +600,10 @@ SENTENCES: list[tuple[str, str]] = [
     ("the card: its answers by question", "karta procesu: odpowiedzi na kolejne pytania"),
     ("there is no map of the recording {recording} of {key}",
      "nie ma mapy nagrania {recording} procesu {key}"),
+    ("{name} is still in use (Windows says {code}); "
+     "close its preview or the program using its files and try again",
+     "Pliki nagrania {name} są nadal używane (kod Windows: {code}). "
+     "Zamknij ich podgląd lub program, który je otworzył, i spróbuj ponownie."),
     ("{name} could not be deleted (Windows says {code})",
      "nie udało się usunąć {name} (Windows zgłasza kod {code})"),
     ("the file is empty", "plik jest pusty"),

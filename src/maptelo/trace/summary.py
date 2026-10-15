@@ -29,6 +29,8 @@ def describe_event(event: TraceEvent) -> str:
             text = f'select {target} = "{event.value}"{label}'
         case "press":
             text = f"press {event.value}" + (f" in {target}" if target else "")
+        case "copied":
+            text = f'copied "{event.value}"' + (f" from {target}" if target else "")
         case "appeared":
             element = event.target
             role = (element.role if element else None) or "element"

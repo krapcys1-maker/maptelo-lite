@@ -180,6 +180,13 @@ ROBOT_REQUESTS = [
     ("/api/agents/config", "POST"),
     ("/api/agents/try", "POST"),
     ("/api/point", "POST"),
+    ("/api/assistant/settings", "POST"),
+    ("/api/assistant/key", "POST"),
+    ("/api/assistant/key/forget", "POST"),
+    ("/api/assistant/agree", "POST"),
+    ("/api/assistant/check", "POST"),
+    ("/api/assistant/autopilot", "POST"),
+    ("/api/processes/{key}/assistant/review", "POST"),
 ]
 """The robot's requests that Lite answers with ``ROBOT_ONLY`` (its page offers none of them)."""
 

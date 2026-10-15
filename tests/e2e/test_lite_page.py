@@ -148,3 +148,32 @@ def test_lite_starts_in_the_computers_language(browser: Browser, tmp_path: Path)
             page.goto(f"{base}/?t={TOKEN}")
             expect(page.get_by_role("heading", name=heading, exact=True)).to_be_visible()
             context.close()
+
+
+def test_a_recording_is_deleted_from_the_page_using_the_real_filesystem(
+    browser: Browser,
+    tmp_path: Path,
+) -> None:
+    workspace = lite_workspace(tmp_path)
+    # This test only deletes its own copied fixture, including its generated map.
+    assert workspace.root.resolve().is_relative_to(tmp_path.resolve())
+    with running(workspace, TOKEN, lite=True) as base:
+        context = browser.new_context(locale="pl-PL")
+        try:
+            page = context.new_page()
+            page.goto(f"{base}/?t={TOKEN}#/p/{PROCESS}")
+            page.get_by_role("button", name="Utwórz mapę", exact=True).click()
+            expect(page.get_by_role("heading", name="Kroki", exact=True)).to_be_visible()
+            page.evaluate(f"() => {{ location.hash = '#/p/{PROCESS}'; }}")
+            page.get_by_role("button", name="Usuń", exact=True).click()
+            question = page.get_by_role("alertdialog")
+            expect(question).to_contain_text("To jedyne nagranie procesu")
+            question.get_by_role("button", name="Anuluj", exact=True).click()
+            assert workspace.recording_folders(PROCESS)
+            page.get_by_role("button", name="Usuń", exact=True).click()
+            page.get_by_role("alertdialog").get_by_role("button", name="Usuń nagranie").click()
+            expect(page.get_by_role("heading", name="Procesy", exact=True)).to_be_visible()
+            assert not (workspace.recordings / PROCESS).exists()
+            assert not (workspace.maps / PROCESS).exists()
+        finally:
+            context.close()

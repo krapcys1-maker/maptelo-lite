@@ -102,6 +102,8 @@ class Jobs:
             log.exception("job %s failed", job.id)
             job.error = str(exc) or type(exc).__name__
             job.state = "failed"
+        finally:
+            job.hear = None
         job.emit("end", state=job.state, error=job.error)
 
     def get(self, job_id: str) -> Job:

@@ -11,7 +11,7 @@ import json
 import os
 import re
 from collections import Counter
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from itertools import combinations, pairwise
 from pathlib import Path
@@ -32,12 +32,13 @@ from maptelo.mapping.normalize import (
     normalize,
     one_time_code,
 )
+from maptelo.mapping.shown import ANY_WORD
 from maptelo.mapping.sources import bind, is_search, trace_origins
 from maptelo.model.integrity import PLACEHOLDER
 from maptelo.model.schema import ProcessModel
 from maptelo.model.urls import fill_from, origin, screen_template
 from maptelo.trace.aria import AriaNode, parse_aria, table_row_nodes, table_rows
-from maptelo.trace.schema import DialogSeen, ElementInfo, Trace, TraceState
+from maptelo.trace.schema import DialogSeen, ElementInfo, Trace, TraceEvent, TraceState
 
 _COMMIT_WORDS = re.compile(
     r"\b(save|submit|apply|confirm|send|post|book|approve|reject|create|update|delete|issue|"
@@ -47,6 +48,9 @@ _COMMIT_WORDS = re.compile(
     re.IGNORECASE,
 )
 """Words of a button that saves, when the recording cannot say (it did not see what was sent)."""
+_FILTER_WORDS = re.compile(r"\b(filters?|filtr\w*|search|szukaj|wyszukaj)\b", re.IGNORECASE)
+"""Words of a button that only narrows a list down („Apply Filters”, WebArena-Verified): no save
+by its words alone; one that sent data saves all the same (``sent_by``)."""
 _AREAS = {"region", "article", "document", "main", "group", "complementary", "note"}
 """Parts of a page with a name of their own, whose text a robot can read whole (an e-mail's
 „Treść wiadomości”)."""
@@ -114,6 +118,9 @@ class MapResult:
     """Step id -> trace event numbers it came from (for screenshots in documents)."""
     notes: list[str] = field(default_factory=list)
     """What one recording could not establish; for a person to confirm."""
+    seen_after: dict[str, list[str]] = field(default_factory=dict)
+    """Step id -> the words its value follows in what the screen says of the field's item
+    („przyjechało” of „37241-E: przyjechało 20 szt.”); the recordings together choose one."""
 
 
 # --- screens (states) ------------------------------------------------------------------
@@ -150,33 +157,50 @@ def _screen_title(title: str | None, app: str) -> str | None:
     clean = re.sub(rf"^\s*{re.escape(app)}\s*{_TITLE_SEPARATOR}\s*", "", clean).strip()
     if clean == app:
         return None
-    return clean if clean and not any(ch.isdigit() for ch in clean) else None
+    # a number names one record's screen; a record's value marked as such (_MARK) does not,
+    # but a title that is nothing else („70011-B”) names the record, not the screen
+    unmarked = _MARK.sub("", clean)
+    if not re.search(r"[^\W\d_]", unmarked):
+        return None
+    return clean if not any(ch.isdigit() for ch in unmarked) else None
 
 
-def _marks(aria: AriaNode) -> list[dict[str, str]]:
-    """What can tell a screen from the others, best first: a table, a heading, a field."""
+def _marks(
+    aria: AriaNode, named: Callable[[str | None], str | None] | None = None
+) -> list[dict[str, str]]:
+    """What can tell a screen from the others, best first: a table, a heading, a field;
+    ``named`` marks the record's values in a name (a heading that is the record's title)."""
+
+    def of(name: str) -> str:
+        return (named(name) or name) if named is not None else name
+
+    def numbered(name: str) -> bool:  # a number names one record's screen, a marked value not
+        return any(ch.isdigit() for ch in _MARK.sub("", name))
+
     found = []
     for node in aria.walk():  # "Tabela 182/A/NBP/2026 z dnia 2026-10-06" names one day's table
-        if node.role == "table" and node.name and not any(ch.isdigit() for ch in node.name):
-            found.append({"role": "table", "name": node.name})
+        if node.role == "table" and node.name and not numbered(of(node.name)):
+            found.append({"role": "table", "name": of(node.name)})
     for node in aria.walk():
-        if node.role == "heading" and node.name and not any(ch.isdigit() for ch in node.name):
-            found.append({"role": "heading", "name": node.name})
+        if node.role == "heading" and node.name and not numbered(of(node.name)):
+            found.append({"role": "heading", "name": of(node.name)})
     for node in aria.walk():
         if node.role in ("textbox", "combobox") and node.name:
             found.append({"role": node.role, "name": node.name})
     return found
 
 
-def _landmark(arias: list[AriaNode]) -> dict[str, str] | None:
+def _landmark(
+    arias: list[AriaNode], named: Callable[[str | None], str | None] | None = None
+) -> dict[str, str] | None:
     """The best mark every look at the screen shows: an empty list's „Pokonaj konkurencję
     zachwycającymi ofertami!” is gone once a filter is cleared and the list has rows, it tells
     nothing about the screen (Odoo, benchmark p12)."""
     if not arias:
         return None
     first, *others = arias
-    for mark in _marks(first):
-        if all(mark in _marks(other) for other in others):
+    for mark in _marks(first, named):
+        if all(mark in _marks(other, named) for other in others):
             return mark
     return None
 
@@ -189,14 +213,43 @@ class _Screen:
     templates: set[str] = field(default_factory=set)
 
 
+_SEPARATORS = "/·|\\-" + chr(0x2013)  # slash, middle dot, bar, dashes
+_SEGMENT = rf"(?:^|(?<=\s[{_SEPARATORS}]\s))"
+_SEGMENT_END = rf"(?=$|\s[{_SEPARATORS}]\s)"
+_MARK = re.compile(r"\x01([^\x02]*)\x02")
+"""A value of the record in a screen's title or heading, as kept until its input is named."""
+
+
+_MARKS_MAY = "[" + "".join(map(chr, (0xAE, 0x2122, 0xA9, 0x2120))) + "]?"
+"""A word of a name may carry a registered or trade mark on screen that the sheet leaves out."""
+
+
 class _Screens:
     """The screens of a recording, by their address; a window over the main one (a chooser, an
     approval) has screens of its own, also at the main page's address (benchmark g039)."""
 
-    def __init__(self, trace: Trace, app: str, skip: set[int]) -> None:
+    def __init__(
+        self, trace: Trace, app: str, skip: set[int], sheet: Mapping[str, str] | None = None
+    ) -> None:
         self.app = app
         self.screens: dict[str, _Screen] = {}
         self._by_url: dict[tuple[str, str, int], str] = {}
+        self.typed: dict[str, str] = {}
+        """Values a person typed or chose in the recording, by the field's name: a screen named
+        by one (after saving, the heading is the page title just typed: WebArena-Verified, CMS
+        pages) is one screen for every record, not a screen of this record's value."""
+        for event in trace.events:
+            if event.type not in ("fill", "select") or not event.value or event.secret:
+                continue
+            value = event.value.strip()
+            if len(value) < 4 or value.isdigit():
+                continue
+            target = event.target
+            named = (target.label or target.name or target.field) if target else None
+            self.typed.setdefault(value, (named or "value").strip())
+        for value, column in (sheet or {}).items():  # the record's values from its sheet
+            if len(value.strip()) >= 4 and not value.strip().isdigit():
+                self.typed.setdefault(value.strip(), column)
         titles: dict[tuple[str, str, int], str | None] = {}
         looks: dict[tuple[str, str, int], list[str]] = {}
         """Every snapshot of each screen: its mark is one they all show."""
@@ -229,14 +282,32 @@ class _Screens:
             named = human_title(where[1].strip("/"))
             screen_title: str | None = named if named.strip("… ") else self.app
         else:
-            screen_title = _screen_title(title, self.app)
-        landmark = _landmark([parse_aria(text) for text in arias if text])
+            screen_title = _screen_title(self._named(title), self.app)
+        landmark = _landmark([parse_aria(text) for text in arias if text], self._named)
         key = screen_title or (f"{landmark['role']}:{landmark['name']}" if landmark else where[1])
         if where[2] and (where[0], where[1], 0) in self._by_url and landmark is not None:
             key = f"{landmark['role']}:{landmark['name']}"  # the window's own, not the page's
         screen = self.screens.setdefault(key, _Screen(key, screen_title, landmark))
         screen.templates.add(where[1])
         self._by_url[where] = key
+
+    def _named(self, words: str | None) -> str | None:
+        """A title or heading with a value the person typed (a whole part of it, between the
+        title's separators) marked as the record's (``_MARK``)."""
+        if not words:
+            return words
+        for value in sorted(self.typed, key=len, reverse=True):
+            # in any letters and with the shop's ® or ™ („Teton Pullover Hoodie” for the sheet's
+            # „Teton pullover hoodie”, WebArena-Verified 242), as the run finds it
+            loose = r"\s+".join(re.escape(word) + _MARKS_MAY for word in value.split())
+            pattern = re.compile(_SEGMENT + loose + _SEGMENT_END, re.IGNORECASE)
+            marked = "\x01" + value + "\x02"
+            words = pattern.sub(lambda _, marked=marked: marked, words)  # type: ignore[misc]
+        return words
+
+    def _plain(self, words: str) -> str:
+        """The words for a person: the field's name in brackets for the record's value."""
+        return _MARK.sub(lambda m: f"[{self.typed.get(m.group(1), 'value')}]", words)
 
     def state_id(self, url: str | None, window: int = 0) -> str | None:
         if not url:
@@ -251,7 +322,7 @@ class _Screens:
         ids = {}
         for key, screen in self.screens.items():
             if screen.title:
-                base = slug(screen.title)
+                base = slug(self._plain(screen.title))
             else:
                 shortest = min(screen.templates, key=len)
                 words = [w for w in shortest.split("/") if w and w != "*"]
@@ -264,12 +335,24 @@ class _Screens:
         key = self._by_url.get((*where, window)) or self._by_url.get((*where, 0))
         screen = self.screens.get(key) if key else None
         if screen and screen.title:
-            return screen.title
+            return self._plain(screen.title)
         if screen and screen.landmark:
-            return screen.landmark["name"]
+            return self._plain(screen.landmark["name"])
         return urlsplit(url or "").path or "/"
 
-    def states(self) -> dict[str, dict[str, Any]]:
+    def states(self, names: Mapping[str, str] | None = None) -> dict[str, dict[str, Any]]:
+        """The screens as the model's states; ``names``: a typed value -> the input that holds
+        it, so a heading of the record's value is looked for as this record's value."""
+        names = names or {}
+
+        def bound(words: str) -> str:
+            return _MARK.sub(
+                lambda m: (
+                    "{inputs." + names[m.group(1)] + "}" if m.group(1) in names else m.group(1)
+                ),
+                words,
+            )
+
         result: dict[str, dict[str, Any]] = {}
         for key, state_id in self._ids().items():
             screen = self.screens[key]
@@ -283,9 +366,9 @@ class _Screens:
                 url = templates[0]
             entry: dict[str, Any] = {"url": url}
             if screen.title:
-                entry["description"] = screen.title
+                entry["description"] = self._plain(screen.title)
             if screen.landmark:
-                entry["visible"] = [screen.landmark]
+                entry["visible"] = [{**screen.landmark, "name": bound(screen.landmark["name"])}]
             result[state_id] = entry
         return result
 
@@ -566,6 +649,38 @@ def _locators(target: ElementInfo, *, drop_row_css: bool) -> list[dict[str, Any]
     return found or every
 
 
+def _words_around(aria: str, value: str) -> str | None:
+    """The words a value stands with on a screen, when one text there holds it: those after it
+    („6 records found”: records found), else those before it; None otherwise. A table's rows
+    and cells are not such texts (the review 346 of a list is not „346 records found”)."""
+    pattern = re.compile(r"(?<!\S)" + re.escape(value) + r"(?!\S)")
+    texts = {
+        shown.plain(text)
+        for node in parse_aria(aria).walk()
+        if node.role not in ("row", "cell", "gridcell", "columnheader", "rowheader")
+        for text in (node.name, node.value)
+        if text
+    }
+    holding = [text for text in texts if text != value and pattern.search(text)]
+    if len(holding) != 1:
+        return None
+    match = pattern.search(holding[0])
+    assert match is not None
+    after, before = holding[0][match.end() :].split(), holding[0][: match.start()].split()
+    words = [w.strip(".,;:!?()[]") for w in (after[:3] or before[-3:])]
+    return " ".join(w for w in words if w) or None
+
+
+_PATH_PARTS = re.compile(r"\s*(?:>|\||→|»)\s*")
+"""What separates the parts of a value written as a path (a menu's „Plik > Zapisz jako”); not
+a slash, which a document's number has („ZW/2026/002”)."""
+_NAMED_BY_DATA = ("button", "link", "tab", "menuitem", "option", "radio", "checkbox", "treeitem")
+"""What a person clicks by its words, which may be a value of the record."""
+_NO_ROLE = (None, "presentation", "none", "generic")
+"""Roles that say an element has none (jQuery UI's tab links are „presentation”): it is
+clicked by its words."""
+
+
 def _exception_from(message: str, placeholders: dict[str, str]) -> tuple[str, str]:
     """(id, description) for an error message; typed values become {input} placeholders."""
     description = message.strip()
@@ -595,14 +710,18 @@ class _Builder:
         self.lang = lang
         self.app = _app_name(self.trace)
         login_seqs = {a.seq for a in normalized.by_role("login")}
-        self.screens = _Screens(self.trace, self.app, login_seqs)
+        self.trace_sheet = self.sheet_values()
+        self.screens = _Screens(self.trace, self.app, login_seqs, self.trace_sheet)
         self.process_id = slug(process_id or self.trace.header.process or "mapped_process")
         self.recording = self.trace.header.recording_id
         self.notes: list[str] = []
         self.step_events: dict[str, list[int]] = {}
+        self.seen_after: dict[str, list[str]] = {}
         self.inputs: dict[str, dict[str, Any]] = {}
         self.inputs_by_field: dict[str, str] = {}
         self.labelled: dict[str, list[str]] = {}
+        self.passwords: dict[tuple[str, int], str] = {}
+        """(the page, which password of it) -> its input: a password typed again is the same."""
         """The inputs typed into fields of each label: two „Rabat” fields of one form, typed
         from two columns of the sheet, are two inputs."""
         self._columns: dict[str, str] | None = None
@@ -679,7 +798,24 @@ class _Builder:
             evidence["note"] = note
         return evidence
 
+    def typed_inputs(self) -> dict[str, str]:
+        """A typed value -> the input that holds it (its example): a screen named by the value
+        is looked for by this record's value of that input."""
+        found: dict[str, str] = {}
+        for name, spec in self.inputs.items():
+            example = spec.get("example")
+            if isinstance(example, str) and example.strip():
+                found.setdefault(example.strip(), name)
+            column = spec.get("column")
+            for value, held_in in self.trace_sheet.items():
+                if column and held_in == column:
+                    found.setdefault(value, name)  # the record's value from the input's column
+        return found
+
     def input_for(self, act: Act) -> str:
+        page = (act.event.url or "", act.event.secret_no or 0)
+        if act.event.secret and act.event.secret_no and page in self.passwords:
+            return self.passwords[page]  # the password again („Verify password”): one value
         label = act.field_name or "value"
         value = act.event.value or ""
         column = self.column_of(value)
@@ -710,6 +846,8 @@ class _Builder:
             spec["typed_as"] = typed_as
         if act.event.secret:  # a password typed into the work: from the sheet, never shown
             spec["secret"] = True
+            if act.event.secret_no:
+                self.passwords[page] = name
         once = one_time_code(act)
         if once:  # new every time: never an example, a constant or a column of the sheet
             spec.pop("example", None)
@@ -1069,6 +1207,103 @@ class _Builder:
             return None  # the row is named by its cells: picked by them, as before
         return column, self.typed_as_input(own) or self.value_input(column, own)
 
+    def named_by_data(self, target: ElementInfo | None) -> tuple[str, str] | None:
+        """(the sheet's column, its input) of an element outside a table whose own words are
+        a value of the record as the sheet writes it: the button „Yes” or the option „Kelli”
+        the task names (MiniWoB++). One column of the sheet holds it, or none is meant."""
+        if target is None or target.row is not None:
+            return None
+        own = shown.plain(target.name or target.text or "")
+        made = (
+            bool(target.pointer)
+            or target.tag in ("a", "button")
+            or (target.role is not None and target.role not in _NO_ROLE)
+        )
+        # one letter is the record's too when it is all an element made to be clicked shows
+        # (a pie menu's „H”, MiniWoB++ click-pie)
+        column = self.column_of(own) if len(own) >= 2 or (own and made) else None
+        if column is None and target.role == "button" and shown.CLOSE_NAMES.match(own):
+            row = self.record_row() or {}  # the cross the record names („x”) is this button
+            crosses = [c for c, v in row.items() if shown.plain(v).casefold() in shown.CLOSE_MARKS]
+            if len(crosses) == 1:
+                column, own = crosses[0], shown.plain(row[crosses[0]])
+        if column is None:
+            return None
+        return column, self.typed_as_input(own) or self.value_input(column, own)
+
+    def item_named_by_data(self, target: ElementInfo) -> tuple[str, str] | None:
+        """(the sheet's column, its input) of the one word of a clickable whole (``item``) that
+        is a value of the record: the sender of an e-mail clicked at its subject."""
+        own = shown.plain(target.name or target.text or "")
+        hits = {
+            (word, column)
+            for word in (shown.plain(w) for w in target.item or [])
+            if len(word) >= 2 and word != own and (column := self.column_of(word)) is not None
+        }
+        if len(hits) != 1:
+            return None
+        word, column = next(iter(hits))
+        return column, self.typed_as_input(word) or self.value_input(column, word)
+
+    def path_part(self, target: ElementInfo) -> str | None:
+        """The record's value written as a path („Linzy>Fawn”, „Plik > Zapisz jako”) whose
+        part is the clicked element's name: the element is the record's."""
+        own = shown.plain(target.name or target.text or "")
+        row = self.record_row() if own else None
+        for value in (row or {}).values():
+            parts = [shown.plain(p) for p in _PATH_PARTS.split(value or "")]
+            if len(parts) > 1 and own in parts:
+                return shown.plain(value)
+        return None
+
+    def named_in_part(self, target: ElementInfo | None) -> tuple[str, str, str] | None:
+        """(the column, its input, the words with it marked) of an element outside a table
+        whose words hold one value of the record's own row as a word of their own („Tab #1”
+        for the row's 1): a column the process uses nowhere else, so the value says which
+        element it is. The induction asks the owner unless the recordings prove it."""
+        if target is None or target.row is not None:
+            return None
+        own = shown.plain(target.name or target.text or "")
+        row = self.record_row()
+        if not own or row is None:
+            return None
+        typed = {  # a value the person typed anywhere in the recording: that column is in use
+            shown.plain(a.event.value or "")
+            for a in self.n.acts
+            if a.kind in ("fill", "select") and a.event.value
+        }
+        hits = []
+        for word in re.finditer(r"[^\W_]+", own):
+            columns = [c for c, v in row.items() if shown.plain(v) == word.group()]
+            if len(columns) == 1 and word.group() != own and word.group() not in typed:
+                hits.append((word, columns[0]))
+        if len(hits) != 1:
+            return None
+        word, column = hits[0]
+        name = self.value_input(column, word.group())
+        marked = own[: word.start()] + "{inputs." + name + "}" + own[word.end() :]
+        return column, name, marked
+
+    def record_row(self) -> dict[str, str] | None:
+        """The row of the sheet this recording worked on: its only row, or the one row holding
+        the values the person typed; None when no row stands out."""
+        data, path = self.trace.header.data, self.trace.path
+        if data is None or path is None:
+            return None
+        try:
+            table: Table = read_table(path.parent / data.file, data.sheet)
+        except (TableError, OSError):
+            return None
+        if len(table.rows) == 1:
+            return dict(table.rows[0])
+        typed = {
+            shown.plain(a.event.value or "")
+            for a in self.n.acts
+            if a.kind in ("fill", "select") and a.event.value
+        }
+        holding = [r for r in table.rows if typed & {shown.plain(v) for v in r.values() if v}]
+        return dict(holding[0]) if len(holding) == 1 else None
+
     def typed_as_input(self, value: str) -> str | None:
         """The input a value was typed from earlier in the process (a code searched for)."""
         name = self.placeholders.get(value)
@@ -1200,6 +1435,23 @@ class _Builder:
                 }
             )
 
+    def sheet_values(self) -> dict[str, str]:
+        """Each value of the sheet the person worked from, as written, with the one column
+        holding it: a screen may be named by one (the page title from the sheet)."""
+        data, path = self.trace.header.data, self.trace.path
+        if data is None or path is None:
+            return {}
+        try:
+            table: Table = read_table(path.parent / data.file, data.sheet)
+        except (TableError, OSError):
+            return {}
+        seen: dict[str, set[str]] = {}
+        for row in table.rows:
+            for column, value in row.items():
+                if value and value.strip():
+                    seen.setdefault(value.strip(), set()).add(column)
+        return {value: next(iter(cols)) for value, cols in seen.items() if len(cols) == 1}
+
     def bind_sources(self) -> dict[str, Any] | None:
         """The inputs whose values came from the sheet the person worked from: their columns,
         and how the screen wants them typed (K0010% searched for, 01-LIS-2026). A map of one
@@ -1316,7 +1568,18 @@ class _Builder:
                 and not data_named
                 and not in_menu
             ):
-                was_there = parse_aria(state_before.aria).find(nxt.role, nxt.name)
+                if ANY_WORD in nxt.name:  # an item's field: by its words, any item
+                    words = re.compile(r"\S+".join(map(re.escape, nxt.name.split(ANY_WORD))))
+                    was_there = next(
+                        (
+                            node
+                            for node in parse_aria(state_before.aria).walk()
+                            if node.role == nxt.role and words.fullmatch(node.name or "")
+                        ),
+                        None,
+                    )
+                else:
+                    was_there = parse_aria(state_before.aria).find(nxt.role, nxt.name)
                 if was_there is None:
                     shown = {"visible": {"role": nxt.role, "name": nxt.name}}
                     if nxt.field:  # its words may change in an update; the form's name rarely
@@ -1440,6 +1703,10 @@ class _Builder:
                 found = self.option_named_before(act, acts[: index + 1], name)
                 if found is not None:  # the customer the e-mail names, chosen by its words
                     step["match"] = "words"
+            if found is None and step is not None and act.item:  # its input may type twice
+                leads = self.item_leads(act, value)
+                if leads:  # what the screen says of the field's item: the recordings choose
+                    self.seen_after[str(step["id"])] = leads
             if found is not None and step is not None and name is not None:
                 before, read = found
                 step["value"] = f"$vars.{name}"  # the robot types what it read
@@ -1457,6 +1724,143 @@ class _Builder:
                 result += reads.pop(seq, [])
             result.append(step)
         return result
+
+    def read_looked_up(self, steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """What the person copied off a screen (Ctrl+C) and typed nowhere is what they came to
+        look up (the customer's e-mail, the invoice's total): the robot reads it on that screen,
+        right after the step that showed it, and hands it back (``RunResult.read``, the results
+        sheet). A value typed in the recording is read for the field it goes into instead
+        (``read_copied``); a copy whose place on the screen is not clear is left out, said."""
+        typed = {
+            shown.plain(a.event.value or "").casefold()
+            for a in self.n.acts
+            if a.kind in ("fill", "select") and a.event.value
+        }
+        position = {
+            seq: index
+            for index, step in enumerate(steps)
+            for seq in self.step_events.get(step["id"], [])
+        }
+        names = set(self.inputs) | {str(s["save_as"]) for s in steps if s.get("save_as")}
+        before: dict[int | None, list[dict[str, Any]]] = {}
+        seen: set[str] = set()
+        for act in self.n.acts:
+            for copied in (o for o in act.observed if o.type == "copied"):
+                value = shown.plain(copied.value or "")
+                if not value or value.casefold() in typed or value.casefold() in seen:
+                    continue
+                seen.add(value.casefold())
+                state = self.trace.state(copied.state_before) or self.trace.state(
+                    copied.state_after
+                )
+                read = self.look_up(copied, value, state, names) if state is not None else None
+                if read is None:
+                    self.note(
+                        f"Skopiowaną wartość „{value[:60]}” widać na ekranie w kilku miejscach "
+                        "albo bez nazwy: robot jej nie odczytuje. Skopiuj ją tam, gdzie ma nazwę "
+                        "(kolumna, pole, etykieta).",
+                        f"The copied value “{value[:60]}” is shown in several places or without "
+                        "a name: the robot does not read it. Copy it where it has a name (a "
+                        "column, a field, a label).",
+                    )
+                    continue
+                names.add(str(read["save_as"]))
+                # before the first step done after the copy: the screen still shows it then
+                at = min((i for seq, i in position.items() if seq > copied.seq), default=None)
+                before.setdefault(at, []).append(read)
+        if not before:
+            return steps
+        result: list[dict[str, Any]] = []
+        for index, step in enumerate(steps):
+            result += before.pop(index, [])
+            result.append(step)
+        return result + [r for reads in before.values() for r in reads]
+
+    def look_up(
+        self, copied: TraceEvent, value: str, state: TraceState, names: set[str]
+    ) -> dict[str, Any] | None:
+        """The read step of a copied value: its one place on the screen with words of its own
+        (the copied element's column picks among cells), named after those words."""
+        found = shown.places(state.aria, value)
+        column = copied.target.column if copied.target is not None else None
+        if column and any(p.kind == "cell" and p.label == column for p in found):
+            found = [p for p in found if p.kind != "cell" or p.label == column]
+        place = shown.best(found)
+        if place is None and found:
+            alone = shown.alone_on_screen(state.aria, found, value)
+            place = alone[0] if len(alone) == 1 else None
+        target = copied.target
+        if (
+            place is not None
+            and place.kind == "cell"
+            and target is not None
+            and not (target.row is not None or target.column)
+        ):  # copied off no table (a count „346 records found”): the cell with it is another
+            place = None
+        if place is None and found:
+            if target is None or target.row is not None or target.column:
+                return None  # named in several places: which one the person read is unclear
+            # the recorder says which element was copied: read by its id, never by its place
+            around = _words_around(state.aria, value) or "value"
+            read = self.read_element(copied, value, state, unique(slug(around), names), around)
+            if read is not None:
+                read["evidence"] = self.evidence([copied.seq], self.copied_note(value))
+                self.step_events[read["id"]] = [copied.seq]
+            return read
+        label = place.label if place is not None else _words_around(state.aria, value)
+        base = slug(label or "") or "value"
+        name, n = base, 1
+        while name in names:
+            n += 1
+            name = f"{base}_{n}"
+        if place is not None:
+            # named after where it stood („Email”), not after the value copied that once
+            read = self.read_step(Act(copied), place, state, copied.seq, name, place.label)
+        else:
+            read = self.read_element(copied, value, state, name, label or name)
+        if read is not None:
+            read["evidence"] = self.evidence([copied.seq], self.copied_note(value))
+            self.step_events[read["id"]] = [copied.seq]
+        return read
+
+    def copied_note(self, value: str) -> str:
+        return (
+            f"Osoba skopiowała tu „{value[:60]}”: robot odczytuje tę wartość i ją oddaje"
+            if self.lang == "pl"
+            else f"The person copied “{value[:60]}” here: the robot reads it and hands it back"
+        )
+
+    def read_element(
+        self, copied: TraceEvent, value: str, state: TraceState, name: str, label: str
+    ) -> dict[str, Any] | None:
+        """A copied value with no words of its own on the screen („6” of „6 records found”,
+        a number in its own span): the element it was copied from, found by what does not
+        change from record to record (its id, test id, field), never by where it stands among
+        others nor by the value itself. None when the element has no such way."""
+        target = copied.target
+        if target is None or shown.plain(target.text or "") != value:
+            return None
+        ladder = [
+            rung
+            for rung in _locators(target, drop_row_css=False)
+            if not (rung.get("css") and ":nth-" in str(rung["css"]))
+            and not any(
+                value.casefold() in str(rung.get(key) or "").casefold()
+                for key in ("name", "text", "label", "css")
+            )
+        ]
+        if not ladder:
+            return None
+        state_id = self.screens.state_id(state.url, state.window)
+        screen = self.screens.title_of(state.url, state.window)
+        return {
+            "id": self.step_id(f"read_{name}"),
+            "intent": say(self.lang, "read", field=label, screen=screen),
+            "action": "read",
+            "target": ladder,
+            "save_as": name,
+            **({"in_state": state_id} if state_id else {}),
+        }
 
     def copied(
         self, act: Act, so_far: list[Act], value: str, known: set[str], name: str
@@ -1501,6 +1905,28 @@ class _Builder:
                 read = self.read_step(act, words[0], state, seq, name)
             return (seq, read) if read is not None else None
         return None
+
+    def item_leads(self, act: Act, value: str) -> list[str]:
+        """The words the typed value follows in what the screen said of the field's item
+        before it was typed („przyjechało” in „37241-E: przyjechało 20 szt.”); several when
+        it follows several there (130 after „przyjechało” and after „rozdartych”)."""
+        state = self.trace.state(act.event.state_before)
+        if state is None or not act.item or not value:
+            return []
+        about = [
+            " ".join(text.split())
+            for node in parse_aria(state.aria).walk()
+            for text in (node.name, node.value)
+            if text and act.item in text
+        ]
+        token = re.compile(r"(?<![\w.,/-])" + re.escape(value) + r"(?![\w/-])")
+        leads = set()
+        for text in about:
+            for match in token.finditer(text):
+                clause = re.split(r"[;:,.]", text[: match.start()])[-1].split()
+                if 1 <= len(clause) <= 4 and all(any(ch.isalpha() for ch in w) for w in clause):
+                    leads.add(" ".join(clause))  # „przyjechało”, „zgniecionych lub rozdartych”
+        return sorted(leads)
 
     def option_named_before(
         self, act: Act, so_far: list[Act], name: str
@@ -1572,7 +1998,13 @@ class _Builder:
                 yield state, seq
 
     def read_step(
-        self, act: Act, place: shown.Place, state: TraceState, seq: int, name: str
+        self,
+        act: Act,
+        place: shown.Place,
+        state: TraceState,
+        seq: int,
+        name: str,
+        label: str | None = None,
     ) -> dict[str, Any] | None:
         """Reading the value where it stood: by its term, its field or its column; a cell in
         the row named by a value from the data, or the only row."""
@@ -1591,7 +2023,7 @@ class _Builder:
                 return None
             target = [{"role": "cell", "column": place.label}]
             within = {"table": tables, "where": where}
-        label = act.field_name or place.label
+        label = label or act.field_name or place.label
         value = act.event.value or ""
         state_id = self.screens.state_id(state.url, state.window)
         step_id = self.step_id(f"read_{label}")
@@ -1935,6 +2367,7 @@ class _Builder:
             step["intent"] = say(self.lang, "press", keys=step["value"])
             base = f"press_{step['value']}"
         elif act.kind in ("check", "uncheck"):
+            by_data: tuple[str, str] | None = None
             if target is not None and target.row is not None and target.column:
                 name = target.column
                 known = self.data_in_row(act, target)
@@ -1953,8 +2386,13 @@ class _Builder:
                     "where": where,
                 }
                 own_target = [{"role": "cell", "column": target.column}]
+            elif (by_data := self.named_by_data(target)) is not None:
+                # the option the record names (MiniWoB++ click-option: „Select Kelli”)
+                column, input_name = by_data
+                name = "{inputs." + input_name + "}"
+                own_target = [{"role": (target.role if target else None) or "radio", "name": name}]
             step["intent"] = say(self.lang, act.kind, name=name)
-            base = f"{act.kind}_{name}"
+            base = f"{act.kind}_{name}" if by_data is None else f"{act.kind}_{column}"
         elif (
             target is not None
             and target.row is not None
@@ -1987,7 +2425,7 @@ class _Builder:
         elif (
             target is not None
             and target.row is not None
-            and (target.role in ("link", "button") or (target.role is None and target.text))
+            and (target.role in ("link", "button") or (target.role in _NO_ROLE and target.text))
             and (named_link := self.link_named_by_data(act, target)) is not None
         ):  # the record's own value is the link (an e-mail by its subject in an inbox, p11)
             column, input_name = named_link
@@ -1996,7 +2434,7 @@ class _Builder:
             step["intent"] = say(self.lang, word, name=mark)
             own_target = (
                 [{"role": target.role, "name": mark}]
-                if target.role is not None
+                if target.role not in _NO_ROLE
                 else [{"text": mark}]  # the subject's words inside its link (Roundcube)
             )
             base = f"click_{column}"
@@ -2087,6 +2525,53 @@ class _Builder:
                     "albo nagraj więcej przebiegów.",
                     f"Step “{step['intent']}”: confirm the row rule ({rule}) or record more runs.",
                 )
+        elif (
+            act.kind == "click"
+            and target is not None
+            and (target.role in _NAMED_BY_DATA or (target.role in _NO_ROLE and target.text))
+            and (by_data := self.named_by_data(target)) is not None
+        ):  # the record's own value names what is clicked (the button „Yes” the task names)
+            column, input_name = by_data
+            mark = "{inputs." + input_name + "}"
+            word = "click_link" if target.role == "link" else "click"
+            step["intent"] = say(self.lang, word, name=mark)
+            own_target = (
+                [{"text": mark}]
+                if target.role in _NO_ROLE
+                else [{"role": target.role, "name": mark}]
+            )
+            if target.dialog:  # only while its window is open, as any button of a window
+                step["when"] = {"visible": {"role": "dialog", "name": target.dialog}}
+            base = f"click_{column}"
+        elif (
+            act.kind == "click"
+            and target is not None
+            and target.row is None
+            and target.item
+            and (by_item := self.item_named_by_data(target)) is not None
+        ):  # an e-mail of an inbox clicked at its subject: the record's sender in it names it
+            column, input_name = by_item
+            mark = "{inputs." + input_name + "}"
+            step["intent"] = say(self.lang, "click", name=mark)
+            own_target = [{"text": mark}]
+            base = f"open_{column}"
+        elif (
+            act.kind == "click"
+            and target is not None
+            and (target.role in _NAMED_BY_DATA or (target.role in _NO_ROLE and target.text))
+            and (in_part := self.named_in_part(target)) is not None
+        ):  # a value of the record's row among its words („Tab #1”): asked unless proven
+            column, input_name, marked = in_part
+            word = "click_link" if target.role == "link" else "click"
+            step["intent"] = say(self.lang, word, name=marked)
+            own_target = (
+                [{"text": marked}]
+                if target.role in _NO_ROLE
+                else [{"role": target.role, "name": marked}]
+            )
+            if target.dialog:
+                step["when"] = {"visible": {"role": "dialog", "name": target.dialog}}
+            base = f"click_{column}"
         elif target is not None and target.dialog:
             step["intent"] = say(self.lang, "dialog", dialog=human_title(target.dialog), name=name)
             dialog = target.dialog
@@ -2107,6 +2592,16 @@ class _Builder:
         if step["action"] == "click" and act.event.clicks == 2:
             step["clicks"] = 2  # a double click: a row of a list opens its record
             step["intent"] = say(self.lang, "double", what=step["intent"])
+        if own_target is None and act.kind == "click" and target is not None:
+            part = self.path_part(target)
+            if part is not None:  # „Fawn” of „Linzy>Fawn”: the record's, never a constant
+                step["executor"] = "human"
+                self.note(
+                    f"Krok „{step['intent']}”: klikany element to część wartości rekordu "
+                    f"„{part}”, więc dla innego rekordu będzie inny. Robi go człowiek.",
+                    f"Step “{step['intent']}”: what is clicked is a part of the record's value "
+                    f"“{part}”, so another record clicks another one. A person does it.",
+                )
         if own_target is not None:
             step["target"] = own_target
         elif target is not None:
@@ -2130,6 +2625,7 @@ class _Builder:
         sends = (
             act.kind in ("click", "press")
             and _COMMIT_WORDS.search(words)
+            and not _FILTER_WORDS.search(words)
             and not self.only_opens_window(act)
             and not self.changed_nothing(act)
         )
@@ -2201,6 +2697,7 @@ class _Builder:
             steps.append(self.build_step(act, following))
         self.windows_and_dialogs(steps[1:], acts)
         steps = self.read_copied(steps, acts)
+        steps = self.read_looked_up(steps)
         self.link_downloads(steps, acts)
         steps = self.each_rows(steps)
         steps = self.fold_lines(steps)
@@ -2277,7 +2774,7 @@ class _Builder:
             "preconditions": preconditions,
             "inputs": self.inputs,
             **({"records": records} if records else {}),
-            "states": self.screens.states(),
+            "states": self.screens.states(self.typed_inputs()),
             "interrupts": interrupts,
             "exceptions": self.exceptions,
             "steps": steps,
@@ -2286,7 +2783,11 @@ class _Builder:
             keep_private(data)
         model = ProcessModel.model_validate(data)
         return MapResult(
-            model=model, trace=self.trace, step_events=self.step_events, notes=self.notes
+            model=model,
+            trace=self.trace,
+            step_events=self.step_events,
+            notes=self.notes,
+            seen_after=self.seen_after,
         )
 
 

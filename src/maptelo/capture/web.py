@@ -425,7 +425,9 @@ class Recorder:
             except queue.Empty:
                 break
             self._queue.append((said_at, {"type": "note", "value": text, "_window": self._active}))
-        if not self._queue and not self._page_changed():
+        changed = self._page_changed()  # what the page still sent arrives meanwhile (a press
+        # taken for the click a moment after the release): asked before the queue is looked at
+        if not self._queue and not changed:
             self._retake_after_typing()
             return 0
         page_info = self._settle()
@@ -579,6 +581,7 @@ class Recorder:
             value=None if secret else payload.get("value"),
             option_label=payload.get("option_label"),
             secret=secret,
+            secret_no=int(payload["secret_no"]) if secret and payload.get("secret_no") else None,
             files=[str(name) for name in payload.get("files") or []],
             sent=sent or [],
             dialog=DialogSeen.model_validate(dialog) if dialog else None,

@@ -1002,15 +1002,18 @@ class JavaRecorder:
     # -- life ------------------------------------------------------------------------------------
 
     def start(self, timeout: float = 30.0) -> Window:
-        if self.bridge is None:
-            self.bridge = connect(events=True, java_dirs=list(self.options.java_dirs))
         try:
-            self.main = self._find_main(timeout)
+            return self._start(timeout)
         except BaseException:
-            if self._own_bridge:  # nothing recorded: the bridge is not left running
-                self.bridge.close()
-                self.bridge = None
+            self.close()
             raise
+
+    def _start(self, timeout: float) -> Window:
+        if self.bridge is None:
+            self.bridge = connect(
+                events=True, java_dirs=list(self.options.java_dirs), isolated=True
+            )
+        self.main = self._find_main(timeout)
         self.app = program_name(self.main.title)
         self.folder.mkdir(parents=True, exist_ok=True)
         (self.folder / "screens").mkdir(exist_ok=True)
@@ -1144,12 +1147,14 @@ class JavaRecorder:
         # question may have none). A bare untitled window (Swing's popup, an input method's)
         # answers nothing the person did (benchmark M1 r2: an Enter nobody pressed in Indeks)
         for unread in windows.keys() - self._kinds.keys():
-            self._kinds[unread] = self._root_role(unread)
+            if not windows[unread].minimized:
+                self._kinds[unread] = self._root_role(unread)
         titled = self._answering(windows) != self._answering(self._windows)
         came = [w.title for h, w in windows.items() if h not in self._windows]
         went = [w.title for h, w in self._windows.items() if h not in windows]
+        # The same handles can now be minimized or restored: keep their fresh state too.
+        self._windows_opened(windows, now)
         if changed:
-            self._windows_opened(windows, now)
             self._last_event = max(self._last_event, now)
         events = self._buffer + self._take_events()
         self._buffer = []
@@ -1392,8 +1397,7 @@ class JavaRecorder:
         assert self.bridge is not None
         with contextlib.suppress(Exception):
             windows = {w.hwnd: w for w in self._app_windows()}
-            if set(windows) != set(self._windows):
-                self._windows_opened(windows, self.bridge.clock())
+            self._windows_opened(windows, self.bridge.clock())
 
     def _windows_opened(self, windows: dict[int, Window], now: float) -> None:
         for hwnd, window in windows.items():
@@ -1514,9 +1518,34 @@ class JavaRecorder:
                 time.sleep(0.05)
         except KeyboardInterrupt:
             reason = "stopped"
+        except BaseException:
+            self.close()
+            raise
         return self.stop(reason)
 
     def stop(self, reason: str = "stopped") -> Path:
+        if self.writer is not None and self.writer.closed:
+            return self.trace_path
+        try:
+            return self._finish(reason)
+        finally:
+            self.close()
+
+    def close(self) -> None:
+        """Release files and our bridge even after a failed read; never read Java to clean up.
+
+        Job callbacks may keep the recorder alive; garbage collection cannot be relied on
+        to close the trace or the helper process.
+        """
+        try:
+            if self.writer is not None:
+                self.writer.close()
+        finally:
+            if self._own_bridge and self.bridge is not None:
+                bridge, self.bridge = self.bridge, None
+                bridge.close()
+
+    def _finish(self, reason: str) -> Path:
         assert self.writer is not None
         if self.bridge is not None:
             with contextlib.suppress(Exception):
@@ -1543,9 +1572,6 @@ class JavaRecorder:
                 states=self._states,
             )
         )
-        self.writer.close()
-        if self._own_bridge and self.bridge is not None:
-            self.bridge.close()
         return self.trace_path
 
     def note(self, text: str) -> None:
@@ -1576,6 +1602,10 @@ class JavaRecorder:
         window = self._windows.get(hwnd)
         if window is None:
             self._unread(hwnd, "not among the program's windows")
+            return None
+        owner = self._windows.get(window.owner)
+        if window.minimized or (owner is not None and owner.minimized):
+            self._unread(hwnd, "the window is minimized")
             return None
         try:
             nodes = self.bridge.tree(hwnd)

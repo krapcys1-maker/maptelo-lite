@@ -40,6 +40,10 @@ class TraceWriter:
         if not self._file.closed:
             self._file.close()
 
+    @property
+    def closed(self) -> bool:
+        return self._file.closed
+
     def __enter__(self) -> TraceWriter:
         return self
 

@@ -84,6 +84,8 @@ def test_a_demonstration_becomes_its_map(lite: httpx2.Client, workspace: Workspa
         ("/api/build", {"process": PROCESS}),
         ("/api/agents/config", {}),
         ("/api/point", {}),
+        ("/api/assistant/settings", {"mode": "assistant"}),
+        ("/api/assistant/autopilot", {"process": PROCESS}),
     ],
 )
 def test_no_robot_in_lite(lite: httpx2.Client, path: str, body: dict[str, object]) -> None:

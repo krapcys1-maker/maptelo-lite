@@ -75,3 +75,31 @@ def test_the_columns_a_process_needs_find_the_header_row(tmp_path: Path) -> None
     assert read_table(tmp_path / "ceny.xlsx").headers == ["Cennik", "październik 2026"]
     table = read_table(tmp_path / "ceny.xlsx", columns=["Klient", "Nowa cena"])
     assert (table.headers, table.numbers) == (["Klient", "CPN", "Nowa cena"], [3])
+
+
+def test_what_the_runs_read_goes_next_to_its_row_too(tmp_path: Path) -> None:
+    """A process that looks something up (a customer's balance) hands it back in the row; a
+    record that read nothing leaves the cell empty, and a copy made again keeps one column."""
+    latest = {
+        1: {**LATEST[1], "read": {"saldo": "1 250,00", "status": "aktywny"}},
+        2: {**LATEST[2], "read": {"status": "zablokowany"}},
+    }
+    source = sheet_file(tmp_path / "ceny.xlsx")
+    out = write_results(read_table(source, "Ceny"), latest, tmp_path / "run")
+    sheet = load_workbook(out)["Ceny"]
+    header_row = [c.value for c in sheet[3]]
+    assert header_row[5:] == [*COLUMNS, "Maptelo read: saldo", "Maptelo read: status"]
+    assert [sheet.cell(row=4, column=n).value for n in (8, 9)] == ["1 250,00", "aktywny"]
+    assert [sheet.cell(row=6, column=n).value for n in (8, 9)] == [None, "zablokowany"]
+    again = write_results(read_table(out, "Ceny"), latest, tmp_path / "run2")
+    assert [c.value for c in load_workbook(again)["Ceny"][3]].count("Maptelo read: saldo") == 1
+    csv_source = tmp_path / "ceny.csv"
+    csv_source.write_text("customer\nC001\nC002\n", encoding="utf-8")
+    csv_out = write_results(read_table(csv_source), latest, tmp_path / "csv")
+    lines = csv_out.read_text(encoding="utf-8-sig").splitlines()
+    assert lines[0] == (
+        "customer,Maptelo outcome,Maptelo message,Maptelo read: saldo,Maptelo read: status"
+    )
+    assert lines[2].endswith(",,zablokowany")
+    csv_again = write_results(read_table(csv_out), latest, tmp_path / "csv2")
+    assert csv_again.read_text(encoding="utf-8-sig").splitlines()[0] == lines[0]

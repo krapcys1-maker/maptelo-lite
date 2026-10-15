@@ -11,7 +11,7 @@ by that (typed) value. Inside longer strings use ``{inputs.name}`` placeholders.
 from __future__ import annotations
 
 import re
-from datetime import date
+from datetime import date, datetime, time
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from enum import StrEnum
 from typing import Annotated, Any, Literal, Self
@@ -48,7 +48,8 @@ def _version_as_text(value: Any) -> Any:
 # --- Locating elements ---------------------------------------------------------------
 
 LOCATOR_STRATEGIES = (
-    "role", "label", "field", "submits", "placeholder", "testid", "action", "text", "css",
+    "role", "label", "field", "submits", "placeholder", "beside", "testid", "action", "text",
+    "css",
 )  # fmt: skip
 
 
@@ -74,6 +75,11 @@ class Locator(_Model):
         "submit button); an update renames the button more often than what it sends.",
     )
     placeholder: str | None = None
+    beside: str | None = Field(
+        default=None,
+        description="A field nothing names (no label of its own), by the words beside it in "
+        "its own row or box („Genre:”), as a person reads which field it is.",
+    )
     testid: str | None = None
     action: str | None = Field(
         default=None,
@@ -121,15 +127,26 @@ class RowScope(_Model):
 
 class WithinRow(RowScope):
     """Restricts a step's target to one table row. 'only' refuses to guess between rows;
-    'each' does the step in every row that fits, none being fine (a box unticked in each row
-    with an error)."""
+    'newest' and 'oldest' take the row with the latest or earliest date in the column ``by``
+    („the most recent pending order”); 'each' does the step in every row that fits, none being
+    fine (a box unticked in each row with an error)."""
 
-    pick: Literal["only", "first", "last", "each"] = "only"
+    pick: Literal["only", "first", "last", "each", "newest", "oldest"] = "only"
+    by: str | None = Field(
+        default=None,
+        description="For 'newest'/'oldest': the column whose dates order the rows.",
+    )
     where_not: dict[str, Scalar | None] = Field(
         default_factory=dict,
         description="Columns the row must not hold the value in (null: must not be empty: "
         "the rows with an error, benchmark M3).",
     )
+
+    @model_validator(mode="after")
+    def _ordered_by(self) -> Self:
+        if (self.pick in ("newest", "oldest")) != (self.by is not None):
+            raise ValueError("'newest'/'oldest' need 'by' (a date column), and only they take it")
+        return self
 
 
 # --- Conditions ----------------------------------------------------------------------
@@ -777,6 +794,8 @@ class InputType(StrEnum):
     INTEGER = "integer"
     DECIMAL = "decimal"
     DATE = "date"
+    TIME = "time"
+    """A time of day („09:22”): a delivery window, the start of a shift."""
     BOOLEAN = "boolean"
 
 
@@ -790,10 +809,24 @@ begins so: K0010% for the customer K0010; benchmark M1, M2). One case of a strin
 words around it: ``typed_as`` holds the words and one {} where the value goes ("Kwota netto
 niezgodna z dokumentem {}." for the delivery note WZ/2026/01018, benchmark M6)."""
 """How a number is typed to a width with its leading zeros: 000000000 for the order 000000302."""
+NATIONAL = "national"
+"""typed_as of a phone number typed without its country's code: +1 2058812302 as 2058812302."""
+COUNTRY_CODE = re.compile(r"\+\d{1,3}[\s.-]+(?=\S)")
+"""The country's code a phone number is written with, before the number itself („+48 ”)."""
+
+
+def national(phone: str) -> str:
+    """A phone number without the country's code it is written with (+48 600 100 200 as
+    600 100 200); one written without a code, as it is."""
+    text = phone.strip()
+    found = COUNTRY_CODE.match(text)
+    return text[found.end() :] if found else text
+
+
 _TRUE = {"true", "yes", "1", "tak"}
 _FALSE = {"false", "no", "0", "nie"}
 
-InputValue = str | int | Decimal | date | bool
+InputValue = str | int | Decimal | date | time | bool
 
 
 class DayShift(_Model):
@@ -821,8 +854,14 @@ class InputSpec(_Model):
     typed_as: str | None = Field(
         default=None,
         description="How people type the value on screen: a date pattern such as %d.%m.%Y "
-        "or %m/%d/%Y %H:%M:%S, 0.00 / 0,00 for an amount with two decimals, or zeros "
-        "(000000000) for a number typed to that width with its leading zeros.",
+        "or %m/%d/%Y %H:%M:%S, 0.00 / 0,00 for an amount with two decimals, zeros "
+        "(000000000) for a number typed to that width with its leading zeros, or national "
+        "for a phone number typed without its country's code (+1 2058812302 as 2058812302).",
+    )
+    written_as: str | None = Field(
+        default=None,
+        description="How the records file writes a date as text, when not as YYYY-MM-DD: a "
+        "pattern such as %m/%d/%Y (09/10/2012) or %d.%m.%Y.",
     )
     secret: bool = Field(
         default=False,
@@ -860,6 +899,10 @@ class InputSpec(_Model):
             raise ValueError("'choices' are only valid for string inputs")
         if self.typed_as is not None:
             self._check_typed_as(self.typed_as)
+        if self.written_as is not None and (
+            self.type not in (InputType.DATE, InputType.TIME) or "%" not in self.written_as
+        ):
+            raise ValueError("'written_as' is a date or time pattern such as %m/%d/%Y, %I:%M%p")
         if self.example is not None:
             self.coerce(self.example)
         return self
@@ -876,9 +919,14 @@ class InputSpec(_Model):
                 date(2026, 12, 1).strftime(pattern)
             except ValueError as exc:
                 raise ValueError(f"'typed_as' is not a date pattern: {exc}") from exc
+        elif self.type is InputType.TIME:
+            if "%" not in pattern:
+                raise ValueError("'typed_as' of a time is a pattern such as %I:%M %p")
         elif self.type is InputType.DECIMAL:
             if _AMOUNT.fullmatch(pattern) is None:
                 raise ValueError("'typed_as' of an amount is 0, 0.00 or 0,00 (any decimals)")
+        elif self.type is InputType.STRING and pattern == NATIONAL:
+            return
         elif self.type is InputType.STRING and pattern.count("{}") == 1:
             return  # the value with words around it (K0010%, „… dokumentem WZ/2026/01018.”)
         elif self.type in (InputType.STRING, InputType.INTEGER):
@@ -900,11 +948,15 @@ class InputSpec(_Model):
             if self.typed_as in (ORACLE_MASK, ORACLE_MASK_PL):
                 return oracle_date(value, self.typed_as)
             return value.strftime(self.typed_as)
+        if self.type is InputType.TIME and isinstance(value, time):
+            return value.strftime(self.typed_as)
         if self.type is InputType.DECIMAL and isinstance(value, Decimal):
             separator = "," if "," in self.typed_as else "."
             places = len(self.typed_as.partition(separator)[2])
             rounded = value.quantize(Decimal(1).scaleb(-places), rounding=ROUND_HALF_UP)
             return f"{rounded:.{places}f}".replace(".", separator)
+        if self.typed_as == NATIONAL and isinstance(value, str):
+            return national(value)  # +1 2058812302 typed as 2058812302
         if self.type is InputType.STRING and "{}" in self.typed_as and isinstance(value, str):
             return self.typed_as.replace("{}", value.strip())  # K0010%, words around the value
         if self.type in (InputType.STRING, InputType.INTEGER) and isinstance(value, str | int):
@@ -923,6 +975,8 @@ class InputSpec(_Model):
                 value = self._as_decimal(raw)
             case InputType.DATE:
                 value = self._as_date(raw)
+            case InputType.TIME:
+                value = self._as_time(raw)
             case InputType.BOOLEAN:
                 value = self._as_boolean(raw)
         if isinstance(value, int | Decimal) and not isinstance(value, bool):
@@ -969,8 +1023,7 @@ class InputSpec(_Model):
             raise ValueError(f"expected a finite number, got {raw!r}")
         return number
 
-    @staticmethod
-    def _as_date(raw: object) -> date:
+    def _as_date(self, raw: object) -> date:
         if isinstance(raw, date):
             return raw
         if isinstance(raw, str) and _ISO_DATE.match(raw.strip()):
@@ -978,7 +1031,29 @@ class InputSpec(_Model):
                 return date.fromisoformat(raw.strip())
             except ValueError:
                 pass
-        raise ValueError(f"expected a date as YYYY-MM-DD, got {raw!r}")
+        if isinstance(raw, str) and self.written_as is not None:  # the sheet's own way
+            try:
+                return datetime.strptime(raw.strip(), self.written_as).date()
+            except ValueError:
+                pass
+        written = f" or {self.written_as}" if self.written_as else ""
+        raise ValueError(f"expected a date as YYYY-MM-DD{written}, got {raw!r}")
+
+    def _as_time(self, raw: object) -> time:
+        if isinstance(raw, time):
+            return raw
+        if isinstance(raw, datetime):
+            return raw.time()
+        if isinstance(raw, str):
+            for pattern in [self.written_as, "%H:%M", "%H:%M:%S"]:
+                if pattern is None:
+                    continue
+                try:
+                    return datetime.strptime(raw.strip(), pattern).time()
+                except ValueError:
+                    continue
+        written = f" or {self.written_as}" if self.written_as else ""
+        raise ValueError(f"expected a time as HH:MM{written}, got {raw!r}")
 
     @staticmethod
     def _as_boolean(raw: object) -> bool:

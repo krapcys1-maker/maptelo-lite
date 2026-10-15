@@ -32,6 +32,7 @@ NOT_FOR_THE_PAGE = {
     "the screen “{}” is shown", "a message like “{}” appears (its wording may be different now)",
     "a {}{} appears (its name may be different now, but it is still a {})", "needs the {}",
     "an element without a name", "the element must have the role \"{}\"",
+    "normalize-space(translate(., '{}', ''))",  # an XPath: a column's name without its arrow
     "it must be a {}, like the element it replaces", "it must be a message text, like the old one",
     "scripted: not on the screen", "state {}, {}", "step {} (result {})", "no result named",
     "a condition: {}",
@@ -53,7 +54,7 @@ NOT_FOR_THE_PAGE = {
     "job %s failed", "{}, sheet {}", "{} at {}", "a model on this computer: the screen does not "
     "leave it",
     # what the MCP catalog tells the agent, and the command a host runs
-    "independent read {}: {} ({})", "the sheet “{}”", "{}: {}: {}",
+    "independent read {}: {} ({})", "the sheet “{}”", "{}: {}: {}", "read {}: {}",
     "claude mcp add {} -e PYTHONIOENCODING=utf-8 -- {}",
     # what Studio says in its console when it starts and stops (the command line's language)
     "no Edge or Chrome for a window here: the page opens in the default browser",

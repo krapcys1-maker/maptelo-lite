@@ -187,6 +187,7 @@ def test_connect_starts_the_bridge_where_its_library_loads(
             BridgeLibrary(JRE8 / "WindowsAccessBridge-32.dll", 32, helper),
             None,
             BridgeLibrary(JRE8 / "WindowsAccessBridge-32.dll", 32, None),
+            BridgeLibrary(tmp_path / "WindowsAccessBridge-64.dll", 64),
         ]
     )
     monkeypatch.setattr(jab, "bridge_library", lambda extra=None: next(answers))
@@ -195,7 +196,13 @@ def test_connect_starts_the_bridge_where_its_library_loads(
     jab.connect()  # no library at all: the bridge says so as it starts
     with pytest.raises(AccessBridgeError, match="no Python of its bitness was found"):
         jab.connect()
-    assert started == [("here", [JRE8]), ("helper", helper), ("here", None)]
+    jab.connect(events=True, isolated=True)
+    assert started == [
+        ("here", [JRE8]),
+        ("helper", helper),
+        ("here", None),
+        ("helper", Path(sys.executable)),
+    ]
 
 
 # -- the helper, behind pipes -----------------------------------------------------------------

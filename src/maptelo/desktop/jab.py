@@ -145,6 +145,19 @@ class Window:
     java: bool
     owner: int = 0
     box: tuple[int, int, int, int] = (0, 0, 0, 0)
+    minimized: bool = False
+
+
+@dataclass(frozen=True)
+class _PendingEvent:
+    kind: str
+    vm: int
+    event: int
+    source: int
+    t: float
+    text: bool = True
+    objects: tuple[int, ...] = ()
+    changes: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -297,17 +310,25 @@ def connect(
     desktop: str | None = None,
     events: bool = False,
     timeout: float = 10.0,
+    isolated: bool = False,
 ) -> Bridge:
     """A started bridge: in this Python when the Java here has a library of its bitness, else
     in a helper Python of the library's (``jab_remote.RemoteBridge``, the same questions and
-    answers). ``java_dirs``: the Java program's own folders, looked in first."""
+    answers). ``java_dirs``: the Java program's own folders, looked in first. ``isolated``:
+    own the native connection in a helper even for this Python's bitness, so closing a
+    recording releases the DLL's windows and callbacks along with the helper process."""
     library = bridge_library(java_dirs)
-    if library is not None and library.bits != python_bits():
+    foreign = library is not None and library.bits != python_bits()
+    if foreign:
+        assert library is not None
         if library.python is None:
             raise AccessBridgeError(no_helper(library))
+    if foreign or isolated:
         from maptelo.desktop.jab_remote import RemoteBridge
 
-        remote = RemoteBridge(library.python, java_dirs=java_dirs, desktop=desktop, events=events)
+        python = library.python if foreign and library is not None else Path(sys.executable)
+        assert python is not None
+        remote = RemoteBridge(python, java_dirs=java_dirs, desktop=desktop, events=events)
         return remote.start(timeout)
     return Bridge(java_dirs=java_dirs, desktop=desktop, events=events).start(timeout)
 
@@ -536,10 +557,12 @@ class Bridge:
             queue.Queue()
         )
         self._events: queue.Queue[dict[str, Any]] = queue.Queue()
+        self._pending_events: queue.Queue[_PendingEvent] = queue.Queue()
         self._stop = threading.Event()
         self._started = threading.Event()
         self._thread: threading.Thread | None = None
         self._callbacks: list[Any] = []
+        self._subscriptions: list[tuple[str, Any]] = []
         self._t0 = time.time()
 
     # -- life ------------------------------------------------------------------------------
@@ -594,9 +617,13 @@ class Bridge:
         started = time.time()
         while not self._stop.is_set():
             self._user32.MsgWaitForMultipleObjects(0, None, 0, 10, 0x04FF)
-            while self._user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 1):
+            # Both native messages and descriptions get a turn even during event floods.
+            for _ in range(64):
+                if not self._user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 1):
+                    break
                 self._user32.TranslateMessage(ctypes.byref(msg))
                 self._user32.DispatchMessageW(ctypes.byref(msg))
+            self._read_pending_events()
             if not self._started.is_set() and time.time() - started > 1.0:
                 # the bridge finds the Java programs in the first second of its message loop
                 self.ready = True
@@ -612,6 +639,10 @@ class Bridge:
                 except BaseException as exc:
                     box["error"] = exc
                 done.set()
+        for setter, handler in self._subscriptions:
+            getattr(self._d, setter)(type(handler)())  # a null callback unregisters it
+        self._read_pending_events(discard=True)
+        self.ready = False
 
     def _load(self, paths: list[Path]) -> Any:
         """The first of the libraries that loads: one may lack what it needs beside it (a copy
@@ -680,6 +711,7 @@ class Bridge:
         _sig(u.GetWindowTextW, ctypes.c_int, [HWND, ctypes.c_wchar_p, ctypes.c_int])
         _sig(u.GetWindowTextLengthW, ctypes.c_int, [HWND])
         _sig(u.IsWindowVisible, ctypes.c_int, [HWND])
+        _sig(u.IsIconic, ctypes.c_int, [HWND])
         _sig(u.GetWindowThreadProcessId, ctypes.c_ulong, [HWND, ctypes.POINTER(ctypes.c_ulong)])
         _sig(u.GetWindow, HWND, [HWND, ctypes.c_uint])
         _sig(u.GetWindowRect, ctypes.c_int, [HWND, ctypes.POINTER(_Rect)])
@@ -759,10 +791,15 @@ class Bridge:
             return ()
         return tuple(found.actionInfo[i].name for i in range(min(found.actionsCount, 256)))
 
-    def _node(self, vm: int, obj: int, path: str, *, text: bool = True) -> Node | None:
+    def _node(
+        self, vm: int, obj: int, path: str, *, text: bool = True, showing_only: bool = False
+    ) -> Node | None:
         info = self._info(vm, obj)
         if info is None:
             return None
+        states = states_of(info.states_en_US or info.states)
+        if showing_only and "showing" not in states:
+            return None  # Do not ask hidden controls for text or actions before skipping them.
         role = info.role_en_US or info.role
         value: str | None = None
         if info.accessibleText and text:
@@ -772,7 +809,7 @@ class Bridge:
             role=role,
             name=info.name,
             description=info.description,
-            states=states_of(info.states_en_US or info.states),
+            states=states,
             box=(info.x, info.y, info.width, info.height),
             children=info.childrenCount,
             index=info.indexInParent,
@@ -915,6 +952,7 @@ class Bridge:
                     java,
                     owner,
                     (rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top),
+                    minimized=bool(u.IsIconic(handle)),
                 )
             )
             return 1
@@ -965,10 +1003,10 @@ class Bridge:
             def visit(obj: int, path: str, depth: int) -> None:
                 if len(nodes) >= limit:
                     return
-                node = self._node(vm, obj, path, text=texts)
+                node = self._node(
+                    vm, obj, path, text=texts, showing_only=showing_only and depth > 0
+                )
                 if node is None:
-                    return
-                if showing_only and not node.showing and depth > 0:
                     return
                 nodes.append(node)
                 if depth >= 60 or (prune is not None and prune(node)):
@@ -1204,58 +1242,32 @@ class Bridge:
     def _subscribe(self) -> None:
         d = self._d
 
-        def describe(vm: int, src: int, *, text: bool = True) -> dict[str, Any] | None:
-            path, top = self._path_of(vm, src)
-            node = self._node(vm, src, path, text=text)
-            if node is None:
-                return None
-            return {"node": node.to_dict(), "chain": self._chain(vm, src), "window": top}
-
         def plain(kind: str, *, text: bool = True) -> Any:
             def handler(vm: int, event: int, src: int) -> None:
-                try:
-                    self._emit(kind, describe(vm, src, text=text))
-                finally:
-                    self._release(vm, event, src)
+                self._pending_events.put(_PendingEvent(kind, vm, event, src, self.clock(), text))
 
             return _EV(handler)
 
         def two_strings(kind: str) -> Any:
             def handler(vm: int, event: int, src: int, old: str | None, new: str | None) -> None:
-                try:
-                    self._emit(kind, describe(vm, src), old=old, new=new)
-                finally:
-                    self._release(vm, event, src)
+                # ctypes has already copied the strings out of the native event buffer.
+                self._pending_events.put(
+                    _PendingEvent(
+                        kind, vm, event, src, self.clock(), changes={"old": old, "new": new}
+                    )
+                )
 
             return _EV_STR2(handler)
 
         def two_objects(kind: str) -> Any:
             def handler(vm: int, event: int, src: int, old: int, new: int) -> None:
-                try:
-                    self._emit(
-                        kind,
-                        describe(vm, src, text=False),
-                        old=self._brief(vm, old),
-                        new=self._brief(vm, new),
+                self._pending_events.put(
+                    _PendingEvent(
+                        kind, vm, event, src, self.clock(), text=False, objects=(old, new)
                     )
-                finally:
-                    self._release(vm, event, src, old, new)
+                )
 
             return _EV_OBJ2(handler)
-
-        def caret(vm: int, event: int, src: int, old: int, new: int) -> None:
-            self._release(vm, event, src)
-
-        def visible_data(vm: int, event: int, src: int) -> None:
-            try:  # often and for every list and table: only what changed, without its text
-                info = self._info(vm, src)
-                if info is not None:
-                    self._emit(
-                        "visible_data_changed",
-                        {"node": {"role": info.role_en_US or info.role, "name": info.name}},
-                    )
-            finally:
-                self._release(vm, event, src)
 
         handlers = {
             "setFocusGainedFP": plain("focus"),
@@ -1265,13 +1277,13 @@ class Bridge:
             "setPopupMenuWillBecomeVisibleFP": plain("popup_visible", text=False),
             "setPropertyTextChangeFP": plain("text_changed"),
             "setPropertySelectionChangeFP": plain("selection_changed", text=False),
-            "setPropertyVisibleDataChangeFP": _EV(visible_data),
+            "setPropertyVisibleDataChangeFP": plain("visible_data_changed", text=False),
             "setPropertyStateChangeFP": two_strings("state_changed"),
             "setPropertyValueChangeFP": two_strings("value_changed"),
             "setPropertyNameChangeFP": two_strings("name_changed"),
             "setPropertyChildChangeFP": two_objects("child_changed"),
             "setPropertyActiveDescendentChangeFP": two_objects("active_descendant"),
-            "setPropertyCaretChangeFP": _EV_INT2(caret),
+            # Caret movements are not used by the recorder: do not subscribe just to release them.
         }
         for setter, handler in handlers.items():
             fn = getattr(d, setter, None)
@@ -1280,6 +1292,49 @@ class Bridge:
             _sig(fn, None, [type(handler)])
             fn(handler)
             self._callbacks.append(handler)
+            self._subscriptions.append((setter, handler))
+
+    def _read_pending_events(self, *, discard: bool = False) -> None:
+        """Read outside native callbacks: Java may still be sending their event.
+
+        JAB owns a reference to each object until releaseJavaObject, including old/new
+        child references. Keep them through the deferred read, then release even if an
+        element disappeared. A finite batch gives the Windows message loop another turn.
+        """
+        count = self._pending_events.qsize() if discard else 64
+        for _ in range(count):
+            try:
+                event = self._pending_events.get_nowait()
+            except queue.Empty:
+                break
+            try:
+                if discard:
+                    continue
+                source: dict[str, Any] | None = None
+                if event.kind == "visible_data_changed":
+                    info = self._info(event.vm, event.source)
+                    if info is not None:
+                        source = {"node": {"role": info.role_en_US or info.role, "name": info.name}}
+                else:
+                    path, top = self._path_of(event.vm, event.source)
+                    node = self._node(event.vm, event.source, path, text=event.text)
+                    if node is not None:
+                        source = {
+                            "node": node.to_dict(),
+                            "chain": self._chain(event.vm, event.source),
+                            "window": top,
+                        }
+                changes = event.changes
+                if event.objects:
+                    old, new = event.objects
+                    changes = {"old": self._brief(event.vm, old), "new": self._brief(event.vm, new)}
+                self._emit(event.kind, source, t=event.t, **changes)
+            except Exception as exc:
+                self._emit(
+                    "event_unread", None, t=event.t, event_kind=event.kind, error=type(exc).__name__
+                )
+            finally:
+                self._release(event.vm, event.event, event.source, *event.objects)
 
     def _brief(self, vm: int, obj: int) -> dict[str, Any] | None:
         info = self._info(vm, obj) if obj else None
@@ -1292,9 +1347,11 @@ class Bridge:
             "states": sorted(states_of(info.states_en_US or info.states)),
         }
 
-    def _emit(self, kind: str, source: dict[str, Any] | None, **extra: Any) -> None:
+    def _emit(
+        self, kind: str, source: dict[str, Any] | None, *, t: float | None = None, **extra: Any
+    ) -> None:
         self._events.put(
-            {"kind": kind, "t": round(time.time() - self._t0, 3), "source": source, **extra}
+            {"kind": kind, "t": self.clock() if t is None else t, "source": source, **extra}
         )
 
     def events(self) -> list[dict[str, Any]]:

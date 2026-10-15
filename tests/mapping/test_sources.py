@@ -112,6 +112,95 @@ def test_a_number_typed_with_its_leading_zeros() -> None:
     assert found.origins == {"search": Origin("Zamówienie", "number", "000000000")}
 
 
+def test_a_date_the_sheet_writes_as_text_is_the_date_a_date_field_holds() -> None:
+    """The sheet's „09/10/2012” typed into a date field (2012-09-10): read with the sheet's
+    pattern, which a second recording settles (02/24/2017 is no 24th month)."""
+    from maptelo.mapping.sources import written_dates
+
+    assert written_dates("09/10/2012", "2012-09-10") == {("%m/%d/%Y", None)}
+    assert written_dates("03/03/2027", "2027-03-03") == {("%d/%m/%Y", None), ("%m/%d/%Y", None)}
+    assert written_dates("15.01.2027", "01/15/2027") == {("%d.%m.%Y", "%m/%d/%Y")}
+    assert written_dates("2027-01-15", "2027-01-15") == set()  # an ISO cell: readings()
+    table = Table(["Data"], [{"Data": "03/03/2027"}], "first")
+    other = Table(["Data"], [{"Data": "02/24/2017"}], "second")
+    found = trace_origins([{"data": "2027-03-03"}, {"data": "2017-02-24"}], [table, other])
+    assert found.origins == {"data": Origin("Data", "date", None, "%m/%d/%Y")}
+    alone = trace_origins([{"data": "2027-03-03"}], [table])
+    assert "data" in alone.doubtful  # 03/03: which is the month, one recording cannot tell
+
+
+def test_an_input_reads_the_sheet_date_as_the_sheet_writes_it() -> None:
+    from datetime import date
+
+    from maptelo.model.schema import InputSpec
+
+    spec = InputSpec.model_validate({"type": "date", "written_as": "%m/%d/%Y"})
+    assert spec.coerce("02/24/2017") == date(2017, 2, 24)
+    assert spec.coerce("2017-02-24") == date(2017, 2, 24)
+
+
+def test_a_time_the_sheet_writes_with_am_pm_is_the_time_a_time_field_holds() -> None:
+    """The sheet's „9:22AM” typed into a time field (09:22): MiniWoB++ enter-time."""
+    from datetime import time
+
+    from maptelo.mapping.sources import written_times
+    from maptelo.model.schema import InputSpec
+
+    assert written_times("9:22AM", "09:22") == {("%I:%M%p", None)}
+    assert written_times("9:22 PM", "21:22") == {("%I:%M %p", None)}
+    assert written_times("09:22", "09:22") == set()  # the same text: a text value
+    sheet = Table(["Godzina"], [{"Godzina": "3:37AM"}], "first")
+    found = trace_origins([{"czas": "03:37"}], [sheet])
+    assert found.origins == {"czas": Origin("Godzina", "time", None, "%I:%M%p")}
+    spec = InputSpec.model_validate({"type": "time", "written_as": "%I:%M%p"})
+    assert spec.coerce("1:02PM") == time(13, 2)
+    assert spec.coerce("13:02") == time(13, 2)
+
+
+def test_a_name_with_a_trade_mark_and_a_search_by_its_first_words() -> None:
+    """The shop's „Gobi HeatTec® Tee” is the sheet's „Gobi HeatTec Tee”, and a person who
+    typed only „Gobi” into the search box searched for it: both come from the column
+    (WebArena-Verified 287; the robot types the whole name into the search)."""
+    first = Table(["product"], [{"product": "Taurus Elements Shell"}], "first")
+    second = Table(["product"], [{"product": "Gobi HeatTec Tee"}], "second")
+    found = trace_origins(
+        [
+            {"search": "Taurus Elements Shell", "name": "Taurus Elements Shell"},
+            {"search": "Gobi", "name": "Gobi HeatTec® Tee"},
+        ],
+        [first, second],
+        searches={"search"},
+    )
+    assert found.origins == {"search": Origin("product"), "name": Origin("product")}
+    plain = trace_origins(
+        [
+            {"search": "Taurus Elements Shell", "name": "Taurus Elements Shell"},
+            {"search": "Gobi", "name": "Gobi HeatTec® Tee"},
+        ],
+        [first, second],
+    )
+    assert "search" not in plain.origins  # not a search box: a fragment is no value of it
+
+
+def test_a_phone_number_typed_without_its_country_s_code() -> None:
+    """The sheet writes „+1 2058812302”, the person searched the grid for 2058812302
+    (WebArena-Verified 364). A number the sheet writes without a code is typed as it is, so a
+    second recording agrees; alone, it is plain text."""
+    assert readings("+1 2058812302", "2058812302") == {("text", "national")}
+    assert readings("+48 600 100 200", "600 100 200") == {("text", "national")}
+    assert readings("2137418080", "2137418080") == {("text", None), ("text", "national")}
+    assert readings("+1 2058812302", "058812302") == set()
+    assert readings("+12058812302", "2058812302") == set()  # where the code ends is unclear
+    tasks = [
+        Table(["PhoneNum"], [{"PhoneNum": "+1 2058812302"}], "zadanie.csv"),
+        Table(["PhoneNum"], [{"PhoneNum": "2137418080"}], "zadanie.csv"),
+    ]
+    found = trace_origins([{"phone": "2058812302"}, {"phone": "2137418080"}], tasks)
+    assert found.origins == {"phone": Origin("PhoneNum", "text", "national")}
+    alone = trace_origins([{"phone": "2137418080"}], tasks[1:])
+    assert alone.origins == {"phone": Origin("PhoneNum", "text", None)}
+
+
 def test_a_search_typed_in_a_list_of_values_is_the_column_s_value() -> None:
     """Oracle Forms' list of values: K0010% for the customer K0010, 26386% for the item 26386-F
     (benchmark M1, M2). A value typed whole in one recording and searched for in another is the

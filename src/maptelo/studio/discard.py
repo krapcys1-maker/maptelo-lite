@@ -57,6 +57,14 @@ def _recycle(paths: list[Path]) -> None:
         None,
     )
     shell = getattr(ctypes, "windll").shell32  # noqa: B009 (Windows only)
-    failed = shell.SHFileOperationW(ctypes.byref(operation))
+    recycle = shell.SHFileOperationW
+    recycle.argtypes = [ctypes.POINTER(_FileOperation)]
+    recycle.restype = ctypes.c_int
+    failed = recycle(ctypes.byref(operation))
+    if failed in (32, 33, 1224):
+        raise OSError(
+            f"{paths[0].name} is still in use (Windows says {failed}); "
+            "close its preview or the program using its files and try again"
+        )
     if failed or operation.fAnyOperationsAborted:
         raise OSError(f"{paths[0].name} could not be deleted (Windows says {failed})")

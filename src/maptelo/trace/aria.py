@@ -102,6 +102,16 @@ def _read(text: str) -> str:
     return " ".join(_ICONS.sub(" ", text).split()) if _ICONS.search(text) else text
 
 
+SORT_MARKS = "↑↓↕⇅⇵▲▼△▽▴▾▵▿⬆⬇"
+"""Arrows a list draws by the name of the column it is sorted by (CSS: „↓ Name” in Magento's
+grid): the order, not the name. The column is „Name” whichever way it is sorted."""
+
+
+def _header(text: str) -> str:
+    """A column's name as people read it: without the arrow of the order it is sorted in."""
+    return " ".join(_read(text).strip(SORT_MARKS + " ").split())
+
+
 def table_rows(table: AriaNode) -> list[dict[str, str]]:
     """Data rows of a table as {column header: cell text}; unnamed columns become '#n'."""
     return [values for _, values in table_row_nodes(table)]
@@ -114,7 +124,7 @@ def table_row_nodes(table: AriaNode) -> list[tuple[AriaNode, dict[str, str]]]:
     for row in table.find_all("row"):
         cells = [c for c in row.children if c.role in ("cell", "columnheader", "rowheader")]
         if cells and all(c.role == "columnheader" for c in cells):
-            headers = [_read(c.text()) for c in cells]
+            headers = [_header(c.text()) for c in cells]
             continue
         values = [_read(c.text()) for c in cells]
         if len(values) == 1 and len(headers) >= 2:

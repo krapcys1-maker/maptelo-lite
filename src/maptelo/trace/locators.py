@@ -40,11 +40,15 @@ def candidates_for(element: ElementInfo) -> list[Locator]:
         add(submits=element.submits)
     if element.placeholder:
         add(placeholder=element.placeholder)
+    if element.beside and not element.label and not (element.role and element.name):
+        add(beside=element.beside)  # the words beside a field nothing names („Genre:”)
     if element.title and not (element.role and element.name):  # an icon named by its tooltip
         add(css=f"[title={json.dumps(element.title, ensure_ascii=False)}]")
     if element.classes:
         add(css=element.classes)
-    if element.text and (element.tag in ("a", "button") or element.role in _TEXT_ROLES):
+    if element.text and (
+        element.tag in ("a", "button") or element.role in _TEXT_ROLES or element.pointer
+    ):  # a word made to be clicked (a hand over it) is found by its words, as a link
         add(text=element.text)
     if element.css:
         add(css=element.css)

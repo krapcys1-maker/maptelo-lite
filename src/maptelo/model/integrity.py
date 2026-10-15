@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from collections.abc import Iterable, Iterator
-from typing import TYPE_CHECKING
+from collections.abc import Iterable, Iterator, Sequence
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from maptelo.model.schema import Predicate, ProcessModel, Step
@@ -26,6 +26,29 @@ def value_refs(value: object) -> list[tuple[str, str]]:
     if whole:
         return [(whole.group(1), whole.group(2))]
     return [(m.group(1), m.group(2)) for m in PLACEHOLDER.finditer(value)]
+
+
+def result_reads(steps: Sequence[Any]) -> list[str]:
+    """The values a process reads as its result: read (``save_as``) and used by no step, not
+    even to decide (a value read for a later step, the reason a check failed, is no result)."""
+
+    def refs(value: object) -> set[tuple[str, str]]:
+        if isinstance(value, dict):
+            return set().union(*(refs(v) for v in value.values()))
+        if isinstance(value, list):
+            return set().union(*(refs(v) for v in value))
+        return set(value_refs(value))
+
+    dumped = [s.model_dump(exclude_none=True, mode="json") for s in steps]
+    used = {name for space, name in refs(dumped) if space == "vars"}
+    return sorted(
+        {
+            str(step["save_as"])
+            for step in dumped
+            if step.get("action") == "read" and step.get("save_as")
+        }
+        - used
+    )
 
 
 def misplaced_ref(value: object) -> bool:
