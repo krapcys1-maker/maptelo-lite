@@ -399,8 +399,8 @@ def _java_check(machine: Machine, lang: Lang) -> Check:
         "java",
         say(
             lang,
-            f"Java programs can be recorded and run (Java Access Bridge: {seen_en})",
-            f"programy Java mogą być nagrywane i uruchamiane (Java Access Bridge: {seen_pl})",
+            f"Java programs can be recorded (Java Access Bridge: {seen_en})",
+            f"programy Java mogą być nagrywane (Java Access Bridge: {seen_pl})",
         ),
         say(
             lang,
@@ -434,26 +434,6 @@ def _network_checks(machine: Machine, lang: Lang) -> list[Check]:
                 "ok",
                 "proxy",
                 say(lang, "no proxy: direct connections", "bez proxy: połączenia bezpośrednie"),
-            )
-        )
-    script = machine.registry.value("HKCU", INTERNET_SETTINGS, "AutoConfigURL")
-    if script:
-        checks.append(
-            Check(
-                "info",
-                "proxy script",
-                say(
-                    lang,
-                    f"Windows selects the proxy with a script ({script}), which Maptelo cannot run",
-                    f"Windows wybiera proxy za pomocą skryptu ({script}), którego Maptelo "
-                    "nie uruchamia",
-                ),
-                say(
-                    lang,
-                    "if AI repairs cannot connect, set HTTPS_PROXY to the company proxy",
-                    "jeśli naprawy AI nie mogą nawiązać połączenia, ustaw HTTPS_PROXY na adres "
-                    "firmowego proxy",
-                ),
             )
         )
     if machine.system_trust():
@@ -557,9 +537,9 @@ def _policy_check(machine: Machine, lang: Lang) -> Check:
             str(exc),
             say(
                 lang,
-                "ask IT to correct the policy: until then Maptelo will not run processes or use AI",
-                "poproś dział IT o poprawienie zasad: do tego czasu Maptelo nie uruchomi procesów "
-                "ani nie skorzysta z AI",
+                "ask IT to correct the policy: until then its browser settings do not apply",
+                "poproś dział IT o poprawienie zasad: do tego czasu ich ustawienia "
+                "przeglądarki nie są stosowane",
             ),
         )
     if found.source is None:

@@ -262,12 +262,17 @@ def _start(
 
 
 def _forward(bridge: Bridge, say: Callable[[dict[str, Any]], None]) -> None:
-    """The bridge's events as they come (each holds the time it was told at), until the
-    other side is gone."""
+    """The bridge's events as they come (each holds the time it was told at), then the time
+    up to which all were told (``Bridge.delivered``), until the other side is gone."""
+    told = -1.0
     while True:
         try:
+            through = bridge.delivered()  # first: the events told by then are taken below
             for event in bridge.events():
                 say({"event": pack(event)})
+            if through != told:
+                say({"through": through})
+                told = through
         except (OSError, ValueError):
             return
         time.sleep(0.01)
@@ -404,6 +409,9 @@ class RemoteBridge(Bridge):
             if "event" in message:
                 self._events.put(self._ours(unpack(message["event"])))
                 continue
+            if "through" in message:  # after the events it covers: they are queued already
+                self._delivered = float(message["through"])
+                continue
             waiting = self._waiting.pop(message.get("id"), None)
             if waiting is not None:
                 done, box = waiting
@@ -497,6 +505,7 @@ class RemoteBridge(Bridge):
         texts: bool = True,
         prune: Callable[[Node], bool] | None = None,
         root: str = "0",
+        actions: bool = True,
     ) -> list[Node]:
         if prune is not None:
             raise NotImplementedError("RemoteBridge reads whole trees (no prune)")
@@ -507,9 +516,16 @@ class RemoteBridge(Bridge):
             showing_only=showing_only,
             texts=texts,
             root=root,
+            actions=actions,
             wait=60.0,
         )
         return nodes
+
+    def delivered(self) -> float:
+        """As the helper's bridge tells it after the events it covers (``Bridge.delivered``)."""
+        if not self.want_events:
+            return self.clock()
+        return self._delivered
 
     def focus(self, hwnd: int) -> tuple[Node, list[tuple[str, str]], int] | None:
         found = self._ask("focus", hwnd)
@@ -525,8 +541,10 @@ class RemoteBridge(Bridge):
         found: Node | None = self._ask("node", hwnd, path)
         return found
 
-    def children_selected(self, hwnd: int, path: str, count: int) -> list[int]:
-        chosen: list[int] = self._ask("children_selected", hwnd, path, count)
+    def children_selected(
+        self, hwnd: int, path: str, count: int, *, first: bool = False
+    ) -> list[int]:
+        chosen: list[int] = self._ask("children_selected", hwnd, path, count, first=first)
         return chosen
 
     def table(self, hwnd: int, path: str, *, max_rows: int = 500) -> Table | None:

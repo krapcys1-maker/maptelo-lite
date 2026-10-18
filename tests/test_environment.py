@@ -146,7 +146,7 @@ def test_behind_a_proxy_with_a_script_and_without_windows_trust() -> None:
     assert checks["proxy"].detail == (
         "connections go through a proxy (https: http://proxy.firma.local:8080)"
     )
-    assert "HTTPS_PROXY" in checks["proxy script"].hint
+    assert "proxy script" not in checks  # Lite connects nowhere itself
     assert checks["certificates"].verdict == "info"
 
 
@@ -184,7 +184,7 @@ def test_rights_loopback_and_it_policy(tmp_path: Path) -> None:
     broken = next(c for c in probe(None, computer, lang="pl") if c.what == "policy")
     assert broken.verdict == "FAIL"
     assert broken.detail.startswith(f"IT's policy {rules} is not valid: ai.allowed:")
-    assert "nie uruchomi procesów" in broken.hint
+    assert "ustawienia przeglądarki nie są stosowane" in broken.hint
 
 
 def test_this_computer_answers_quickly_and_without_errors(tmp_path: Path) -> None:

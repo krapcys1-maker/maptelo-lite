@@ -24,9 +24,10 @@ TRACE_FORMAT: Literal["maptelo-trace/0.1"] = "maptelo-trace/0.1"
 ActionType = Literal[
     "navigate", "click", "fill", "select", "check", "uncheck", "press", "upload"
 ]  # fmt: skip
-ObservationType = Literal["appeared", "navigated", "downloaded", "dialog", "note"]
-"""What was seen after an action; "note": what the person said about what they were doing
-(its ``value``), typed while recording."""
+ObservationType = Literal["appeared", "navigated", "downloaded", "dialog", "copied", "note"]
+"""What was seen after an action. ``copied``: words the person copied off the screen (Ctrl+C),
+what they came to look up; ``note``: what the person said about what they were doing (its
+``value``), typed while recording."""
 ACTION_TYPES: tuple[str, ...] = (
     "navigate", "click", "fill", "select", "check", "uncheck", "press", "upload"
 )  # fmt: skip
@@ -64,6 +65,10 @@ class ElementInfo(_Record):
         default=None, description="For a button that sends a form: a field only that form sends."
     )
     placeholder: str | None = None
+    beside: str | None = Field(
+        default=None,
+        description="For a field nothing names: the words beside it in its own row or box.",
+    )
     testid: str | None = None
     action: str | None = Field(
         default=None,
@@ -86,6 +91,16 @@ class ElementInfo(_Record):
     row: RowContext | None = None
     column: str | None = Field(default=None, description="Header of the table column it is in.")
     dialog: str | None = Field(default=None, description="Name of the enclosing dialog.")
+    pointer: bool | None = Field(
+        default=None,
+        description="The page shows a hand over it (cursor: pointer): made to be clicked, "
+        "though nothing says it is a button.",
+    )
+    item: list[str] | None = Field(
+        default=None,
+        description="The words of the clickable whole it is a part of (an e-mail of an inbox): "
+        "a value of the record among them names the whole.",
+    )
     calendar: CalendarSeen | None = Field(
         default=None, description="For a click on a day of a calendar: what was around it."
     )
@@ -205,6 +220,13 @@ class TraceEvent(_Record):
         description="2: a double click (a row of a list opens its record).",
     )
     secret: bool = Field(default=False, description="The value was withheld (password).")
+    secret_no: int | None = Field(
+        default=None,
+        ge=1,
+        description="For a password: which of the passwords typed on this page it is (1, 2 …). "
+        "Two fields with the same number got the same password („Verify password”). Never "
+        "the value.",
+    )
     files: list[str] = Field(
         default_factory=list,
         description="Names of the files chosen (upload) or saved (downloaded): never their "

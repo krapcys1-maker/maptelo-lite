@@ -122,6 +122,10 @@ const EN = {
   "Okno przeglądarki jest otwarte (jeśli nie jest widoczne, kliknij jego ikonę na pasku zadań). Wykonaj w nim proces w zwykły sposób. Po zakończeniu zamknij okno lub kliknij „Zakończ nagrywanie”.":
     "The browser window is open (if it is not visible, click its icon on the taskbar). Perform the process in it as usual. When finished, close the window or click “Finish recording”.",
   "Zakończ nagrywanie": "Finish recording",
+  "Jeśli proces ma coś sprawdzić (np. saldo klienta), zaznacz tę wartość na ekranie i skopiuj ją (Ctrl+C). Robot nauczy się ją tam odczytywać i odda ją w wynikach.":
+    "If the process looks something up (e.g. a customer's balance), select that value on the screen and copy it (Ctrl+C). The robot learns to read it there and hands it back in the results.",
+  "Jeśli proces polega na sprawdzeniu wartości (np. saldo klienta), zaznacz ją na ekranie i skopiuj (Ctrl+C): mapa zapisze, co i gdzie się odczytuje.":
+    "If the process is about looking a value up (e.g. a customer's balance), select it on the screen and copy it (Ctrl+C): the map records what is read and where.",
   "Trwa nagrywanie programu „{}”. Wykonaj w nim proces w zwykły sposób. Po zakończeniu wróć do tego okna ({} na pasku zadań) i kliknij „Zakończ nagrywanie”. Maptelo zapisuje wyłącznie działania w tym programie.":
     "Recording the program “{}”. Perform the process in it as usual. When finished, return to this window ({} on the taskbar) and click “Finish recording”. Maptelo records only actions in this program.",
   "Zapisane kroki i zdarzenia: {}": "Steps and events saved: {}",
@@ -602,6 +606,9 @@ async function showRecordJob(id, first) {
   const count = h("p", {}, t("Oczekiwanie na pierwsze kroki…"));
   const footer = h("div");
   const what = h("p", {}, t("Uruchamianie nagrywania…"));  // a browser or a Java program: its start says which
+  const lookup = h("p", { class: "hint" }, lite
+    ? t("Jeśli proces polega na sprawdzeniu wartości (np. saldo klienta), zaznacz ją na ekranie i skopiuj (Ctrl+C): mapa zapisze, co i gdzie się odczytuje.")
+    : t("Jeśli proces ma coś sprawdzić (np. saldo klienta), zaznacz tę wartość na ekranie i skopiuj ją (Ctrl+C). Robot nauczy się ją tam odczytywać i odda ją w wynikach."));
   const finish = h("button", { type: "button", class: "primary", onclick: async () => {
     finish.disabled = true;
     try { await api(`/api/jobs/${id}/stop`, { method: "POST" }); } catch (error) { alert(error.message); }
@@ -638,7 +645,7 @@ async function showRecordJob(id, first) {
     waiting, steps);
   leave = () => { alive = false; };
   show(h("div", { class: "head" }, h("div", { class: "titles" }, h("div", { class: "crumbs" }, h("a", { href: "#/" }, t("Procesy")), t(" / nagranie")), h("h1", {}, first.title)), h("div", { class: "actions" }, status, finish)),
-       h("div", { class: "card hide-compact" }, what, count),
+       h("div", { class: "card hide-compact" }, what, lookup, count),
        listed,
        describe,
        footer);
@@ -663,6 +670,7 @@ async function showRecordJob(id, first) {
         fill(what, event.program
           ? t("Trwa nagrywanie programu „{}”. Wykonaj w nim proces w zwykły sposób. Po zakończeniu wróć do tego okna ({} na pasku zadań) i kliknij „Zakończ nagrywanie”. Maptelo zapisuje wyłącznie działania w tym programie.", event.program, lite ? "Maptelo Lite" : "Studio")
           : t("Okno przeglądarki jest otwarte (jeśli nie jest widoczne, kliknij jego ikonę na pasku zadań). Wykonaj w nim proces w zwykły sposób. Po zakończeniu zamknij okno lub kliknij „Zakończ nagrywanie”."));
+        if (event.program) lookup.remove();  // a Java program's copy is not seen
       }
     }
     if (events) fill(count, t("Zapisane kroki i zdarzenia: {}", events));
@@ -1254,7 +1262,7 @@ async function route() {
   leave();
   leave = () => {};
   const hash = location.hash || "#/";
-  const section = { "#/runs": "runs", "#/ready": "ready", "#/agents": "agents" }[hash] || "processes";
+  const section = { "#/runs": "runs", "#/ready": "ready", "#/agents": "agents", "#/assistant": "assistant" }[hash] || "processes";
   if (!hash.startsWith("#/job/")) {  // a job page keeps the section it was started from
     for (const link of document.querySelectorAll("[data-nav]")) {
       link.setAttribute("aria-current", link.dataset.nav === section ? "page" : "false");

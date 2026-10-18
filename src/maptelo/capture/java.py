@@ -19,10 +19,12 @@ from __future__ import annotations
 
 import contextlib
 import json
+import logging
 import queue
 import re
 import secrets
 import time
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
@@ -50,6 +52,10 @@ from maptelo.trace.schema import (
     TraceHeader,
     TraceState,
 )
+
+log = logging.getLogger(__name__)
+"""How much the recording asks of the program (Lite's log): numbers only, never what a screen
+shows, so that a person can send the log when a program grows slow while being recorded."""
 
 SCHEME = "java"
 TEXT_ROLES = frozenset({"text", "password text", "spin box"})
@@ -245,16 +251,17 @@ class Echoes:
 def _told_again(first: Seen, second: Seen) -> bool:
     """The same element told twice: at its place, or, when the window's tree changed between
     (a frame the first click of a double click opened, benchmark M4 r4; a list of values
-    closing, M3 r4), in the same window with the same role and name."""
+    closing, M3 r4), in the same window with the same role and name. A list of values whose
+    window is already gone when the bridge tells the second click is told in the window that
+    owns it (benchmark M2, 18.10: „Indeksy” in WCR's main window, the double click taken for a
+    click and the line read before WCR put the choice in): the same dialog around it then."""
     if first.key == second.key:
         return True
     one, other = first.node, second.node
-    return (
-        first.window == second.window
-        and one.role == other.role
-        and bool(one.name)
-        and one.name == other.name
+    same_window = first.window == second.window or (
+        bool(first.chain) and first.chain[:1] == second.chain[:1]
     )
+    return same_window and one.role == other.role and bool(one.name) and one.name == other.name
 
 
 @dataclass
@@ -262,6 +269,10 @@ class Interpreter:
     """Turns the bridge's events into actions (``acts``). Pure: fed events and ticks."""
 
     acts: list[Act] = field(default_factory=list)
+    prior: Act | None = None
+    """The last act taken already: what one event of a person's act is matched against when
+    the recorder took the acts between two batches of that act's events (benchmark M3: a box
+    of a table's row unticked in one batch, the table's click told in the next)."""
     focus: Seen | None = None
     editing: Editing | None = None
     last_click: tuple[float, Seen] | None = None
@@ -586,7 +597,7 @@ class Interpreter:
         node = seen.node
         if self.combo is not None and self.combo.key != seen.key:
             self._choose_combo(t)
-        last = self.acts[-1] if self.acts else None
+        last = self._last()
         if (
             node.role == "table"
             and last is not None
@@ -640,7 +651,7 @@ class Interpreter:
                 once.clicks = 2  # its second click: a double click (a row that opens)
                 once.ended = t
                 return
-            last = self.acts[-1] if self.acts else None
+            last = self._last()
             if (
                 last is not None
                 and last.type == "click"
@@ -828,7 +839,14 @@ class Interpreter:
 
     def take(self) -> list[Act]:
         out, self.acts = self.acts, []
+        if out:
+            self.prior = out[-1]
         return out
+
+    def _last(self) -> Act | None:
+        """The act before this event, also when it was taken already (``prior``): only for
+        what a short time decides (a click that goes with the act just before it)."""
+        return self.acts[-1] if self.acts else self.prior
 
 
 # -- element descriptions ---------------------------------------------------------------------
@@ -962,6 +980,11 @@ class JavaRecorder:
         self._keys: Any = None
         self._buffer: list[dict[str, Any]] = []
         self._echoes = Echoes()
+        self._told: Counter[str] = Counter()
+        """The bridge's events by kind since ``_told_at`` (bridge time), for the log."""
+        self._told_at = 0.0
+        self._behind = 0.0
+        """How far the bridge's delivered events were behind the clock at most, while behind."""
         self._said: queue.SimpleQueue[tuple[float, str]] = queue.SimpleQueue()
         """What the person said about what they were doing (Studio's box), waiting to be written."""
         """Events that came while a screen was read: taken in the next pump."""
@@ -1002,15 +1025,18 @@ class JavaRecorder:
     # -- life ------------------------------------------------------------------------------------
 
     def start(self, timeout: float = 30.0) -> Window:
-        if self.bridge is None:
-            self.bridge = connect(events=True, java_dirs=list(self.options.java_dirs))
         try:
-            self.main = self._find_main(timeout)
+            return self._start(timeout)
         except BaseException:
-            if self._own_bridge:  # nothing recorded: the bridge is not left running
-                self.bridge.close()
-                self.bridge = None
+            self.close()
             raise
+
+    def _start(self, timeout: float) -> Window:
+        if self.bridge is None:
+            self.bridge = connect(
+                events=True, java_dirs=list(self.options.java_dirs), isolated=True
+            )
+        self.main = self._find_main(timeout)
         self.app = program_name(self.main.title)
         self.folder.mkdir(parents=True, exist_ok=True)
         (self.folder / "screens").mkdir(exist_ok=True)
@@ -1079,6 +1105,7 @@ class JavaRecorder:
         events = self._echoes.drop(self.bridge.events())
         rows: list[dict[str, Any]] = []
         for event in events:
+            self._told[str(event.get("kind"))] += 1
             source = event.get("source")
             t = float(event.get("t") or 0.0)
             if isinstance(source, dict) and "node" in source:
@@ -1132,11 +1159,43 @@ class JavaRecorder:
             "new": {"role": "label", "name": row.name, "index": chosen[0]},
         }
 
+    LOG_EVERY_S: ClassVar[float] = 30.0
+    """How often the log tells how many events the program sent (bridge time)."""
+
+    def _log_load(self, now: float, through: float) -> None:
+        """What the program sends and how far the bridge is from telling it all, in the log
+        (numbers and kinds of events only)."""
+        behind = now - through
+        if behind >= 1.0:
+            if not self._behind:
+                log.info("Java: the bridge is %.1f s behind the program's events", behind)
+            self._behind = max(self._behind, behind)
+        elif self._behind and behind < 0.2:
+            log.info("Java: the bridge caught up (at most %.1f s behind)", self._behind)
+            self._behind = 0.0
+        if now - self._told_at >= self.LOG_EVERY_S:
+            if self._told:
+                kinds = ", ".join(f"{kind} {n}" for kind, n in self._told.most_common())
+                log.info(
+                    "Java: %d events in %.0f s (%s)",
+                    sum(self._told.values()),
+                    now - self._told_at,
+                    kinds,
+                )
+            self._told.clear()
+            self._told_at = now
+
     def pump(self) -> int:
         """Turn what happened since the last call into trace events; returns how many."""
         assert self.bridge is not None
         assert self.main is not None
         now = self.bridge.clock()
+        # What waits for an event still to come (a click after its press, quiet after typing)
+        # waits until the bridge has told all it was told: a burst it is still describing (a
+        # screen rebuilt) must not make a click told late look lost (benchmark WCR: the
+        # calendar's next month written twice, its click told 0.37 s after its press).
+        through = min(now, self.bridge.delivered())
+        self._log_load(now, through)
         # the windows first: an event of a window that just opened is put in it
         windows = {w.hwnd: w for w in self._app_windows()}
         changed = set(windows) != set(self._windows)
@@ -1144,12 +1203,14 @@ class JavaRecorder:
         # question may have none). A bare untitled window (Swing's popup, an input method's)
         # answers nothing the person did (benchmark M1 r2: an Enter nobody pressed in Indeks)
         for unread in windows.keys() - self._kinds.keys():
-            self._kinds[unread] = self._root_role(unread)
+            if not windows[unread].minimized:
+                self._kinds[unread] = self._root_role(unread)
         titled = self._answering(windows) != self._answering(self._windows)
         came = [w.title for h, w in windows.items() if h not in self._windows]
         went = [w.title for h, w in self._windows.items() if h not in windows]
+        # The same handles can now be minimized or restored: keep their fresh state too.
+        self._windows_opened(windows, now)
         if changed:
-            self._windows_opened(windows, now)
             self._last_event = max(self._last_event, now)
         events = self._buffer + self._take_events()
         self._buffer = []
@@ -1169,7 +1230,7 @@ class JavaRecorder:
         self._note_frames(events)
         for event in events:
             self.interpreter.feed(event)
-        self.interpreter.tick(now)
+        self.interpreter.tick(through)
         for act in self.interpreter.take():
             self._row_of(act)
             self._pending.append((act, self._before(act)))
@@ -1179,8 +1240,10 @@ class JavaRecorder:
             return settled
         last_act = max(act.end for act, _ in self._pending)  # a double click's second click
         went_on = next((t for t in self._human if t > last_act + self.HUMAN_GAP), None)
-        quiet = now - max(self._last_event, last_act) >= self.options.settle_ms / 1000
-        overdue = now - last_act >= self.options.max_settle_ms / 1000
+        # quiet by what the bridge has told: a second click still being described is no quiet
+        # (benchmark M4: a double click written as one click before its second click came)
+        quiet = through - max(self._last_event, last_act) >= self.options.settle_ms / 1000
+        overdue = through - last_act >= self.options.max_settle_ms / 1000
         # a window the action brought up (a question, a message, a list): read it while it is
         # there, before the person answers it (benchmark D01: "Tak" came before the screen
         # after "Zapisz" was read, and the trace never showed the question)
@@ -1307,7 +1370,10 @@ class JavaRecorder:
 
     def _row_of(self, act: Act) -> None:
         """A click in a table: the row it chose, read at once (a list window closes with its
-        OK a moment later), and the column clicked (the cell whose text the table said)."""
+        OK a moment later), and the column clicked: the cell the table told active, else the
+        cell whose text the table said. Not by the text alone: before an edit two cells of a
+        row often show the same value (benchmark D04, 18.10: „Ilość przed” and „Ilość po” both
+        371; the cell double-clicked to type the new quantity was taken for the first)."""
         seen = act.seen
         if seen is not None and seen.node.path.endswith("/@editor"):
             seen = Seen(
@@ -1324,7 +1390,7 @@ class JavaRecorder:
             table = self.bridge.table(window, seen.node.path)
         except Exception:
             table = None
-        place = act.cell_index
+        place = act.cell_index if act.cell_index is not None else act.told_index
         if table is None:
             # the table's window closed with the click: a double click in a list of values takes
             # the row and closes the list at once (benchmark M2, „Indeksy”). The table as the
@@ -1360,7 +1426,10 @@ class JavaRecorder:
         cells = dict(zip(table.headers, table.rows[index], strict=False))
         column = (
             table.headers[place % len(table.headers)]
-            if place is not None and place >= 0 and table.headers
+            if place is not None
+            and place >= 0
+            and table.headers
+            and place // len(table.headers) == index  # a cell told before is of another row
             else next((h for h, v in cells.items() if act.cell and v == act.cell), None)
         )
         if column is None and act.type in ("check", "uncheck"):
@@ -1392,8 +1461,7 @@ class JavaRecorder:
         assert self.bridge is not None
         with contextlib.suppress(Exception):
             windows = {w.hwnd: w for w in self._app_windows()}
-            if set(windows) != set(self._windows):
-                self._windows_opened(windows, self.bridge.clock())
+            self._windows_opened(windows, self.bridge.clock())
 
     def _windows_opened(self, windows: dict[int, Window], now: float) -> None:
         for hwnd, window in windows.items():
@@ -1415,9 +1483,12 @@ class JavaRecorder:
         # (benchmark D05: SRK's question over a frame of the main window)
         for role, name in source.get("chain") or []:
             if role in ("dialog", "window") and name:
+                own = self._windows.get(window) or self._ever.get(window)
+                if own is not None and own.title == name:
+                    return window  # a fresh lookup must not inherit an older one's HWND
                 titled = [
                     hwnd
-                    for hwnd, known in [*self._windows.items(), *self._ever.items()]
+                    for hwnd, known in [*self._windows.items(), *reversed(self._ever.items())]
                     if known.title == name and hwnd != window
                 ]
                 if titled:
@@ -1514,9 +1585,34 @@ class JavaRecorder:
                 time.sleep(0.05)
         except KeyboardInterrupt:
             reason = "stopped"
+        except BaseException:
+            self.close()
+            raise
         return self.stop(reason)
 
     def stop(self, reason: str = "stopped") -> Path:
+        if self.writer is not None and self.writer.closed:
+            return self.trace_path
+        try:
+            return self._finish(reason)
+        finally:
+            self.close()
+
+    def close(self) -> None:
+        """Release files and our bridge even after a failed read; never read Java to clean up.
+
+        Job callbacks may keep the recorder alive; garbage collection cannot be relied on
+        to close the trace or the helper process.
+        """
+        try:
+            if self.writer is not None:
+                self.writer.close()
+        finally:
+            if self._own_bridge and self.bridge is not None:
+                bridge, self.bridge = self.bridge, None
+                bridge.close()
+
+    def _finish(self, reason: str) -> Path:
         assert self.writer is not None
         if self.bridge is not None:
             with contextlib.suppress(Exception):
@@ -1543,9 +1639,6 @@ class JavaRecorder:
                 states=self._states,
             )
         )
-        self.writer.close()
-        if self._own_bridge and self.bridge is not None:
-            self.bridge.close()
         return self.trace_path
 
     def note(self, text: str) -> None:
@@ -1577,8 +1670,15 @@ class JavaRecorder:
         if window is None:
             self._unread(hwnd, "not among the program's windows")
             return None
+        owner = self._windows.get(window.owner)
+        if window.minimized or (owner is not None and owner.minimized):
+            self._unread(hwnd, "the window is minimized")
+            return None
+        began = time.monotonic()
         try:
-            nodes = self.bridge.tree(hwnd)
+            # what each element can do is not read: a screen of the recording does not use it,
+            # and every question is a turn of the program's event thread
+            nodes = self.bridge.tree(hwnd, actions=False)
         except Exception as exc:
             self._unread(hwnd, f"{type(exc).__name__}: {exc}")
             return None
@@ -1591,7 +1691,19 @@ class JavaRecorder:
                         tables[node.path] = table
         bridge = self.bridge
         chosen = chosen_in_lists(
-            nodes, lambda path: bridge.tree(hwnd, root=path, showing_only=False, texts=False)
+            nodes,
+            lambda path: bridge.tree(
+                hwnd, root=path, showing_only=False, texts=False, actions=False
+            ),
+            lambda path, count: bridge.children_selected(hwnd, path, count, first=True),
+        )
+        log.info(
+            "Java: a screen read (window %d deep): %d elements, %d tables, %d rows, %.2f s",
+            self._depth.get(hwnd, 0),
+            len(nodes),
+            len(tables),
+            sum(len(table.rows) for table in tables.values()),
+            time.monotonic() - began,
         )
         screen = build_screen(window.title, hwnd, nodes, tables=tables, chosen=chosen)
         self._screens[hwnd] = screen

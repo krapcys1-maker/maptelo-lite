@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from maptelo.studio.polish import polish
+from maptelo.studio.polish import SENTENCES, polish
 
 CORE = Path(__file__).resolve().parents[2] / "src" / "maptelo"
 SCANNED = ["runtime", "data", "studio", "repair"]
@@ -24,52 +24,17 @@ SCANNED_FILES = [
 ]
 
 NOT_FOR_THE_PAGE = {
-    # questions and feedback for the AI agent (it reads English), never shown as a message
-    "recognise the screen “{}”", "check which screen is shown", "its landmarks are shown: {}",
-    "find the table that “{}” picks a row from", "pick a row", "what shows that this is the "
-    "screen “{}”, which used to be at the address {}; the browser is now at {}. Answer "
-    "found=false if another screen is shown", "inside the row of the table “{}” where {}",
-    "the screen “{}” is shown", "a message like “{}” appears (its wording may be different now)",
-    "a {}{} appears (its name may be different now, but it is still a {})", "needs the {}",
-    "an element without a name", "the element must have the role \"{}\"",
-    "it must be a {}, like the element it replaces", "it must be a message text, like the old one",
-    "scripted: not on the screen", "state {}, {}", "step {} (result {})", "no result named",
-    "a condition: {}",
     # the line the Java Access Bridge's helper Python runs (desktop/jab_remote.py)
     "import sys; sys.path.append(sys.argv[1]); from maptelo.desktop.jab_remote import serve; "
     "serve()",
-    # a CSS selector the robot uses (the check box in a list's cell), never shown
-    "input[type=checkbox], input[type=radio], [role=checkbox], [role=radio], [role=switch]",
-    # what the model that reads a document's picture is told about a field
-    "the 10-digit tax number", "an amount of money", "a bank account number",
-    "scripted document reader",  # the name of the reader tests use
-    # descriptions in files and on the command line (shadow.md, the CLI), not on the page
-    "the robot would have done the same", "the robot would have done something else",
-    "people have not done it yet (or did something else that left nothing)",
-    "the robot could not go through it: see why", "it was done before the robot looked",
-    "the record's values are not valid for this process", "the robot has not gone through it yet",
-    "robot could not", "ready | would refuse | could not | already done | rejected | not rehearsed",
-    "done | not done | done differently | cannot tell", "running | done | stopped | failed",
-    "job %s failed", "{}, sheet {}", "{} at {}", "a model on this computer: the screen does not "
-    "leave it",
-    # what the MCP catalog tells the agent, and the command a host runs
-    "independent read {}: {} ({})", "the sheet “{}”", "{}: {}: {}",
-    "claude mcp add {} -e PYTHONIOENCODING=utf-8 -- {}",
+    # a Java Access Bridge role the recorder compares with (desktop/jab.py), never shown
+    "check box menu item",
+    # a job's states, its line in the log and a sheet's name (studio/jobs.py, data/tables.py)
+    "running | done | stopped | failed", "job %s failed", "{}, sheet {}",
     # what Studio says in its console when it starts and stops (the command line's language)
     "no Edge or Chrome for a window here: the page opens in the default browser",
     "the window did not show up; Ctrl+C stops Studio", "the window was closed: Studio stops",
     "removed {} evidence files older than {} days (policy)",
-    # code and checks, not sentences
-    "intent => { window.__mapteloPointIntent = intent; }", "no unique visible element",
-    "its button has new words",
-    "translate(@type, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')",
-    "{}//button[not(@type) or string-length(@type) = 0 or {} = 'submit']",
-    "{}//input[{} = 'submit' or {} = 'image']",
-    "normalize-space(.)={} or normalize-space(.)=concat({}, ':')",
-    # names and parts of names, not sentences
-    "{} = {}", "{} → {}", "column {} → {}", "screen {}: {} → {}", "toolbar button #",
-    # already Polish
-    "{}: tryb cienia, {} wierszy",
     # parts of sentences Maptelo Lite says in place of others (app.py, LITE_WORDS)
     "can be recorded and run", "can be recorded",
 }  # fmt: skip
@@ -134,31 +99,42 @@ def test_every_sentence_of_the_core_has_its_polish() -> None:
     assert untranslated == [], "add these to studio/polish.py (or to NOT_FOR_THE_PAGE)"
 
 
+def test_no_rule_is_left_without_a_sentence() -> None:
+    """A rule whose sentence the core no longer says is dead: keep the list honest (Maptelo
+    Lite's list holds only the sentences Lite says)."""
+    shapes = {re.sub(r"\{\w+\}", "{}", english) for english, _ in SENTENCES}
+    said = sentences_of_the_core()
+    short = {s for s in shapes if len(s.split()) < 3}  # too short for the scan to find
+    model_values = {  # said by the model's schema when an input is coerced (model/schema.py)
+        "{} is below the minimum {}", "{} is above the maximum {}", "expected text, got {}",
+        "{} does not match the pattern {}", "{} is not one of: {}",
+        "expected an integer, got {}", "expected a number, got {}",
+        "expected a finite number, got {}", "expected a date as YYYY-MM-DD, got {}",
+        "expected true/false, got {}",
+    }  # fmt: skip
+    library = {  # said by Python's urllib when the read address cannot be reached
+        "<urlopen error {}>", "[Errno {}] getaddrinfo failed",
+        "[WinError {}] No connection could be made because the target machine actively "
+        "refused it",
+    }  # fmt: skip
+    assert sorted(shapes - said - short - model_values - library) == []
+
+
 @pytest.mark.parametrize(
     ("english", "polish_text"),
     [
-        ("dry run: stopped before “Zapisz zmianę ceny”",
-         "próba bez zapisu: zatrzymany przed „Zapisz zmianę ceny”"),
-        ("effect 'price_set' not confirmed: price: expected 135.00, found 136.00",
-         "efekt „price_set” niepotwierdzony: price: oczekiwano 135.00, jest 136.00"),
-        ("price: expected 135.00, found 136.00; valid_from: expected 2026-12-01, found "
-         "2026-11-01",
-         "price: oczekiwano 135.00, jest 136.00; valid_from: oczekiwano 2026-12-01, jest "
-         "2026-11-01"),
-        ("Wybierz Product: wpisz i wybierz: no suggestion contains “99999-Z”",
-         "Wybierz Product: wpisz i wybierz: żadna podpowiedź nie zawiera „99999-Z”"),
-        ("input 'new_price': expected a number, got 'abc'; input 'cpn' is required",
-         "dana „new_price”: oczekiwano liczby, jest 'abc'; dana „cpn” jest wymagana"),
-        ("cannot check whether this was already done (cannot read the system of record: timed "
-         "out); nothing was written",
-         "nie da się sprawdzić, czy to już zrobione (nie da się odczytać systemu: timed out); "
-         "nic nie zapisano"),
-        ("Kliknij „Save”: stopped on request; run again to do the rest",
-         "Kliknij „Save”: zatrzymano na prośbę; uruchom ponownie, żeby zrobić resztę"),
-        ("ceny.csv: no column 'CPN' (input cpn); the column 'Cena' is there 2 times "
-         "(columns: Klient, Cena, Cena)",
-         "ceny.csv: brak kolumny „CPN” (dana cpn); kolumna „Cena” występuje 2 razy "
-         "(kolumny: Klient, Cena, Cena)"),
+        ("IT's policy C:\\ProgramData\\Maptelo\\policy.yaml is not valid: browser.channel: Input "
+         "should be 'chromium', 'msedge' or 'chrome'",
+         "zasady IT C:\\ProgramData\\Maptelo\\policy.yaml są niepoprawne: browser.channel: Input "
+         "should be 'chromium', 'msedge' or 'chrome'"),
+        ("the Java Access Bridge did not start (the Java Access Bridge could not start: "
+         "[WinError 126] The specified module could not be found)",
+         "Java Access Bridge nie wystartował (Java Access Bridge nie mógł wystartować: "
+         "[WinError 126] The specified module could not be found)"),
+        ("20261018T101512000000Z is still in use (Windows says 32); close its preview or the "
+         "program using its files and try again",
+         "Pliki nagrania 20261018T101512000000Z są nadal używane (kod Windows: 32). Zamknij ich "
+         "podgląd lub program, który je otworzył, i spróbuj ponownie."),
     ],
 )  # fmt: skip
 def test_sentences_in_sentences(english: str, polish_text: str) -> None:

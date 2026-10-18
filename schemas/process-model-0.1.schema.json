@@ -741,6 +741,22 @@
           "minProperties": 1,
           "title": "Expect",
           "type": "object"
+        },
+        "when_missing": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "const": "",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": "Response field -> exact empty value (empty string or null) when its expected input is absent. The field must still be present in the response. Only direct $inputs.name expectations may declare this contract.",
+          "title": "When Missing",
+          "type": "object"
         }
       },
       "required": [
@@ -903,8 +919,21 @@
             }
           ],
           "default": null,
-          "description": "How people type the value on screen: a date pattern such as %d.%m.%Y or %m/%d/%Y %H:%M:%S, 0.00 / 0,00 for an amount with two decimals, or zeros (000000000) for a number typed to that width with its leading zeros.",
+          "description": "How people type the value on screen: a date pattern such as %d.%m.%Y or %m/%d/%Y %H:%M:%S, 0.00 / 0,00 for an amount with two decimals, zeros (000000000) for a number typed to that width with its leading zeros, or national for a phone number typed without its country's code (+1 2058812302 as 2058812302).",
           "title": "Typed As"
+        },
+        "written_as": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How the records file writes a date as text, when not as YYYY-MM-DD: a pattern such as %m/%d/%Y (09/10/2012) or %d.%m.%Y.",
+          "title": "Written As"
         },
         "secret": {
           "default": false,
@@ -943,6 +972,7 @@
         "integer",
         "decimal",
         "date",
+        "time",
         "boolean"
       ],
       "title": "InputType",
@@ -1142,6 +1172,19 @@
           ],
           "default": null,
           "title": "Placeholder"
+        },
+        "beside": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A field nothing names (no label of its own), by the words beside it in its own row or box („Genre:”), as a person reads which field it is.",
+          "title": "Beside"
         },
         "testid": {
           "anyOf": [
@@ -1562,6 +1605,32 @@
         }
       },
       "title": "ProcessCard",
+      "type": "object"
+    },
+    "ReadRequest": {
+      "additionalProperties": false,
+      "description": "An owner-confirmed form POST that only reads, scoped to one step and application.",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "pattern": "^/[^?#\\s{}*\\\\]*$",
+          "title": "Path",
+          "type": "string"
+        },
+        "form": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "minProperties": 1,
+          "title": "Form",
+          "type": "object"
+        }
+      },
+      "required": [
+        "path",
+        "form"
+      ],
+      "title": "ReadRequest",
       "type": "object"
     },
     "RecordsSpec": {
@@ -2139,6 +2208,18 @@
           ],
           "default": null
         },
+        "read_request": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReadRequest"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Owner-confirmed read-only POST during this step: exact path on the main application and literal form controls. Other requests remain guarded in a dry run."
+        },
         "executor": {
           "$ref": "#/$defs/Executor",
           "default": "deterministic"
@@ -2382,7 +2463,7 @@
     },
     "WithinRow": {
       "additionalProperties": false,
-      "description": "Restricts a step's target to one table row. 'only' refuses to guess between rows;\n'each' does the step in every row that fits, none being fine (a box unticked in each row\nwith an error).",
+      "description": "Restricts a step's target to one table row. 'only' refuses to guess between rows;\n'newest' and 'oldest' take the row with the latest or earliest date in the column ``by``\n(„the most recent pending order”); 'each' does the step in every row that fits, none being\nfine (a box unticked in each row with an error).",
       "properties": {
         "table": {
           "items": {
@@ -2425,10 +2506,25 @@
             "only",
             "first",
             "last",
-            "each"
+            "each",
+            "newest",
+            "oldest"
           ],
           "title": "Pick",
           "type": "string"
+        },
+        "by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "For 'newest'/'oldest': the column whose dates order the rows.",
+          "title": "By"
         },
         "where_not": {
           "additionalProperties": {

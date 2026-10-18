@@ -63,7 +63,9 @@ w środowisku Java dołączonym do aplikacji, a zakładka „Gotowość” pokaz
 sprawdzono na programach Swing, w tym na czystym systemie Windows z programem dysponującym
 wyłącznie własnym środowiskiem Java, oraz na programie testowym zbudowanym jak Oracle Forms (listy
 wartości wyszukiwane wzorcem „%”, tryb zapytania, bloki wierszy, polskie daty, okno wyboru pliku).
-Samego Oracle Forms jeszcze z Maptelo Lite nie testowano.
+Działania na samym Oracle Forms jeszcze nie potwierdzono: w pierwszej próbie program przestawał
+odpowiadać przy dłuższym nagraniu. Od wersji 0.1.5 nagrywarka zadaje programowi znacznie mniej
+pytań, a plik `maptelo-lite.log` zapisuje obciążenie nagrania (same liczby, bez treści ekranu).
 
 Komputer, na którym jest tylko 32-bitowa Java (na przykład Java 7 lub 8 w wersji 32-bitowej), ma
 wyłącznie 32-bitową bibliotekę mostu (`WindowsAccessBridge-32.dll`). Maptelo Lite odczytuje
@@ -177,11 +179,13 @@ diagram, a BPMN model and a report. It runs locally and uses no AI.
   (enabled with `jabswitch -enable` or by IT). Tested with Swing programs, including on a clean
   Windows with a program that ships only its own Java runtime, and with a test program built
   like Oracle Forms (lists of values searched with “%”, query mode, blocks of rows, Polish dates,
-  a file dialog). Oracle Forms itself has not yet been tested with Maptelo Lite. On a computer
-  with only a 32-bit Java (such as a 32-bit Java 7 or 8), whose bridge library is
-  `WindowsAccessBridge-32.dll`, Maptelo Lite reads the program through its bundled 32-bit Python
-  (the `python32` folder), with no administrator rights and no change to the Java installation.
-  Tested on a 32-bit Java 8 (Temurin 8u472).
+  a file dialog). Oracle Forms itself is not confirmed yet: in a first trial the program stopped
+  responding during a longer recording. Since 0.1.5 the recorder asks the program far fewer
+  questions, and `maptelo-lite.log` records the recording's load (numbers only, no screen
+  content). On a computer with only a 32-bit Java (such as a 32-bit Java 7 or 8), whose bridge
+  library is `WindowsAccessBridge-32.dll`, Maptelo Lite reads the program through its bundled
+  32-bit Python (the `python32` folder), with no administrator rights and no change to the Java
+  installation. Tested on a 32-bit Java 8 (Temurin 8u472).
 - **Scope:** Maptelo Lite documents processes; it does not execute them and uses no AI. Automatic
   execution with every result confirmed by an independent read from the system is the full
   Maptelo: [maptelo.dev](https://maptelo.dev).

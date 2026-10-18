@@ -10,7 +10,7 @@ they go. Anything not known to only read counts as sending data: in doubt, a sav
 from __future__ import annotations
 
 import re
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from maptelo.model.urls import path_template
 
@@ -74,6 +74,40 @@ def sends_data(method: str, url: str) -> bool:
     if method.upper() == "POST" and call is not None:
         return call.group("method") not in ODOO_READS
     return method.upper() != "POST" or path not in _ONLY_READS
+
+
+def confirmed_read(
+    method: str,
+    url: str,
+    content_type: str,
+    body: str | None,
+    base_url: str,
+    path: str,
+    form: dict[str, str],
+) -> bool:
+    """Match one declared read without retaining the form's business values.
+
+    A query, another origin, another method/encoding or repeated discriminator is
+    not the owner's contract. A POST to the same path may also be the actual save.
+    """
+    target, base = urlsplit(url), urlsplit(base_url)
+    if (
+        method.upper() != "POST"
+        or (target.scheme, target.netloc) != (base.scheme, base.netloc)
+        or target.path != path
+        or target.query
+        or target.fragment
+        or content_type.partition(";")[0].strip().lower() != "application/x-www-form-urlencoded"
+        or not form
+    ):
+        return False
+    try:
+        fields = parse_qs(
+            body or "", keep_blank_values=True, strict_parsing=True, max_num_fields=2048
+        )
+    except ValueError:
+        return False
+    return all(fields.get(key) == [value] for key, value in form.items())
 
 
 # END_CARRIED

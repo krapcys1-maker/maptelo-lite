@@ -53,8 +53,27 @@ class Place:
     """For words: the value is the whole rest of a message after its label, not one word."""
 
 
+TRADE_MARKS = re.compile("[" + "".join(map(chr, (0xAE, 0x2122, 0xA9, 0x2120))) + "]")
+"""Registered, trade, copyright and service marks: a shop writes „Gobi HeatTec® Tee” where the
+sheet says „Gobi HeatTec Tee” (WebArena-Verified), the same product."""
+
+
+CLOSE_MARKS = frozenset({"x", *map(chr, (0xD7, 0x2715, 0x2716, 0x2573, 0x2A2F))})
+"""How a window's close button is drawn: a cross (x, the multiplication sign, ✕, ✖ …). Its
+name is „Close” („Zamknij”)."""
+CLOSE_NAMES = re.compile(r"^\W*(close|zamknij|schließen|fermer|cerrar|chiudi)\W*$", re.IGNORECASE)
+"""The names pages give a window's close button."""
+
+
+MARKS_MAY = "[" + "".join(map(chr, (0xAE, 0x2122, 0xA9, 0x2120))) + "]?"
+"""A word of a name may carry a registered or trade mark on screen that the sheet leaves out."""
+ANY_WORD = "{*}"
+"""In a name: one word that changes from record to record („Przyjęto: {*}” for the field of
+the item „Przyjęto: 37241-E”)."""
+
+
 def plain(text: str) -> str:
-    return _SPACES.sub(" ", text).strip()
+    return _SPACES.sub(" ", TRADE_MARKS.sub("", text)).strip()
 
 
 def distinctive(value: str) -> bool:

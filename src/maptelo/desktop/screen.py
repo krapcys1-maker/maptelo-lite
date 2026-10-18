@@ -142,8 +142,8 @@ class Element:
     cells: dict[str, str] = field(default_factory=dict)
     """The other fields' values in its row (for a rule naming the row by them)."""
     chosen: str | None = None
-    """For a combo box one cannot type into: the item its list has chosen (read from the list,
-    which is not showing); written as [chosen=…], not as what the box holds."""
+    """For a combo box one cannot type into: the item it holds (read from its list, which is
+    not showing, or asked of the box itself); written as [chosen=…], not as a typed value."""
 
     @property
     def path(self) -> str:
@@ -376,7 +376,7 @@ def build_screen(
     chosen: Mapping[str, str] | None = None,
 ) -> Screen:
     """The screen of one window from its tree (``Bridge.tree``). ``chosen``: the item each combo
-    box's list has chosen, by the box's path (``chosen_in_lists``)."""
+    box holds, by the box's path (``chosen_in_lists``)."""
     by_path = {n.path: n for n in nodes}
     frames: list[tuple[str, Node]] = []
     elements: list[Element] = []
@@ -432,10 +432,21 @@ def build_screen(
     return Screen(title, hwnd, nodes, elements, frames, status, dict(tables or {}))
 
 
-def chosen_in_lists(nodes: list[Node], read: Callable[[str], list[Node]]) -> dict[str, str]:
-    """The item each showing combo box's list has chosen, for the boxes whose own text does not
-    say (one cannot type into them: WCR's „Cena za”, „Kanał sprzedaży”); ``read`` gives the
-    elements under a path, hidden ones too (the list is not showing). By the box's path."""
+def chosen_in_lists(
+    nodes: list[Node],
+    read: Callable[[str], list[Node]],
+    held: Callable[[str, int], list[int]] | None = None,
+) -> dict[str, str]:
+    """The item each showing combo box holds, for the boxes whose own text does not say (one
+    cannot type into them: WCR's „Cena za”, „Kanał sprzedaży”); ``read`` gives the elements
+    under a path, hidden ones too (the list is not showing). By the box's path.
+
+    The list knows the item only once it has been opened: Swing's list forgets it when the
+    program gives the box new items, and learns it again when it opens. Where the list shows
+    none, ``held`` asks the box itself which of its items (by index, of ``count``) it holds,
+    as the box's own selection says (benchmark M1: „Cena za” follows the item's unit, so the
+    form's „1 szt.” left as it was looked like nothing, and the step chosen only for „1000
+    szt.” went to a person)."""
     chosen: dict[str, str] = {}
     for node in nodes:
         if node.role != "combo box" or not node.showing or (node.text or "").strip():
@@ -447,10 +458,18 @@ def chosen_in_lists(nodes: list[Node], read: Callable[[str], list[Node]]) -> dic
         listed = next((n for n in under if n.role == "list"), None)
         if listed is None:
             continue
-        item = next(
-            (n for n in under if n.depth == listed.depth + 1 and n.is_under(listed) and n.selected),
-            None,
-        )
+        items = {
+            n.path.rpartition("/")[2]: n
+            for n in under
+            if n.depth == listed.depth + 1 and n.is_under(listed)
+        }
+        item = next((n for n in items.values() if n.selected), None)
+        if item is None and held is not None and node.selectable and listed.children:
+            try:
+                indexes = held(node.path, listed.children)
+            except Exception:  # gone or busy: the box stays without it
+                indexes = []
+            item = items.get(str(indexes[0])) if indexes else None
         if item is not None and clean_name(item.name):
             chosen[node.path] = clean_name(item.name)
     return chosen

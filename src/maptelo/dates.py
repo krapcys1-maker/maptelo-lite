@@ -15,7 +15,7 @@ pattern is the part that is the date.
 from __future__ import annotations
 
 import re
-from datetime import date
+from datetime import date, datetime
 
 # The exported script carries this module from here on (export/playwright_py.py).
 
@@ -287,3 +287,23 @@ def day_name(day: date, pattern: str) -> str:
         return word[0].upper() + word[1:] if key[0].isupper() else word
 
     return _FIELD.sub(field, pattern)
+
+
+DATE_FORMS = (
+    "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d", "%d.%m.%Y %H:%M:%S", "%d.%m.%Y %H:%M",
+    "%d.%m.%Y", "%b %d, %Y %I:%M:%S %p", "%b %d, %Y %I:%M %p", "%b %d, %Y", "%B %d, %Y",
+    "%d %b %Y", "%d %B %Y",
+)  # fmt: skip
+"""How a list shows a date and a time: ISO, Polish (11.03.2023 15:31), Magento's „Mar 11, 2023
+3:31:20 PM”. Day and month with slashes are left out: 03/04 could be either."""
+
+
+def when_shown(text: str) -> datetime | None:
+    """The moment a list's cell shows, or None when it is no date of these forms."""
+    plain = " ".join(text.split())
+    for form in DATE_FORMS:
+        try:
+            return datetime.strptime(plain, form)
+        except ValueError:
+            continue
+    return None

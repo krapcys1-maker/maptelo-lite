@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from maptelo.mapping import map_trace
 from maptelo.model.schema import RiskClass
 from maptelo.trace import TraceState
@@ -42,3 +44,63 @@ def test_a_save_that_brings_up_a_progress_window_is_a_save() -> None:
     risks = {s.target[0].name: s.risk for s in steps if s.target}
     assert risks["Importuj zaznaczone"] is RiskClass.COMMIT
     assert risks["Import cennika"] is not RiskClass.COMMIT
+
+
+def test_execute_change_opens_confirmation_and_only_yes_commits() -> None:
+    b = Builder(start="java://erp/")
+    preview, question, done = "java://erp/Preview", "java://erp/Confirm", "java://erp/Form"
+    b.states["preview"] = TraceState(
+        id="preview",
+        t=0,
+        url=preview,
+        window=2,
+        aria='- dialog "Preview"\n- button "Wykonaj zmianę VAT"\n',
+    )
+    b.states["question"] = TraceState(
+        id="question",
+        t=1,
+        url=question,
+        window=3,
+        aria='- dialog "Confirm"\n- button "Tak"\n- button "Nie"\n',
+    )
+    b.states["done"] = TraceState(id="done", t=2, url=done, aria='- dialog "Form"\n')
+    b.add(
+        "click",
+        target=_clicked("Wykonaj zmianę VAT", "Preview"),
+        url=preview,
+        window=2,
+        state_before="preview",
+        state_after="done",
+    )
+    b.add(
+        "click",
+        target=_clicked("Tak", "Confirm"),
+        url=question,
+        window=3,
+        state_before="question",
+        state_after="done",
+    )
+    steps = map_trace(b.trace()).model.steps
+    execute, yes = steps[-2:]
+    assert execute.opens_window
+    assert not execute.closes_window
+    assert execute.risk is None
+    assert yes.risk is RiskClass.COMMIT
+    assert yes.closes_window
+
+
+@pytest.mark.parametrize(
+    ("message", "refused"),
+    [
+        ("Zapisano operację OP-001.", False),
+        ("Saved operation OP-001.", False),
+        ("Nie zapisano operacji OP-001.", True),
+        ("Produkt jest wycofany.", True),
+    ],
+)
+def test_terminal_success_message_is_not_a_business_exception(message, refused) -> None:
+    b = Builder(start="java://erp/")
+    b.add("click", target=_clicked("Zapisz", "Form"), url="java://erp/Form")
+    b.add("appeared", target=element("", role="alert", tag="java:label", text=message))
+    model = map_trace(b.trace()).model
+    assert bool(model.exceptions) is refused

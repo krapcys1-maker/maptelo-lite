@@ -19,6 +19,23 @@ FRAME = [("internal frame", "Cennik klienta"), ("frame", "SRK 4.2.7")]
 DIALOG = [("dialog", "Nowa wersja ceny – K0010"), ("frame", "SRK 4.2.7")]
 
 
+def test_reopened_lookup_keeps_its_own_window_and_table(tmp_path) -> None:
+    from maptelo.capture.java import JavaRecorder, JavaRecorderOptions
+    from maptelo.desktop.jab import Window
+
+    rec = JavaRecorder(tmp_path, JavaRecorderOptions())
+    old = Window(90, "Products", 7, True, owner=1)
+    current = Window(20, "Products", 7, True, owner=1)
+    rec._ever = {90: old, 20: current}
+    rec._windows = {20: current}
+    source = {"window": 20, "chain": [("dialog", "Products"), ("frame", "ERP")]}
+    assert rec._window_of(source) == 20
+    assert rec._window_of(dict(source, window=1)) == 20
+    rec._windows = {}  # the second lookup closed before its click was described
+    assert rec._window_of(source) == 20
+    assert rec._window_of(dict(source, window=1)) == 20
+
+
 def ev(
     kind: str,
     t: float,
@@ -288,7 +305,9 @@ def test_next_press_keeps_the_previous_result_in_its_window_before_new_dialog(
     pressed = ev("mouse_pressed", 2.0, "push button", "Recalculate", "0/2", window=1)
     rec = JavaRecorder(tmp_path, JavaRecorderOptions())
     rec.main = main
-    rec.bridge = SimpleNamespace(clock=lambda: 2.01, events=lambda: [pressed])
+    rec.bridge = SimpleNamespace(
+        clock=lambda: 2.01, delivered=lambda: 2.01, events=lambda: [pressed]
+    )
     rec._windows = {1: main, 9: error}
     rec._pending = [(Act("check", 1.0, None), "before-checkbox")]
     captures, writes = [], []
@@ -423,7 +442,7 @@ def test_new_dialog_without_a_next_human_action_remains_the_result(tmp_path, mon
     main, error = Window(1, "SRK", 7, True), Window(9, "Error", 7, True, owner=1)
     rec = JavaRecorder(tmp_path, JavaRecorderOptions())
     rec.main = main
-    rec.bridge = SimpleNamespace(clock=lambda: 3.0, events=list)
+    rec.bridge = SimpleNamespace(clock=lambda: 3.0, delivered=lambda: 3.0, events=list)
     rec._windows = {1: main, 9: error}
     rec._pending = [(Act("click", 1.0, None), "before")]
     captures = []
@@ -1262,6 +1281,61 @@ def test_a_row_double_clicked_in_a_list_that_closed_at_once_is_read_from_the_scr
     assert act.column == "Indeks"
 
 
+def test_a_double_click_that_closes_its_list_is_one_though_told_in_the_owner_s_window() -> None:
+    """WCR's „Indeksy”: the double click takes the row and closes the list. When the bridge
+    tells the second click the list's window is gone, so it is told in WCR's main window that
+    owns the list (benchmark M2, 18.10: taken for a single click, the line read before WCR put
+    the choice in, and the robot's „Cena” found in two rows). The same dialog around it."""
+    chain = [("dialog", "Indeksy"), ("frame", "WCR 7.1.4 – Wiórek Ceny i Rozliczenia")]
+    first, second = "0/0/1/0/1/0/0", "0/0/0/1/0/1/0/0"  # the list's tree changes as it closes
+    it = Interpreter()
+    it.feed(ev("active_descendant", 14.947, "table", "Indeksy", first, chain=chain, window=7,
+               new={"role": "label", "name": "12187-H", "index": 0}))  # fmt: skip
+    it.feed(ev("mouse_pressed", 14.948, "table", "Indeksy", first, chain=chain, window=7))
+    it.feed(ev("mouse_clicked", 14.950, "table", "Indeksy", first, chain=chain, window=7))
+    it.feed(ev("mouse_pressed", 15.091, "table", "Indeksy", second, chain=chain, window=1))
+    it.feed(ev("mouse_clicked", 15.103, "table", "Indeksy", second, chain=chain, window=1))
+    it.finish(16.0)
+    [act] = it.take()
+    assert (act.type, act.cell, act.clicks) == ("click", "12187-H", 2)
+
+
+def test_the_cell_double_clicked_to_edit_is_the_one_the_table_told_not_its_twin(
+    tmp_path,
+) -> None:
+    """SRK's „Nowa korekta”: before the edit „Ilość przed” and „Ilość po” both show 371. The
+    table told the cell clicked (place 5, „Ilość po”); taken by its text, the double click was on
+    „Ilość przed”, not the cell then typed into, and became a step of its own („Otwórz wiersz…
+    (dwuklikiem)”) that no rule explained (benchmark D04 1/9, 18.10). A cell told in another
+    row than the one chosen is an old one: the text names the column then."""
+    from types import SimpleNamespace
+
+    from maptelo.capture.java import Act, JavaRecorder, JavaRecorderOptions
+    from maptelo.desktop.jab import Table
+
+    lines = "0/0/1/0/1/0/0/1/0/1/0/0"
+    chain = [("internal frame", "Nowa korekta"), ("frame", "SRK 4.2.7")]
+    it = Interpreter()
+    it.feed(ev("active_descendant", 4.028, "table", "Pozycje korekty", lines, chain=chain,
+               new={"role": "label", "name": "371", "index": 5}))  # fmt: skip
+    it.feed(ev("mouse_pressed", 4.029, "table", "Pozycje korekty", lines, chain=chain))
+    it.feed(ev("mouse_clicked", 4.032, "table", "Pozycje korekty", lines, chain=chain))
+    it.finish(5.0)
+    [act] = it.take()
+    assert (act.type, act.cell, act.told_index) == ("click", "371", 5)
+    headers = ["Lp", "Indeks", "Nazwa", "Ilość przed", "Cena przed", "Ilość po", "Cena po", "Netto"]
+    row = ["1", "52957-C", "Przekładka 780x580", "371", "0,76", "371", "0,76", "0,00"]
+    rec = JavaRecorder(tmp_path, JavaRecorderOptions())
+    rec.bridge = SimpleNamespace(table=lambda window, path: Table(headers, [row], selected=[0]))
+    rec._row_of(act)
+    assert act.row is not None
+    assert (act.row.index, act.column, act.cell) == (0, "Ilość po", "371")
+
+    told_before = Act("click", 6.0, act.seen, cell="371", told_index=13)  # row 1's „Ilość po”
+    rec._row_of(told_before)
+    assert told_before.column == "Ilość przed"
+
+
 def test_a_swing_status_line_shows_its_message_as_its_name() -> None:
     """A Swing label tells the bridge no text unless it is HTML: its message is its name (WCR's
     status line once it no longer hid its messages under a name of its own)."""
@@ -1365,7 +1439,7 @@ def test_a_screen_not_read_is_told_in_the_raw_events() -> None:
     from maptelo.capture.java import JavaRecorder
     from maptelo.desktop.jab import Window
 
-    def broken(hwnd: int) -> None:
+    def broken(hwnd: int, **_: object) -> None:
         raise RuntimeError("the window went away")
 
     recorder = JavaRecorder.__new__(JavaRecorder)

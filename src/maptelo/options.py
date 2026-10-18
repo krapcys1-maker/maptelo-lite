@@ -46,3 +46,46 @@ def named_in(options: list[tuple[str, str]], text: str) -> str | None:
     most = max(count for count, _ in named)
     best = {value for count, value in named if count == most}
     return next(iter(best)) if len(best) == 1 else None
+
+
+def option_named_by(options: list[tuple[str, str]], value: str) -> str | None:
+    """The code of the one option a record's value names, when no option's code or label is
+    the value as written: an option whose label is it in other letters („On Hold” for „on
+    hold”: the list matches labels letter for letter), else one whose label starts with it as
+    a code („C002 · Globex Retail S.A.” for C002), else one whose code is it in other letters
+    („UPS” for ``ups``), else one whose label's words begin with its letters („USPS”: United
+    States Postal Service; WebArena-Verified, a carrier from the task's words). Two that fit:
+    none (no guessing)."""
+
+    def norm(text: str) -> str:
+        return " ".join(text.split()).casefold()
+
+    wanted = norm(value)
+    if not wanted:
+        return None
+    written = " ".join(value.split())
+    if any(code == value or " ".join(label.split()) == written for label, code in options):
+        return None  # as written: the list finds it itself
+    listed = [(norm(label), code) for label, code in options]
+    for fits in (
+        lambda label, code: label == wanted,
+        lambda label, code: label.startswith(wanted + " "),
+        lambda label, code: code.casefold() == wanted,
+        # a short form written as one: capitals only („UPS”), never a word that happens to fit
+        lambda label, code: (
+            value.strip().isupper() and value.strip().isalpha() and _initials(label) == wanted
+        ),
+    ):
+        found = [code for label, code in listed if fits(label, code)]
+        if len(found) == 1:
+            return found[0]
+        if found:
+            return None
+    return None
+
+
+def _initials(label: str) -> str | None:
+    """The first letters of a label's words (united parcel service: ups), for a value of two
+    letters or more written as such a short form."""
+    words = re.findall(r"[^\W\d_]+", label)
+    return "".join(w[0] for w in words) if len(words) >= 2 else None

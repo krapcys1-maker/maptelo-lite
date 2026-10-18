@@ -21,12 +21,16 @@ from urllib.parse import urlsplit
 
 from maptelo.calendars import days_of, numbered_days
 from maptelo.dates import find_day, read_day, read_month
+from maptelo.mapping.shown import ANY_WORD
 from maptelo.model.urls import origin
 from maptelo.trace.aria import parse_aria
 from maptelo.trace.locators import candidates_for
-from maptelo.trace.schema import CalendarSeen, ElementInfo, Trace, TraceEvent
+from maptelo.trace.schema import CalendarSeen, ElementInfo, RowContext, Trace, TraceEvent
 
 _HELP_MARK = re.compile(r"(?<=\w)\?$")
+_PLAIN_ID = re.compile(r"[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*")
+"""An id or a form name a person could read as the field's name (``username``, ``first-name``);
+not ``S2BVXXE`` nor ``product[status]``."""
 
 Role = Literal["step", "login", "interrupt", "noise", "superseded"]
 
@@ -78,6 +82,8 @@ class Act:
     """For a value typed into a field with suggestions: the suggestion then picked."""
     picked: DatePick | None = None
     """For a day clicked in a calendar: the date picked, with what opened and moved it."""
+    item: str | None = None
+    """For a field named for an item („Przyjęto: 37241-E”): the item's code in this recording."""
     calendar_unread: bool = False
     """A day clicked among the days of a calendar that could not be read (two months of
     plain numbers): it stays a click on the same day, and the mapping says so."""
@@ -93,13 +99,19 @@ class Act:
     @property
     def field_name(self) -> str | None:
         """The field as people call it: a help mark after the label ("Product?") is not
-        read as part of its name."""
+        read as part of its name. A field nothing on the screen names is called as the page
+        calls it, when that is a plain word (``id="password"``): two such fields stay two
+        fields (MiniWoB++ login-user), and a made-up id („S2BVXXE”) names nothing."""
         target = self.event.target
         if target is None:
             return None
-        label = target.label or target.name or target.placeholder or target.column
+        label = target.label or target.name or target.placeholder or target.column or target.beside
+        if not label and self.event.type in ("fill", "select"):
+            plain = (w for w in (target.field, target.id) if w and _PLAIN_ID.fullmatch(w))
+            label = next(plain, None)
         if not label:
             return None
+        label = label.removesuffix(": " + ANY_WORD)  # the field of the item: „Przyjęto”
         return _HELP_MARK.sub("", label) or label
 
     def appeared(self, *roles: str, window: int | None = None) -> list[TraceEvent]:
@@ -382,12 +394,49 @@ def _mark_interrupts(trace: Trace, acts: list[Act]) -> None:
             act.role = "interrupt"
 
 
+_CHOSEN_ROLES = {"button", "link", "menuitem", "tab", "option", "checkbox", "radio", "switch"}
+
+
+def _selected_to_copy(steps: list[Act]) -> None:
+    """Clicks that only selected the words copied right after them (a double or a triple
+    click on a cell's text, then Ctrl+C): selecting, not a step. A click that opened or showed
+    something, or one on a button, a link or a field, stays a step."""
+    run: list[Act] = []
+    for act in steps:
+        target = act.event.target
+        quiet = act.navigated_to() is None and not any(o.type == "appeared" for o in act.observed)
+        if (
+            act.kind != "click"
+            or target is None
+            or not quiet
+            or act.picked is not None
+            or target.tag in _INTERACTIVE_TAGS
+            or target.role in _CHOSEN_ROLES
+        ):
+            run = []
+            continue
+        run.append(act)
+        words = " ".join((target.name or target.text or "").split())
+        copied = [" ".join((o.value or "").split()) for o in act.observed if o.type == "copied"]
+        if any(c and c in words for c in copied):
+            for clicked in run:
+                same = clicked.event.target
+                if same is not None and " ".join((same.name or same.text or "").split()) == words:
+                    clicked.role = "noise"
+            run = []
+
+
 def _mark_noise(acts: list[Act]) -> None:
     steps = [a for a in acts if a.role == "step"]
+    _selected_to_copy(steps)
     for act in steps:
         target = act.event.target
         if act.kind == "click" and target is not None and act.picked is None:
-            interactive = target.tag in _INTERACTIVE_TAGS or target.role in _INTERACTIVE_ROLES
+            interactive = (
+                target.tag in _INTERACTIVE_TAGS
+                or target.role in _INTERACTIVE_ROLES
+                or bool(target.pointer)  # a hand over it: the page made it to be clicked
+            )
             # a row of a table chosen (a list window's search result): only the choice changes
             # (benchmark D05: the invoice picked before OK was taken for a stray click)
             interactive = interactive or (
@@ -413,7 +462,7 @@ def _mark_noise(acts: list[Act]) -> None:
             and a.column == b.column
             and a.row is not None
             and b.row is not None
-            and a.row.cells == b.row.cells
+            and _same_record(a.row, b.row, a.column)
             and a.row.index == b.row.index
             and (not a.row.table or not b.row.table or a.row.table == b.row.table)
             and a.dialog == b.dialog
@@ -424,6 +473,20 @@ def _mark_noise(acts: list[Act]) -> None:
             # Opening a JTable editor is part of filling that cell. Keeping it
             # as a row-selection step can mistake the new amount for its key.
             earlier.role = "noise"
+
+
+def _same_record(clicked: RowContext, filled: RowContext, column: str) -> bool:
+    """The row a cell's editor was opened in and the row its value went into are one record.
+    The click may be read before the edit and the fill after it (benchmark D04, 18.10: „Ilość
+    po” 371 and „Netto różnica” 0,00 at the double click, 185 and -141,36 once typed): the
+    cell typed and the cells the program counts from it differ, most of the others agree."""
+    if clicked.cells == filled.cells:
+        return True
+    if clicked.cells.keys() != filled.cells.keys():
+        return False
+    others = [h for h in clicked.cells if h != column]
+    agree = sum(clicked.cells[h] == filled.cells[h] for h in others)
+    return agree * 2 > len(others)
 
 
 _SUGGESTING = {"combobox", "searchbox", "textbox"}
@@ -970,6 +1033,40 @@ def _clicked_in_closed_question(trace: Trace) -> None:
         target.dialog = opened.group(1)
 
 
+_ITEM_FIELD = re.compile(r"(?P<words>[^:]+):\s+(?P<item>\S*\d\S*)")
+"""A field named for an item: its words, a colon, the item's code („Przyjęto: 37241-E”)."""
+
+
+def _item_fields(trace: Trace, acts: list[Act]) -> None:
+    """A field named for the item it is filled for, which the screen names elsewhere too
+    („37241-E: przyjechało 20 szt.”): the field whose name starts with its words, for every
+    record (``ANY_WORD`` for the code; ``Act.item`` keeps the code of this recording)."""
+    for act in acts:
+        target = act.event.target
+        if act.kind not in ("fill", "select") or target is None or trace.header.program:
+            continue
+        found = _ITEM_FIELD.fullmatch((target.label or target.name or "").strip())
+        state = trace.state(act.event.state_before)
+        if found is None or state is None or len(found.group("item")) < 4:
+            continue
+        item = found.group("item")
+        token = re.compile(r"(?<![\w-])" + re.escape(item) + r"(?![\w-])")
+        texts = [
+            text
+            for node in parse_aria(state.aria).walk()
+            for text in (node.name, node.value)
+            if text and token.search(text) and not _ITEM_FIELD.fullmatch(text.strip())
+        ]
+        if not texts:
+            continue  # the screen does not name the item: a field of its own name
+        pattern = f"{found.group('words').strip()}: {ANY_WORD}"
+        act.item = item
+        target.label = pattern if target.label else None
+        target.name = pattern if target.name else None
+        target.css = None  # its place is the item's: the next record's item is elsewhere
+        target.candidates = candidates_for(target)
+
+
 def _clicked_in_closed_window(trace: Trace) -> None:
     """A window that closes as its button is clicked („Open” in Java's file chooser, benchmark
     M3), told by the bridge in no window at all (the program's own address, no window's name)
@@ -998,6 +1095,7 @@ def normalize(trace: Trace) -> Normalized:
     _clicked_in_closed_question(trace)
     _clicked_in_closed_window(trace)
     acts = group_acts(trace)
+    _item_fields(trace, acts)
     after_login = _mark_login(trace, acts)
     _mark_interrupts(trace, acts)
     _merge_calendar(trace, acts)  # a day clicked shows nothing new, yet it is no stray click

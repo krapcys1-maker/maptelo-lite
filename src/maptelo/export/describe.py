@@ -134,6 +134,7 @@ WORDS: dict[Lang, dict[str, str]] = {
         "integer": "liczba całkowita",
         "decimal": "liczba",
         "date": "data",
+        "time": "godzina",
         "boolean": "tak/nie",
         "generated": "Wygenerowano w programie",
         "click": "kliknij",
@@ -251,6 +252,7 @@ WORDS: dict[Lang, dict[str, str]] = {
         "integer": "whole number",
         "decimal": "number",
         "date": "date",
+        "time": "time",
         "boolean": "yes/no",
         "generated": "Generated with",
         "click": "click",
@@ -375,11 +377,18 @@ STRATEGY_NOUNS: dict[Lang, dict[str, str]] = {
         "field": "pole",
         "label": "pole",
         "placeholder": "pole",
+        "beside": "pole",
         "text": "tekst",
         "submits": "przycisk",
         "action": "przycisk",
     },
-    "en": {"field": "field", "label": "field", "placeholder": "field", "submits": "button"},
+    "en": {
+        "field": "field",
+        "label": "field",
+        "placeholder": "field",
+        "beside": "field",
+        "submits": "button",
+    },
 }
 """What an element found by other means than its role is, in words (an element found by the
 name its form sends, „price”, is a field: never „pojawia się field” in a Polish SOP)."""

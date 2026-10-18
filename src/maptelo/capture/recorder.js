@@ -44,6 +44,8 @@
   }
 
   const clean = (s) => (s || "").replace(/\s+/g, " ").trim();
+  // The words an element shows: SVG has no innerText (a pie's label, a chart's <text>)
+  const textOf = (el) => (el.innerText !== undefined ? el.innerText : el.textContent);
   const TEXT_TYPES = new Set([
     "", "text", "email", "search", "tel", "url", "number", "password",
     "date", "datetime-local", "month", "time", "week",
@@ -95,7 +97,7 @@
   // The words a screen reader says for an element: its text without what is hidden from it
   // (aria-hidden: a sort arrow, an icon's glyph), as the browser names it.
   function spoken(el) {
-    if (!el.querySelector('[aria-hidden="true"]')) return el.innerText;
+    if (!el.querySelector('[aria-hidden="true"]')) return textOf(el);
     const copy = el.cloneNode(true);
     copy.querySelectorAll('[aria-hidden="true"]').forEach((n) => n.remove());
     return copy.textContent;
@@ -105,6 +107,44 @@
     const labels = el.labels ? Array.from(el.labels) : [];
     const text = clean(labels.map(labelWords).join(" "));
     return text || null;
+  }
+
+  // A field nothing names (no <label> tied to it, no aria): the words beside it in its own
+  // row or box („Genre:”), as a person reads which field it is; none when that box holds
+  // another field too, or says more than a few words.
+  const OTHER_FIELDS = "input:not([type=hidden]):not([type=button]):not([type=submit])" +
+    ":not([type=checkbox]):not([type=radio]), select, textarea";
+  // The box's own words: not those of a button, a link or a list inside it (the „Submit”
+  // beside a date field is the button's, not the field's name).
+  function ownWords(box) {
+    const walker = document.createTreeWalker(box, NodeFilter.SHOW_TEXT);
+    const parts = [];
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const holder = node.parentElement;
+      if (!holder || holder.closest("button, a, select, option, script, style, [role=button]")) continue;
+      if (!holder.getClientRects().length) continue;  // not shown
+      parts.push(node.nodeValue);
+    }
+    return clean(parts.join(" "));
+  }
+
+  function besideText(el) {
+    if (!(el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && TEXT_TYPES.has(inputType(el))))) {
+      return null;
+    }
+    if (labelText(el) || el.getAttribute("aria-label") || el.getAttribute("aria-labelledby")) {
+      return null;
+    }
+    let box = el.parentElement;
+    for (let depth = 0; box && box !== document.body && depth < 3; depth++) {
+      if (box.querySelectorAll(OTHER_FIELDS).length > 1) return null;
+      const words = ownWords(box).replace(/^[\s*]+|[\s:*]+$/g, "");
+      // „to: Rochella subject: Re: Aliquet.”: the header of what is answered, not a name
+      if (words && (words.match(/:\s*\S/g) || []).length >= 2) return null;
+      if (words) return words.length <= 40 ? words : null;
+      box = box.parentElement;
+    }
+    return null;
   }
 
   // A label that holds its field (<label>Waluta <select>...</select></label>) names it with its
@@ -163,7 +203,7 @@
   }
 
   function tooltipOf(el) {
-    if (clean(el.innerText) || el.tagName === "INPUT" || el.tagName === "TEXTAREA") return null;
+    if (clean(textOf(el)) || el.tagName === "INPUT" || el.tagName === "TEXTAREA") return null;
     const own = clean(el.getAttribute("title"));
     if (own) return own;
     const titled = el.querySelectorAll("[title]");
@@ -294,10 +334,11 @@
       field: fieldName(el),
       submits: submitsFor(el),
       placeholder: el.getAttribute("placeholder") || null,
+      beside: besideText(el),
       testid: el.getAttribute("data-testid") || null,
       action: actionOf(el),
       text: el.tagName === "INPUT" || el.tagName === "SELECT" || el.tagName === "TEXTAREA"
-        ? null : clean(el.innerText).slice(0, 160) || null,
+        ? null : clean(textOf(el)).slice(0, 160) || null,
       title: tooltipOf(el),
       id: el.id || null,
       css: cssPath(el),
@@ -305,7 +346,34 @@
       row: rowContext(el),
       column: columnOf(el),
       dialog: dialogName(el),
+      // a hand over it: made to be clicked, though nothing says it is a button (a <span>
+      // with its own click, as many pages build their links)
+      pointer: getComputedStyle(el).cursor === "pointer" || null,
+      item: itemWords(el),
     };
+  }
+
+  // The words of the clickable whole the element is a part of (an e-mail of an inbox, a card of
+  // a list): a value of the record among them names the whole (the sender of the e-mail).
+  function itemWords(el) {
+    if (getComputedStyle(el).cursor !== "pointer") return null;
+    let unit = el;
+    for (let depth = 0; depth < 4 && unit.parentElement; depth++) {
+      const up = unit.parentElement;
+      if (up === document.body || getComputedStyle(up).cursor !== "pointer") break;
+      unit = up;
+    }
+    if (unit === el) return null;  // nothing around it to tell
+    const words = [];
+    const walker = document.createTreeWalker(unit, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const holder = node.parentElement;
+      if (!holder || !holder.getClientRects().length) continue;  // not shown: a closed list's
+      const text = clean(node.nodeValue);
+      if (text && text.length <= 80 && !words.includes(text)) words.push(text);
+      if (words.length >= 12) break;
+    }
+    return words.length > 1 ? words : null;
   }
 
   // --- Calendars ---------------------------------------------------------------------
@@ -433,13 +501,27 @@
     return first instanceof Element ? first : e.target;
   }
 
+  // The passwords typed on this page, only to tell which one a field got (1, 2 …): a password
+  // typed again („Verify password”) is the same one. They stay in the page, never sent.
+  const passwordsTyped = [];
+
+  function secretNo(value) {
+    if (!value) return null;
+    let at = passwordsTyped.indexOf(value);
+    if (at < 0) at = passwordsTyped.push(value) - 1;
+    return at + 1;
+  }
+
   function flushFill(el) {
     if (!edited.has(el)) return;
     edited.delete(el);
     const secret = el.tagName === "INPUT" && inputType(el) === "password";
     // a field built from a <div contenteditable> has no value: what it shows is the value
     const value = el.isContentEditable ? clean(el.innerText) : el.value;
-    emit({ type: "fill", target: describe(el), value: secret ? null : value, secret });
+    emit({
+      type: "fill", target: describe(el), value: secret ? null : value, secret,
+      secret_no: secret ? secretNo(value) : null,
+    });
   }
 
   function flushAll() {
@@ -517,21 +599,117 @@
     emit({ type: "press", target: onPage ? null : describe(el), value: e.key });
   }, true);
 
+  // What a person copies (Ctrl+C) out of a screen is what they came to look up: the balance,
+  // the customer's e-mail. The recording keeps the words copied and where they stood; the
+  // robot reads them there and hands them back. Never from a password field.
+  document.addEventListener("copy", (e) => {
+    if (!e.isTrusted) return;
+    const field = document.activeElement;
+    let text = "";
+    let el = null;
+    if (field && isTextInput(field) && typeof field.selectionStart === "number") {
+      if (field.tagName === "INPUT" && inputType(field) === "password") return;
+      text = String(field.value || "").slice(field.selectionStart, field.selectionEnd);
+      el = field;
+    } else {
+      const selection = document.getSelection();
+      text = selection ? selection.toString() : "";
+      // the element holding all of it („6” in „6 records found”: its own span)
+      const range = selection && selection.rangeCount ? selection.getRangeAt(0) : null;
+      const node = range ? range.commonAncestorContainer : null;
+      el = node instanceof Element ? node : node ? node.parentElement : null;
+    }
+    text = clean(text);
+    if (!text || text.length > 300) return;
+    emit({ type: "copied", target: el ? describe(el) : null, value: text });
+  }, true);
+
+  // What a click is on; null for what reports itself (a field, a list, a box, a file).
+  function clickedOn(raw) {
+    const el = raw.closest(CLICKABLE) || raw;
+    if (isTextInput(el) || el.tagName === "SELECT" || el.tagName === "OPTION") return null;
+    if (el.tagName === "INPUT" && ["checkbox", "radio"].includes(inputType(el))) return null;
+    if (isFileInput(el)) return null;  // it opens the file dialog: the files chosen are the step
+    if (el.tagName === "LABEL" && el.control) return null;  // the control reports its change
+    return el;
+  }
+
+  function clickTarget(el) {
+    const described = describe(el);
+    const calendar = calendarAround(el);
+    if (calendar) described.calendar = calendar;
+    return described;
+  }
+
+  // A press the page answers on its release by taking the element away (a pie menu of SVG,
+  // the options of a Select2 list: chosen on mouseup, then the list is closed), or whose
+  // element it replaced while it was held (a label redrawn on hover): the browser sends no
+  // click then. The element is described as it is released; no click after the release is
+  // the click taken away, so the press is the click.
+  let pressed = null;
+
+  document.addEventListener("pointerdown", (e) => {
+    pressed = null;
+    if (!e.isTrusted || e.button !== 0) return;
+    const raw = realTarget(e);
+    if (!(raw instanceof Element) || onScrollbar(e)) return;
+    pressed = { raw };
+  }, true);
+
+  // A press on a scrollbar (the page's or a list's) gets no click either, and none is meant.
+  function onScrollbar(e) {
+    const root = document.documentElement;
+    if (e.clientX >= root.clientWidth || e.clientY >= root.clientHeight) return true;
+    const box = e.target instanceof Element ? e.target : null;
+    return Boolean(box && box.clientWidth > 0 &&
+      (e.offsetX > box.clientWidth || e.offsetY > box.clientHeight));
+  }
+
+  document.addEventListener("pointerup", (e) => {
+    const press = pressed;
+    if (!e.isTrusted || !press || e.button !== 0) return;
+    let raw = press.raw;
+    if (!raw.isConnected) {  // replaced while held: the element released on is its new self
+      const up = realTarget(e);
+      if (up instanceof Element) raw = up;
+    }
+    const el = raw.isConnected ? clickedOn(raw) : null;
+    // a disabled button gets no click: the press did nothing
+    if (!el || el.closest(":disabled")) { pressed = null; return; }
+    press.el = el;
+    press.target = clickTarget(el);
+    setTimeout(() => { if (pressed === press) settlePress(); }, 0);
+  }, true);
+
+  // A released press no click followed: the click (a press that goes off its element still
+  // gets a click, on what holds both). Also when the recorder asks for the page's state,
+  // which may come before the moment after the release.
+  function settlePress() {
+    const press = pressed;
+    if (!press || !press.target) return;
+    pressed = null;
+    flushAll();
+    // the page answered the press (it took or redrew the element): made to be clicked
+    emit({ type: "click", target: { ...press.target, pointer: true } });
+  }
+
   document.addEventListener("click", (e) => {
+    const press = pressed;
+    pressed = null;
     if (!e.isTrusted) return;
     const target = realTarget(e);
     const raw = target instanceof Element ? target : null;
     if (!raw) return;
-    const el = raw.closest(CLICKABLE) || raw;
-    if (isTextInput(el) || el.tagName === "SELECT" || el.tagName === "OPTION") return;
-    if (el.tagName === "INPUT" && ["checkbox", "radio"].includes(inputType(el))) return;
-    if (isFileInput(el)) return;  // it opens the file dialog: the files chosen are the step
-    if (el.tagName === "LABEL" && el.control) return;  // the control reports its own change
+    if (press && press.target && !press.el.isConnected && raw !== press.el) {
+      // the pressed element taken away on release: the click comes to what held it
+      flushAll();
+      emit({ type: "click", target: { ...press.target, pointer: true } });
+      return;
+    }
+    const el = clickedOn(raw);
+    if (!el) return;
     flushAll();
-    const described = describe(el);
-    const calendar = calendarAround(el);
-    if (calendar) described.calendar = calendar;
-    emit({ type: "click", target: described });
+    emit({ type: "click", target: clickTarget(el) });
   }, true);
 
   // --- Observations ----------------------------------------------------------------
@@ -580,14 +758,17 @@
   // Observing the document itself also catches elements inserted while the page parses.
   watch(document);
 
-  window.__mapteloPageState = () => ({
-    ready: document.readyState,
-    quietMs: performance.now() - window.__mapteloLastMutation,
-    significant: window.__mapteloSignificant,
-    typed: window.__mapteloTyped || 0,
-    typedQuietMs: performance.now() - (window.__mapteloTypedAt || 0),
-    document: performance.timeOrigin,
-    passwords: Array.from(document.querySelectorAll("input[type=password]"))
-      .map((input) => input.value).filter((v) => v.length > 0),
-  });
+  window.__mapteloPageState = () => {
+    settlePress();
+    return {
+      ready: document.readyState,
+      quietMs: performance.now() - window.__mapteloLastMutation,
+      significant: window.__mapteloSignificant,
+      typed: window.__mapteloTyped || 0,
+      typedQuietMs: performance.now() - (window.__mapteloTypedAt || 0),
+      document: performance.timeOrigin,
+      passwords: Array.from(document.querySelectorAll("input[type=password]"))
+        .map((input) => input.value).filter((v) => v.length > 0),
+    };
+  };
 })();

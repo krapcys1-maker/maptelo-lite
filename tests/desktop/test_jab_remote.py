@@ -187,6 +187,7 @@ def test_connect_starts_the_bridge_where_its_library_loads(
             BridgeLibrary(JRE8 / "WindowsAccessBridge-32.dll", 32, helper),
             None,
             BridgeLibrary(JRE8 / "WindowsAccessBridge-32.dll", 32, None),
+            BridgeLibrary(tmp_path / "WindowsAccessBridge-64.dll", 64),
         ]
     )
     monkeypatch.setattr(jab, "bridge_library", lambda extra=None: next(answers))
@@ -195,7 +196,13 @@ def test_connect_starts_the_bridge_where_its_library_loads(
     jab.connect()  # no library at all: the bridge says so as it starts
     with pytest.raises(AccessBridgeError, match="no Python of its bitness was found"):
         jab.connect()
-    assert started == [("here", [JRE8]), ("helper", helper), ("here", None)]
+    jab.connect(events=True, isolated=True)
+    assert started == [
+        ("here", [JRE8]),
+        ("helper", helper),
+        ("here", None),
+        ("helper", Path(sys.executable)),
+    ]
 
 
 # -- the helper, behind pipes -----------------------------------------------------------------
@@ -223,6 +230,9 @@ class Program:
     def clock(self) -> float:
         return 12.5
 
+    def delivered(self) -> float:
+        return 12.4
+
     def events(self) -> list[dict[str, Any]]:
         out, self.queued = self.queued, []
         return out
@@ -248,6 +258,12 @@ class Program:
 
     def table(self, hwnd: int, path: str, *, max_rows: int = 500) -> Table | None:
         return Table(["Indeks"], [["26386"]], [0])
+
+    def children_selected(
+        self, hwnd: int, path: str, count: int, *, first: bool = False
+    ) -> list[int]:
+        held = [1, 2]  # a list holding two rows
+        return held[:1] if first else held
 
     def do_action(self, hwnd: int, path: str, action: str, expect: Node | None = None) -> bool:
         self.stuck = True  # as the bridge's thread when a modal window keeps the call waiting
@@ -323,15 +339,18 @@ def test_the_helper_answers_what_the_bridge_answers() -> None:
         assert program is not None
         assert program.texts == [(WINDOW.hwnd, "0/1/2", "K0002", FIELD)]
         assert bridge.table(WINDOW.hwnd, "0/4") == Table(["Indeks"], [["26386"]], [0])
+        assert bridge.children_selected(WINDOW.hwnd, "0/5", 3) == [1, 2]
+        assert bridge.children_selected(WINDOW.hwnd, "0/5", 3, first=True) == [1]
         with pytest.raises(StaleNodeError, match="is gone"):
             bridge.node(WINDOW.hwnd, "0/9")
         events: list[dict[str, Any]] = []
         end = time.time() + 5
-        while not events and time.time() < end:
-            events = bridge.events()
+        while (not events or bridge.delivered() != 12.4) and time.time() < end:
+            events += bridge.events()
             time.sleep(0.02)
         assert events == [EVENT]
         assert 12.5 <= bridge.clock() < 30  # the helper's clock: the events' times
+        assert bridge.delivered() == 12.4  # told after the events it covers
     finally:
         bridge.close()
     assert not bridge.ready
@@ -371,7 +390,7 @@ def test_every_question_of_the_bridge_goes_to_the_helper() -> None:
     """A question added to Bridge must be added to the helper too, or it would wait in vain
     for a thread this process does not run."""
     public = {name for name, value in vars(Bridge).items() if callable(value) and name[0] != "_"}
-    built_on_others = {"text", "events", "clock"}  # node(); events and time read here
+    built_on_others = {"text", "events", "clock", "delivered"}  # node(); events, times read here
     assert sorted(public - built_on_others - set(vars(RemoteBridge))) == []
     assert public - built_on_others - {"start", "close", "call"} == jab_remote.ASKED
 
