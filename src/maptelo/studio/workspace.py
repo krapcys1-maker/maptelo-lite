@@ -12,6 +12,7 @@ and after an upgrade) are two processes with their own runs.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from dataclasses import dataclass, field
@@ -32,15 +33,31 @@ KEY = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
 """A process's folder name: small letters, digits, - and _ (it is a file name everywhere)."""
 
 
+def _lost_letters(text: str) -> bool:
+    """Letters or digits that a folder name cannot keep (Cyrillic, Greek, CJK): two such
+    names would be one folder."""
+    return any(ch.isalnum() and slug(ch) == "x" and ch not in "xX" for ch in text)
+
+
 def process_key(name: str) -> str:
     """The folder name of a process named in words: „Zmiana cen klientów” is
-    zmiana-cen-klientow (a person names a process, they do not make up folder names)."""
+    zmiana-cen-klientow (a person names a process, they do not make up folder names). A name
+    whose letters a folder name cannot keep gets a mark made of the whole name, so that two
+    such names are two folders."""
     text = name.strip()
     if KEY.fullmatch(text):
         return text
     if not any(ch.isalnum() for ch in text):
         return ""  # no word to name a folder after („!!!”)
-    return slug(text, 64).replace("_", "-")
+    key = slug(text, 64).replace("_", "-")
+    if _lost_letters(text):
+        mark = hashlib.sha1(" ".join(text.casefold().split()).encode("utf-8")).hexdigest()[:8]
+        key = f"{key[:55].rstrip('-')}-{mark}"
+    return key
+
+
+def same_name(a: str, b: str) -> bool:
+    return " ".join(a.casefold().split()) == " ".join(b.casefold().split())
 
 
 @dataclass

@@ -1,12 +1,7 @@
-"""Maptelo's own connections: the independent read, AI repairs, the doctor's knock.
+"""HTTPS from Python with the operating system's trust, as in the browser (truststore).
 
-On a company network, HTTPS often goes through a proxy that inspects TLS with the company's
-certificate. Python checks a certificate chain itself, with its copy of the trusted roots;
-Windows (and Edge) check it with the system's rules, which also fetch missing intermediate
-certificates and apply the company's trust settings. With truststore, Maptelo asks the
-system, as the browser does, so what works in Edge works here (docs/08-srodowiska.md).
-The proxy comes from the environment (HTTPS_PROXY) or from Windows' settings, as urllib reads
-them.
+Lite itself connects nowhere: the browser it records in does, with Windows' settings.
+SYSTEM_TRUST is what the Readiness tab says about certificates.
 """
 
 from __future__ import annotations
@@ -15,6 +10,8 @@ import ssl
 import urllib.request
 from functools import cache
 from http.client import HTTPResponse
+from typing import Any
+from urllib.parse import urlsplit
 
 try:
     import truststore
@@ -33,9 +30,53 @@ def https_context() -> ssl.SSLContext:
     return ssl.create_default_context()
 
 
-def open_url(request: urllib.request.Request | str, timeout: float) -> HTTPResponse:
-    """urllib's urlopen with the system's trust; the proxy as Windows or the environment says."""
-    response: HTTPResponse = urllib.request.urlopen(
-        request, timeout=timeout, context=https_context()
+CREDENTIALS = frozenset(
+    {"authorization", "proxy-authorization", "api-key", "x-api-key", "cookie", "x-goog-api-key"}
+)
+"""Headers that carry a key or a sign-in: they go to the address asked, never further."""
+
+
+class _KeysStayHome(urllib.request.HTTPRedirectHandler):
+    """A redirect to another host (or from HTTPS to HTTP) is followed without the key: the
+    service asked holds the key, the one it sends Maptelo to does not."""
+
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: Any,
+        code: int,
+        msg: str,
+        headers: Any,
+        newurl: str,
+    ) -> urllib.request.Request | None:
+        new = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new is None:
+            return None
+        before, after = urlsplit(req.full_url), urlsplit(newurl)
+        same = (before.scheme, before.hostname, before.port) == (
+            after.scheme,
+            after.hostname,
+            after.port,
+        )
+        if not same:
+            for name in list(new.headers):
+                if name.lower() in CREDENTIALS:
+                    del new.headers[name]
+            for name in list(new.unredirected_hdrs):
+                if name.lower() in CREDENTIALS:
+                    del new.unredirected_hdrs[name]
+        return new
+
+
+@cache
+def _opener() -> urllib.request.OpenerDirector:
+    return urllib.request.build_opener(
+        urllib.request.HTTPSHandler(context=https_context()), _KeysStayHome()
     )
+
+
+def open_url(request: urllib.request.Request | str, timeout: float) -> HTTPResponse:
+    """urllib's urlopen with the system's trust; the proxy as Windows or the environment says;
+    a key is not sent on to another host a redirect names."""
+    response: HTTPResponse = _opener().open(request, timeout=timeout)
     return response

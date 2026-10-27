@@ -285,6 +285,25 @@
           "description": "Days after that date; negative: before it.",
           "title": "Days",
           "type": "integer"
+        },
+        "working": {
+          "default": false,
+          "description": "The days are working days: Saturdays, Sundays and the public holidays of 'holidays' are skipped (-1: the last working day before the date, as the NBP rate of a tax point).",
+          "title": "Working",
+          "type": "boolean"
+        },
+        "holidays": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The country whose public holidays are no working days (PL).",
+          "title": "Holidays"
         }
       },
       "required": [
@@ -700,6 +719,42 @@
       "title": "FieldCheck",
       "type": "object"
     },
+    "FindMade": {
+      "additionalProperties": false,
+      "description": "The owner's way to find the document a save made, when its answer was lost (benchmark\n\"faults\", p10: „Utwórz przesyłkę” answered by a gateway error, the parcel made at the\ncourier): ``read`` holds when the record's document is there, and finds none (404) when it\nis not; the document is opened from ``list``, in the row ``row``, by ``open``. Then the steps\nafter the save go on with that document, and no second one is made.",
+      "properties": {
+        "read": {
+          "$ref": "#/$defs/HttpVerifier"
+        },
+        "list": {
+          "description": "The list's address, as a 'navigate' step's value.",
+          "minLength": 1,
+          "title": "List",
+          "type": "string"
+        },
+        "row": {
+          "$ref": "#/$defs/WithinRow",
+          "description": "The record's row on the list: its table and values."
+        },
+        "open": {
+          "description": "What opens the document in that row.",
+          "items": {
+            "$ref": "#/$defs/Locator"
+          },
+          "minItems": 1,
+          "title": "Open",
+          "type": "array"
+        }
+      },
+      "required": [
+        "read",
+        "list",
+        "row",
+        "open"
+      ],
+      "title": "FindMade",
+      "type": "object"
+    },
     "HttpVerifier": {
       "additionalProperties": false,
       "description": "Reads the system of record through a channel other than the screen that wrote it.",
@@ -932,8 +987,22 @@
             }
           ],
           "default": null,
-          "description": "How the records file writes a date as text, when not as YYYY-MM-DD: a pattern such as %m/%d/%Y (09/10/2012) or %d.%m.%Y.",
+          "description": "How the records file writes a date as text, when not as YYYY-MM-DD: a pattern such as %m/%d/%Y (09/10/2012), %d.%m.%Y or %d/%B/%Y (15/November/2026), Oracle's DD-MON-YYYY (15-NOV-2026), or excel: Excel's number of the day, as a CSV file saved from a sheet may write it (46326 for 2026-10-31).",
           "title": "Written As"
+        },
+        "taken_after": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The value is the part of the column's text after these signs, the last time they stand in it (the order's number 5510 of the price list's name „CENNIK_ZK_5510”: _ZK_); a value without them is taken whole.",
+          "title": "Taken After"
         },
         "secret": {
           "default": false,
@@ -946,6 +1015,19 @@
           "description": "One value for each line of the record (the products of an order): the steps that use it are done once per line.",
           "title": "Per Line",
           "type": "boolean"
+        },
+        "per_column": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The column whose number divides this one's value (a price for 1000 pieces: „Cena za” says 1000 szt.); the value typed is the one for a single unit.",
+          "title": "Per Column"
         },
         "derived": {
           "anyOf": [
@@ -1674,6 +1756,36 @@
       "title": "RecordsSpec",
       "type": "object"
     },
+    "RepeatUntil": {
+      "additionalProperties": false,
+      "description": "A click done again until something shows: a status a system gives later („Sprawdź\nstatus w KSeF” until the invoice has its number). People click it a few times, waiting in\nbetween; the robot does the same, and leaves the record to a person if it does not come.",
+      "properties": {
+        "until": {
+          "$ref": "#/$defs/Predicate"
+        },
+        "tries": {
+          "description": "How many times at most the click is done.",
+          "maximum": 50,
+          "minimum": 2,
+          "title": "Tries",
+          "type": "integer"
+        },
+        "every_ms": {
+          "description": "How long to wait for it before clicking again.",
+          "maximum": 600000,
+          "minimum": 200,
+          "title": "Every Ms",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "until",
+        "tries",
+        "every_ms"
+      ],
+      "title": "RepeatUntil",
+      "type": "object"
+    },
     "RiskClass": {
       "enum": [
         "read",
@@ -1991,7 +2103,7 @@
             }
           ],
           "default": null,
-          "description": "For 'read' with a target that is a document's image: which field of the document to read (with a model that sees images; the run needs --vision)."
+          "description": "For 'read' with a target that is a document's image: which field of the document to read."
         },
         "save_as": {
           "anyOf": [
@@ -2288,6 +2400,42 @@
           "description": "For 'choose': when no suggestion contains the value, leave it typed and go on, as people did when the application had no such entry (the next step's result tells, e.g. a message that it was not found). Without it the run stops there.",
           "title": "No Suggestion"
         },
+        "repeat": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RepeatUntil"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "For 'click': done again until something shows (a status that comes later)."
+        },
+        "find": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FindMade"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "For a step that saves and makes a document: the owner's way to find that document when the save's answer is lost (a read by the record's reference, and its row on a list). Without it a lost answer leaves the record to a person."
+        },
+        "undo": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Undo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "For a step that saves and makes a document (a draft): the owner's rule for that document when the record cannot be finished in it (the application does not offer one of the record's values). Without it the document is left to a person."
+        },
         "timeout_s": {
           "anyOf": [
             {
@@ -2320,6 +2468,31 @@
         "action"
       ],
       "title": "Step",
+      "type": "object"
+    },
+    "Undo": {
+      "additionalProperties": false,
+      "description": "The owner's rule for the document a save made, when the record cannot be finished in it:\nthe robot removes it with ``target`` on the document's screen, only a document this record\nmade in this run and only while the independent read ``empty`` shows it there holding\nnothing; the same read must then find it gone (benchmark week, p16: a draft request for an\nindex the ERP does not know). A dry run stops before the save that makes it anyway.",
+      "properties": {
+        "target": {
+          "description": "The control on the document's screen that removes it.",
+          "items": {
+            "$ref": "#/$defs/Locator"
+          },
+          "minItems": 1,
+          "title": "Target",
+          "type": "array"
+        },
+        "empty": {
+          "$ref": "#/$defs/HttpVerifier",
+          "description": "Reads the document: holds while it is there and holds nothing; a record not found (404) after the removal confirms it is gone."
+        }
+      },
+      "required": [
+        "target",
+        "empty"
+      ],
+      "title": "Undo",
       "type": "object"
     },
     "ValueCheck": {

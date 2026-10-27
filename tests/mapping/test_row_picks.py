@@ -60,3 +60,23 @@ def test_a_help_mark_is_not_part_of_a_fields_name() -> None:
     b.add("fill", target=field("Product?"), value="48212-B")
     b.add("fill", target=field("Is it new ?"), value="yes")
     assert [a.field_name for a in normalize(b.trace()).acts] == ["Product", "Is it new ?"]
+
+
+def test_rows_of_two_lists_with_a_column_of_one_name_pick_two_values() -> None:
+    """Two lists of values with a „Value” column (a price list's name, then its currency):
+    two values of the record, not the first one twice (the currency's row was looked for by
+    the price list's name)."""
+    b = Builder()
+    b.add("navigate", value=URL)
+    for table, value in (("Price Lists", "Wholesale"), ("Currencies", "USD")):
+        row = RowContext(table=table, cells={"Value": value}, index=1)
+        b.add("click", target=in_row(tag="java:table cell", role="cell", name=value, text=value,
+                                     column="Value", row=row))  # fmt: skip
+        b.add("navigated", url=f"{URL}#{table}")
+    model = map_trace(b.trace(), lang="en").model
+    picks = [s.within.where for s in model.steps if s.within is not None]
+    assert picks == [{"Value": "$inputs.value"}, {"Value": "$inputs.currencies_value"}]
+    assert {k: v.example for k, v in model.inputs.items()} == {
+        "value": "Wholesale",
+        "currencies_value": "USD",
+    }

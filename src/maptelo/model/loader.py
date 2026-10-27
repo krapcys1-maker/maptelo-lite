@@ -11,7 +11,8 @@ from pydantic import ValidationError
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
-from maptelo.model.schema import FORMAT_VERSION, ProcessModel
+from maptelo.formats import MODEL_VERSIONS, NewerFormatError, upgraded
+from maptelo.model.schema import FORMAT_VERSION, ProcessModel, _version_as_text
 
 SCHEMA_ID = f"urn:maptelo:process-model:{FORMAT_VERSION}"
 # Pydantic adds union-member tags to error locations; they mean nothing to a model author.
@@ -39,6 +40,15 @@ def parse_model(text: str, source: str = "<text>") -> ProcessModel:
         raise ModelLoadError(source, [f"invalid YAML: {exc}"]) from exc
     if not isinstance(data, dict):
         raise ModelLoadError(source, ["the file must contain a mapping at the top level"])
+    try:
+        data = upgraded(
+            {**data, "schema_version": _version_as_text(data.get("schema_version"))},
+            "schema_version",
+            MODEL_VERSIONS,
+            "the process model",
+        )
+    except NewerFormatError as exc:
+        raise ModelLoadError(source, [str(exc)]) from exc
     try:
         return ProcessModel.model_validate(data)
     except ValidationError as exc:

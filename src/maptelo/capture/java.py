@@ -23,14 +23,16 @@ import logging
 import queue
 import re
 import secrets
+import threading
 import time
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, ClassVar
 
+from maptelo.dates import read_day, read_oracle_date
 from maptelo.desktop.jab import Bridge, Node, Table, Window, connect
 from maptelo.desktop.screen import (
     Element,
@@ -38,6 +40,7 @@ from maptelo.desktop.screen import (
     build_screen,
     chosen_in_lists,
     clean_name,
+    field_beside,
     fill_block_cells,
     status_labels,
 )
@@ -75,9 +78,18 @@ CLICKABLE = frozenset(
 CHOOSERS = frozenset({"combo box"})
 BUTTONS = frozenset({"push button", "toggle button"})
 """Pressed then released: a click, even when the bridge cannot tell the click (see Interpreter)."""
+BOXES = frozenset({"check box", "radio button", "check box menu item"})
+"""Ticked or chosen by a click: the click and the state it gave are one act."""
 LIST_ROLES = frozenset({"list", "table", "tree"})
 DOUBLE_ROLES = frozenset({"list", "table", "tree", "label", "list item"})
 """What a person double-clicks to open it: a row of a table, a list or a tree."""
+PLACED_ROLES = TEXT_ROLES | {"check box", "radio button"}
+"""Fields and boxes, known again by where they stand on the screen rather than by their path.
+A path counts an element's place among its container's children, and a program may put another
+element before it while the person works: Oracle Forms puts its list-of-values button "…" first
+on the canvas, by the field with the focus, and takes it away when the focus leaves. Every
+element after it then has another path, and a field's focus, its typing and the screen read
+around them would name three different elements (a value written under the next field)."""
 
 
 def title_template(title: str) -> str:
@@ -149,10 +161,13 @@ class Seen:
     node: Node
     chain: list[tuple[str, str]]
     window: int
+    place: str | None = None
+    """For a field or a box: where it stands (``Interpreter.place_of``), what ``key`` names it
+    by; None: by its path."""
 
     @property
     def key(self) -> tuple[int, str]:
-        return (self.window, self.node.path)
+        return (self.window, self.place or self.node.path)
 
     @property
     def frame(self) -> str | None:
@@ -183,10 +198,18 @@ class Editing:
     last: str | None = None
     changed: bool = False
     changed_at: float = 0.0
+    first_at: float = 0.0
+    """When the text first changed since the field's last value taken (its start)."""
     table_edit: tuple[float, Seen, dict[str, Any]] | None = None
     left_at: float | None = None
     """When the person, done typing, pressed the mouse on something else: the program reacting
     from then on answers the mouse, not an Enter."""
+    focused_at: float = 0.0
+    read_late: bool = False
+    """The field's text as the focus came was read later, when the person may have typed already
+    (``last`` is that text): a burst the bridge was still reading held the typing."""
+    pressed: bool = False
+    """The person pressed the mouse in the field since it got the focus."""
 
 
 @dataclass
@@ -264,6 +287,58 @@ def _told_again(first: Seen, second: Seen) -> bool:
     return same_window and one.role == other.role and bool(one.name) and one.name == other.name
 
 
+def _given_in_window(text: str, acts: list[Act], chosen: list[str]) -> bool:
+    """Whether a field's new text is what the person gave in a window: a row chosen there (or
+    one of its columns: „Item Number:26386-F<tab>Description:…”), a day of its calendar
+    („14 November 2026” for „14-NOV-2026”), or what they typed there, each value in turn (an
+    attributes window's „YES”, „YES”, „EUR” for „YES.YES.EUR”)."""
+    text = text.strip()
+    if not text:
+        return False
+    picked = list(chosen)
+    typed: list[str] = []
+    for act in acts:
+        if act.type == "fill" and act.value and act.value.strip():
+            typed.append(act.value.strip())
+        elif act.type == "select" and act.value:
+            picked.append(act.value)
+        elif act.type == "click":
+            named = act.seen.node.name if act.seen is not None else None
+            picked += [said for said in (act.cell, named) if said]
+    cells = {value.strip() for value in picked}
+    cells |= {part.split(":", 1)[-1].strip() for value in picked for part in value.split("\t")}
+    if text in cells:
+        return True
+    day = _day(text)
+    if day is not None and any(_day(value) == day for value in picked):
+        return True
+    at = 0
+    for value in typed:
+        found = text.find(value, at)
+        if found < 0:
+            return False
+        at = found + len(value)
+    return bool(typed)
+
+
+def _list_button_only(event: dict[str, Any]) -> bool:
+    """A child added or taken away that is only a push button without a name (the list-of-values
+    button "…" of Oracle Forms)."""
+    told = [child for child in (event.get("old"), event.get("new")) if child]
+    return bool(told) and all(
+        isinstance(child, dict)
+        and child.get("role") == "push button"
+        and not str(child.get("name") or "").strip()
+        for child in told
+    )
+
+
+def _day(text: str) -> date | None:
+    """The day a text names, as a calendar's day or a field shows it."""
+    read = read_day(text.strip())
+    return read[0] if read is not None else read_oracle_date(text.strip())
+
+
 @dataclass
 class Interpreter:
     """Turns the bridge's events into actions (``acts``). Pure: fed events and ticks."""
@@ -291,9 +366,11 @@ class Interpreter:
     change of a long one comes late, with the text it showed all along (benchmark M3: a path
     of 75 characters, its last change told 0.45 s after the first), and is still the typing."""
     pressed: tuple[float, Seen] | None = None
+    """A button pressed whose click has not come yet."""
     pressed_last: tuple[float, Seen] | None = None
     """The button the person pressed last, kept after its click came."""
-    """A button pressed whose click has not come yet."""
+    pressed_box: tuple[float, Seen] | None = None
+    """The box the person pressed last (its press, before its state and its click)."""
     lost_click_s: float = 0.6
     """A press without its click this long after is a click whose element went away."""
     press_s: float = 0.08
@@ -335,11 +412,46 @@ class Interpreter:
     described: dict[tuple[str, str], tuple[float, Seen]] = field(default_factory=dict)
     """The latest full description of each (role, name): a button that closes its question
     is described after it closed, without the question around it."""
+    places: dict[tuple[int, str], str] = field(default_factory=dict)
+    """Where each field or box at a path stood when last told with a place (window, path):
+    an element told without one (its window closing) is known by it."""
+    typing_read: bool = False
+    """When a key that writes went down is told (``typed`` events: the person's own desktop)."""
+    typed: list[float] = field(default_factory=list)
+    """When a key that writes went down, lately (never which one)."""
+    history: list[Act] = field(default_factory=list)
+    """The latest acts taken already: what the person gave in a window that closed since."""
+    read_of: dict[tuple[int, str], float] = field(default_factory=dict)
+    """When what is known of each field (``known``) was read: the bridge reads a field's text when
+    it gets to the event, which in a burst is well after the event came."""
+    read: float = 0.0
+    """When the text of the event being fed was read."""
+    LATE_S: ClassVar[float] = 0.05
+    """A text read this long after its event came may hold what happened since."""
+    BURST_S: ClassVar[float] = 0.02
+    BURST_FIELDS: ClassVar[int] = 3
+    """The program rewriting this many other fields in so short a time is a screen rewritten (Oracle
+    Forms' block moved by a record): the field with the focus changed in it is rewritten too."""
+
+    def place_of(self, window: int, node: Node) -> str:
+        """How a field or a box is known again (``Seen.key``, the screens' fields): by the top
+        left corner of its place on the screen, which stays when the program puts an element
+        before it among its container's children (``PLACED_ROLES``); told without a place, by
+        where its path last stood. Anything else, and a table's cell being edited: its path."""
+        if node.role not in PLACED_ROLES or node.path.endswith("/@editor"):
+            return node.path
+        if _placed(node.box):
+            place = f"@{node.box[0]},{node.box[1]}"
+            self.places[(window, node.path)] = place
+            return place
+        return self.places.get((window, node.path), node.path)
 
     def remember(self, window: int, values: dict[str, str | None], t: float) -> None:
-        """The fields' values on a screen just captured (finished at ``t``), by their paths."""
-        for path, value in values.items():
-            self.known[(window, path)] = (t, value)
+        """The fields' values on a screen just captured (finished at ``t``), by how each field
+        is known (``place_of``)."""
+        for place, value in values.items():
+            self.known[(window, place)] = (t, value)
+            self.read_of[(window, place)] = t
 
     def _start(self, seen: Seen, t: float) -> str | None:
         """A field's text before the person typed: from a screen captured before the field got
@@ -347,17 +459,35 @@ class Interpreter:
         known = self.known.get(seen.key)
         if known is None or known[0] >= t:
             return UNKNOWN
+        read = self.read_of.get(seen.key, known[0])
+        if read > t + self.LATE_S or read > known[0] + self.LATE_S:
+            # the program's write was told before the focus came but read after it, or read
+            # long after it was written (the bridge behind, every time it tells late): what was
+            # read may be what the person typed since (benchmark D09: the block moved by a
+            # record, the next line's quantity typed while the bridge read the rewritten fields)
+            return UNKNOWN
         return known[1]
 
     def feed(self, event: dict[str, Any]) -> None:
         kind = event.get("kind")
         t = float(event.get("t") or 0.0)
+        self.read = max(t, float(event.get("read") or t))
         seen = self._complete(Seen.of(event.get("source")), t)
+        if seen is not None:
+            seen.place = self.place_of(seen.window, seen.node)
+        if kind == "typed":
+            self.typed = [*self.typed[-500:], t]
+            return
         if kind == "key":
             self._key(str(event.get("key")), t)
             return
         if kind == "windows_changed":
             self._activity(t, _WINDOW)
+            return
+        if kind == "child_changed" and _list_button_only(event):
+            # Oracle Forms' list-of-values button "…" put beside the field the focus came to, or
+            # taken away from the one it left, a server's answer later: it answers the focus
+            # moving, not the typing (benchmark D09: an Enter after every field typed with Tab)
             return
         if seen is None:
             if kind in ("visible_data_changed", "child_changed"):
@@ -382,9 +512,12 @@ class Interpreter:
         elif kind == "mouse_pressed":
             self._went_on(t, seen)
             self._lost_click()
+            if self.editing is not None and self.editing.seen.key == seen.key:
+                self.editing.pressed = True
             if node.role in BUTTONS:
                 self.pressed = (t, seen)
                 self.pressed_last = (t, seen)
+            self.pressed_box = (t, seen) if node.role in BOXES else None
             if node.role.endswith("menu item"):
                 self._click(
                     seen, t
@@ -554,6 +687,12 @@ class Interpreter:
         self.focus = seen
         if seen.node.role in TEXT_ROLES:
             self.editing = self._new_edit(seen, t)
+            self.editing.focused_at = t
+            if self.editing.start is UNKNOWN and self.read > t + self.LATE_S and seen.node.text:
+                # read late, after the person may have typed: whether they did is told when
+                # they leave the field (``_typed_unseen``)
+                self.editing.read_late = True
+                self.editing.last = seen.node.text
         else:
             self.editing = None
 
@@ -568,15 +707,35 @@ class Interpreter:
                 # the program wrote the field: what it holds before the person types is this,
                 # not what an earlier screen showed (WCR's query mode empties the block, then
                 # the person types the item the line had: that is typing, benchmark M2)
-                self.known[seen.key] = (t, seen.node.text)
-                self.wrote_at = [*self.wrote_at[-50:], t]
-            self._activity(t, (seen.node.role, seen.node.name))
+                self._written(seen, t)
+            else:
+                self._activity(t, (seen.node.role, seen.node.name))
+            return
+        if self._answer_of_a_window(seen):
+            # what the person gave in the window they just closed, written by the program into
+            # the field they came back to: a list of values' row, a calendar's day, an
+            # attributes window's segments („YES.YES.EUR”). Oracle Forms writes it a server's
+            # answer after the focus came back, as typing is told (else: the row's value typed
+            # into the field, an Enter after it). The window's acts are the steps.
+            self._written(seen, t)
             return
         if self.editing is None or self.editing.seen.key != seen.key:
             self.editing = self._new_edit(seen, t)
         edit = self.editing
+        if self._rewritten_with_others(edit, t):
+            # the field with the focus rewritten with the fields around it: the program's
+            # screen, not typing (benchmark D09: Tab from a row's last field, the block moved
+            # by a record, the field still had the focus as it was emptied)
+            self._written(seen, t)
+            return
+        secret = seen.node.role == "password text"
         rewritten_after = max(self.retyped_s, len(edit.last or "") * self.told_per_char_s)
-        if edit.changed and seen.node.text == edit.last and t - edit.changed_at >= rewritten_after:
+        if (
+            not secret  # a password reads the same whatever it holds: no rewrite to tell
+            and edit.changed
+            and seen.node.text == edit.last
+            and t - edit.changed_at >= rewritten_after
+        ):
             # the field set again to what it shows, a while after the typing: the program
             # did it (benchmark D05: Enter in the customer's field, SRK writes the code back)
             self._activity(t)
@@ -588,10 +747,58 @@ class Interpreter:
         # the start is unknown when the field had not been seen; a text change of the field
         # with the focus is then the person's typing
         start = self.editing.start
-        self.editing.changed = start is UNKNOWN or self.editing.last != start
+        if not self.editing.changed:
+            self.editing.first_at = t
+        # a password field reads as SECRET, empty or not: its text changing while it has the
+        # focus is the person typing, though the text read is the same as before
+        self.editing.changed = secret or start is UNKNOWN or self.editing.last != start
         self.editing.changed_at = t
         self.editing.left_at = None  # typing again: the mouse went back to the field
         self.reacted_at = -1.0
+
+    def _rewritten_with_others(self, edit: Editing, t: float) -> bool:
+        """The program wrote other fields just before ``t``, since the field got the focus: so
+        many in so short a time that it is the screen rewritten (``BURST_FIELDS``)."""
+        since = max(edit.focused_at, t - self.BURST_S)
+        return sum(1 for at in self.wrote_at if since <= at <= t) >= self.BURST_FIELDS
+
+    def _written(self, seen: Seen, t: float) -> None:
+        """The program wrote the field: what it holds before the person types is this."""
+        self.known[seen.key] = (t, seen.node.text)
+        self.read_of[seen.key] = self.read
+        self.wrote_at = [*self.wrote_at[-50:], t]
+        edit = self.editing
+        if edit is not None and edit.seen.key == seen.key and not edit.changed:
+            edit.start = edit.last = seen.node.text
+        self._activity(t, (seen.node.role, seen.node.name))
+
+    def _answer_of_a_window(self, seen: Seen) -> bool:
+        """The field with the focus, not typed into since it got it back from a window the
+        person's last act was in (a dialog, or a frame of the window: Oracle Forms shows its
+        lists of values as frames), now holds what the person gave in that window."""
+        last = self._last()
+        edit = self.editing
+        if (
+            last is None
+            or last.seen is None
+            or not last.seen.window
+            or (last.seen.window, last.seen.frame) == (seen.window, seen.frame)
+            or not self._is_focus(seen)
+            or (edit is not None and edit.seen.key == seen.key and edit.changed)
+        ):
+            return False
+        where = (last.seen.window, last.seen.frame)
+        given = [
+            act
+            for act in [*self.history, *self.acts]
+            if act.seen is not None and (act.seen.window, act.seen.frame) == where
+        ]
+        chosen = [
+            name
+            for chooser, name, _ in self.list_choice.values()
+            if (chooser.window, chooser.frame) == where
+        ]
+        return _given_in_window(seen.node.text or "", given, chosen)
 
     def _click(self, seen: Seen, t: float) -> None:
         node = seen.node
@@ -619,6 +826,8 @@ class Interpreter:
             return
         if self.editing is not None and self.editing.seen.key != seen.key:
             self._flush(t)
+        if node.role in BOXES and self._toggled_by_its_press(seen):
+            return  # the click of the box whose state its press gave: that state is the act
         if node.role in ("label", "list item") and self._in_list(seen):
             self.acts.append(Act("click", t, seen, value=None))
             return
@@ -671,6 +880,30 @@ class Interpreter:
             if node.role.endswith("menu item"):
                 self.menu_open = None
 
+    def _box_pressed(self, seen: Seen) -> bool:
+        """The box is the one the person pressed last, and nothing was done since."""
+        pressed = self.pressed_box
+        last = self._last()
+        return (
+            pressed is not None
+            and pressed[1].key == seen.key
+            and (last is None or last.t < pressed[0])
+        )
+
+    def _toggled_by_its_press(self, seen: Seen) -> bool:
+        """The act before this click is the box's own state, given since its press."""
+        pressed = self.pressed_box
+        last = self._last()
+        return (
+            pressed is not None
+            and pressed[1].key == seen.key
+            and last is not None
+            and last.type in ("check", "uncheck")
+            and last.seen is not None
+            and last.seen.key == seen.key
+            and last.t >= pressed[0]
+        )
+
     def _in_list(self, seen: Seen) -> bool:
         return seen.node.role in ("label", "list item")
 
@@ -692,8 +925,14 @@ class Interpreter:
                     and (last.seen.key == seen.key)
                 ):
                     self.acts[-1] = Act(kind, last.t, seen)
-                elif self._is_focus(seen):
-                    self.acts.append(Act(kind, t, seen))  # the space key on a focused box
+                elif self._is_focus(seen) or self._box_pressed(seen):
+                    # the space key on a focused box, or the box pressed: its click comes after
+                    # the state it gives (Swing ticks at the release), and the box takes the
+                    # focus later, if at all (else: unticked, ticked, then a click on the box,
+                    # three steps)
+                    if self.editing is not None and self.editing.seen.key != seen.key:
+                        self._flush(t)
+                    self.acts.append(Act(kind, t, seen))
             return
         if node.role == "page tab" and new == "selected":
             last = self.acts[-1] if self.acts else None
@@ -705,7 +944,9 @@ class Interpreter:
         if key == "Tab" or key == "Shift+Tab":
             self._flush(t)
             return
-        if key in ("Enter", "Escape", "F11", "Ctrl+F11", "ArrowDown", "ArrowUp", "PageDown"):
+        if key in ("Enter", "Escape", "ArrowDown", "ArrowUp", "PageDown", "Ctrl+L") or (
+            _FUNCTION.fullmatch(key)
+        ):
             target = self.focus
             self._flush(t)
             if key == "Enter" and self._row_taken(target, t):
@@ -748,7 +989,15 @@ class Interpreter:
 
     def _flush(self, t: float) -> None:
         edit = self.editing
-        if edit is None or not edit.changed:
+        if edit is None or not (edit.changed or self._typed_unseen(edit, t)):
+            return
+        if self._not_typed(edit, t):
+            # no key that writes went down since the person's last act: the program wrote the
+            # field as the focus came (Oracle Forms' default, „Grouping Number” -1 when the
+            # cursor enters it, else a value the person would have to give every time)
+            self.known[edit.seen.key] = (edit.changed_at, edit.last)
+            edit.start = edit.last
+            edit.changed = False
             return
         secret = edit.seen.node.role == "password text"
         self.acts.append(
@@ -764,6 +1013,34 @@ class Interpreter:
         )
         edit.start = edit.last
         edit.changed = False
+
+    def _typed_unseen(self, edit: Editing, t: float) -> bool:
+        """The field's text, read only after the person may have typed (``read_late``), is their
+        typing when they were at the field: a key that writes went down there (where those are
+        read), else they pressed the mouse in it. The bridge told no change of its own: the
+        typing was told with the program's rewrite before the focus came."""
+        if not edit.read_late or edit.start is not UNKNOWN or not edit.last:
+            return False
+        if edit.seen.node.role == "password text" or "editable" not in edit.seen.node.states:
+            return False
+        if self.typing_read:
+            typed = any(edit.focused_at < at <= t for at in self.typed)
+        else:
+            typed = edit.pressed
+        if typed:
+            edit.changed = True
+            edit.changed_at = edit.first_at = edit.focused_at
+        return typed
+
+    def _not_typed(self, edit: Editing, t: float) -> bool:
+        """The keys that write are read here (they were seen working: a key went down before,
+        and the navigation keys are read too), and none went down between the person's last
+        act before the field changed and ``t``: no typing, a paste neither."""
+        if not (self.typing_read and self.keys_seen and self.typed):
+            return False
+        before = [act.t for act in [*self.history, *self.acts] if act.t <= edit.first_at]
+        since = max(before, default=-1.0)
+        return not any(since < at <= t for at in self.typed)
 
     def _choose_combo(self, t: float) -> None:
         if (
@@ -841,6 +1118,7 @@ class Interpreter:
         out, self.acts = self.acts, []
         if out:
             self.prior = out[-1]
+            self.history = [*self.history, *out][-30:]
         return out
 
     def _last(self) -> Act | None:
@@ -857,10 +1135,29 @@ def _placed(box: tuple[int, int, int, int]) -> bool:
     return box[2] > 0 and box[3] > 0
 
 
+_LABEL_ROLES = frozenset({"text", "option"})
+"""What a label is on a screen: text, or a row of the list it is in."""
 _NAMED_CONTROLS = frozenset(
     {"button", "menuitem", "menuitemcheckbox", "menuitemradio", "tab", "checkbox", "radio", "link"}
 )
 """Controls named by what they say: another name is another control."""
+
+
+def element_at(screen: Screen, node: Node) -> Element | None:
+    """The screen's element that is the node: the one at its path, unless that one stands
+    elsewhere and one element of the node's kind stands where the node does. The program put
+    an element before it among its container's children, or took one away, between the screen
+    and the event (Oracle Forms' "…" by the field with the focus: a date typed into „Start
+    Date” was written under „End Date”, the next field at that path; ``PLACED_ROLES``)."""
+    element = screen.by_path(node.path)
+    if not _placed(node.box) or (element is not None and element.node.box[:2] == node.box[:2]):
+        return element
+    there = [
+        e
+        for e in screen.elements
+        if e.node.role == node.role and _placed(e.node.box) and e.node.box[:2] == node.box[:2]
+    ]
+    return there[0] if len(there) == 1 else element
 
 
 def _another(node: Node, element: Element) -> bool:
@@ -869,9 +1166,16 @@ def _another(node: Node, element: Element) -> bool:
     from maptelo.desktop.screen import aria_role
 
     expected = aria_role(node)
-    if expected is not None and node.role != "label" and element.role != expected:
-        return True  # a label is text or a list's option, as its parent makes it
     told = clean_name(node.name)
+    if node.role == "label":
+        # a label is text or a list's option, as its parent makes it; never a button, and one
+        # saying something else is another row (D08: the row of a list of values, told at the
+        # path the field's "…" had on a screen read before the list's frame came)
+        if element.role not in _LABEL_ROLES:
+            return True
+        return bool(told) and element.role == "option" and element.name != told
+    if expected is not None and element.role != expected:
+        return True
     return bool(told) and expected in _NAMED_CONTROLS and element.name != told
 
 
@@ -883,13 +1187,14 @@ def element_info(
     from maptelo.desktop.screen import aria_role
 
     node = seen.node
-    element: Element | None = screen.by_path(node.path) if screen is not None else None
+    element: Element | None = element_at(screen, node) if screen is not None else None
     if screen is not None and element is not None and _another(node, element):
         # the same path is another element in that screen: a menu open when it was read stands
         # first in it (EBS „File > Save” read as a toolbar button without a name, the
         # clean-Windows Lite film of 13.10); the element the bridge names, else none
         told = clean_name(node.name)
-        alike = [e for e in screen.elements if e.role == aria_role(node) and e.name == told]
+        roles = _LABEL_ROLES if node.role == "label" else {aria_role(node)}
+        alike = [e for e in screen.elements if e.role in roles and e.name == told]
         element = next((e for e in alike if _placed(e.node.box)), None) if told else None
     role = element.role if element is not None else (aria_role(node) or node.role)
     if node.role == "label" and (element is None or element.role == "option"):
@@ -993,6 +1298,9 @@ class JavaRecorder:
         self._human: list[float] = []
         self._human_windows: dict[float, int] = {}
         """Where the next action began, even if its click arrives after a new dialog."""
+        self._human_fields: dict[float, tuple[int, str]] = {}
+        """The field of each typing among ``_human``: typing in an act's own field is no going
+        on."""
         self._state_screens: dict[str, Screen] = {}
         self._worked_in: str | None = None
         """The frame of the main window the person last did something in."""
@@ -1017,6 +1325,15 @@ class JavaRecorder:
         """When each window of the program appeared (bridge time)."""
         self._ever: dict[int, Window] = {}
         """Every window of the program seen, closed ones too (a question answered)."""
+        self._read_open: dict[int, tuple[float, str]] = {}
+        """Each window over the program's own read while it stood: when it opened (bridge time)
+        and its screen, for the act that brought it up when that act is told after it closed."""
+        self._fresh: dict[int, str] = {}
+        """The screens read in this pump, by window: not read twice."""
+        self._used_reads: set[str] = set()
+        """The windows' reads already taken as the screen after an act."""
+        self._closed_at: dict[int, float] = {}
+        """When each window was seen gone (bridge time)."""
 
     @property
     def trace_path(self) -> Path:
@@ -1061,6 +1378,9 @@ class JavaRecorder:
         self.bridge.events()  # what happened before the start is not the demonstration
         self._last_state = self._capture(self.main.hwnd, self.bridge.clock())
         self._keys = _KeySampler.maybe(self.main.pid)
+        if self._keys is not None:
+            self._keys.start(self.bridge.clock)
+            self.interpreter.typing_read = True
         return self.main
 
     def _find_main(self, timeout: float) -> Window:
@@ -1090,10 +1410,10 @@ class JavaRecorder:
         source = self.options.data
         if source is None:
             return None
-        import shutil
+        from maptelo.data.secrets import covered_copy
 
         target = self.folder / ("data" + source.suffix.lower())
-        shutil.copyfile(source, target)
+        covered_copy(source, target)  # a password column does not go with the recording
         return DataRef(file=target.name, sheet=self.options.sheet)
 
     # -- the loop --------------------------------------------------------------------------------
@@ -1116,13 +1436,15 @@ class JavaRecorder:
                     self._opened_at[hwnd] = min(self._opened_at[hwnd], t)
                 node = source["node"]
                 kind = event.get("kind")
-                if kind == "text_changed":
-                    key = (int(source["window"]), str(node.get("path")))
-                    self._texts.setdefault(key, []).append((t, node.get("text")))
+                if kind == "text_changed" and "path" in node:
+                    changed = Node.from_dict(node)
+                    key = (hwnd, self.interpreter.place_of(hwnd, changed))
+                    self._texts.setdefault(key, []).append((t, changed.text))
                     focus = self.interpreter.focus
                     if focus is not None and focus.key == key:
                         self._human.append(t)  # typing into the field with the focus
                         self._human_windows[t] = hwnd
+                        self._human_fields[t] = key
                 elif kind in ("mouse_pressed", "mouse_clicked"):
                     self._human.append(t)
                     self._human_windows[t] = hwnd
@@ -1210,6 +1532,10 @@ class JavaRecorder:
         went = [w.title for h, w in self._windows.items() if h not in windows]
         # The same handles can now be minimized or restored: keep their fresh state too.
         self._windows_opened(windows, now)
+        # a window that came is read first, before the events are gone through: a program
+        # redrawing a long block tells a thousand of them while its message stands
+        self._fresh = {}
+        self._read_shown(now)
         if changed:
             self._last_event = max(self._last_event, now)
         events = self._buffer + self._take_events()
@@ -1218,8 +1544,9 @@ class JavaRecorder:
             events.append({"kind": "windows_changed", "t": now, "came": came, "went": went})
         elif changed:  # told in the raw events only: no act answers it
             events.append({"kind": "windows_untitled", "t": now, "came": came, "went": went})
-        if self._keys is not None:
-            events += [{"kind": "key", "t": now, "key": k} for k in self._keys.pressed()]
+        if self._keys is not None:  # up to what the bridge has told: in order with its events
+            events += [{"kind": "key", "t": at, "key": k} for at, k in self._keys.take(through)]
+            events += [{"kind": "typed", "t": at} for at in self._keys.typed(through)]
         events.sort(key=lambda e: float(e.get("t") or 0.0))
         if self.options.raw_events and events and not self.options.private:
             import json
@@ -1239,7 +1566,7 @@ class JavaRecorder:
         if not self._pending:
             return settled
         last_act = max(act.end for act, _ in self._pending)  # a double click's second click
-        went_on = next((t for t in self._human if t > last_act + self.HUMAN_GAP), None)
+        went_on = self._going_on(last_act, [act for act, _ in self._pending])
         # quiet by what the bridge has told: a second click still being described is no quiet
         # (benchmark M4: a double click written as one click before its second click came)
         quiet = through - max(self._last_event, last_act) >= self.options.settle_ms / 1000
@@ -1263,7 +1590,12 @@ class JavaRecorder:
         if hwnd not in self._windows:
             hwnd = self._front_window(since)
         assert hwnd is not None
-        after = self._capture(hwnd, went_on if went_on is not None else now)
+        start = min(act.t for act, _ in self._pending)
+        after = self._shown_meanwhile(start, went_on, hwnd)
+        if after is None:
+            after = self._fresh.get(hwnd) or self._capture(
+                hwnd, went_on if went_on is not None else now
+            )
         written = settled
         for act, before in self._pending:
             self._write_act(act, before, after)
@@ -1272,6 +1604,7 @@ class JavaRecorder:
         self._last_state = after
         self._human = [t for t in self._human if t > last_act]
         self._human_windows = {t: hwnd for t, hwnd in self._human_windows.items() if t > last_act}
+        self._human_fields = {t: key for t, key in self._human_fields.items() if t > last_act}
         return written
 
     def _note_frames(self, events: list[dict[str, Any]]) -> None:
@@ -1347,7 +1680,7 @@ class JavaRecorder:
         written = 0
         while len(self._pending) > 1:
             first = self._pending[0][0]
-            went_on = next((t for t in self._human if t > first.end + self.HUMAN_GAP), None)
+            went_on = self._going_on(first.end, [first])
             if went_on is None or went_on > self._pending[-1][0].t:
                 break
             group = [entry for entry in self._pending if entry[0].t < went_on]
@@ -1360,13 +1693,93 @@ class JavaRecorder:
             if hwnd is None:
                 since = min(first.t, self._captured_at) if self._captured_at else first.t
                 hwnd = self._front_window(since)
-            after = self._capture(hwnd, went_on)
+            after = self._shown_meanwhile(first.t, went_on, hwnd)
+            if after is None:
+                after = self._fresh.get(hwnd) or self._capture(hwnd, went_on)
             for act, before in group:
                 self._write_act(act, before, after)
                 written += 1
             self._pending = [(act, after) for act, _ in rest]
             self._last_state = after
         return written
+
+    def _going_on(self, after: float, acts: list[Act]) -> float | None:
+        """When the person went on after ``after``: a click, or typing in a field. A field's text
+        changing in the field the acts typed into is the program writing it back (Oracle Forms
+        writes the customer's number again with the defaults it brings), not the person going
+        on: typing more there would have been the same act (benchmark D09: the screen after the
+        customer's number read just before the Note on the credit hold came up). An act told
+        after them is going on all the same: an Enter told from that writing back (benchmark
+        D04: SRK writes the invoice's number back when Enter is pressed in it)."""
+        own = {act.seen.key for act in acts if act.type == "fill" and act.seen is not None}
+        human = next(
+            (
+                t
+                for t in self._human
+                if t > after + self.HUMAN_GAP
+                and ((field := self._human_fields.get(t)) is None or field not in own)
+            ),
+            None,
+        )
+        told = [a.t for a, _ in self._pending if a not in acts and a.t > after + self.HUMAN_GAP]
+        if not told or (human is not None and human <= min(told) + self.HUMAN_GAP):
+            return human  # the next act's own press, or nothing told after them
+        return min(told)
+
+    def _read_shown(self, now: float) -> None:
+        """A window over the program's own (a message, a question) read once it has stood a
+        moment, before anyone answers it: the act that brought it up may be told only when the
+        person answers it (the typing in a field ends with the window's OK), and by then the
+        window is gone (benchmark D09: the Note on the customer's credit hold, after the
+        customer's number)."""
+        for hwnd, opened in list(self._opened_at.items()):
+            if hwnd in self._read_open or hwnd not in self._windows:
+                continue
+            if (self.main is not None and hwnd == self.main.hwnd) or not self._depth.get(hwnd):
+                continue
+            if hwnd not in self._answering(self._windows):
+                continue
+            wait = self.WINDOW_SETTLE - (now - opened)
+            if wait > 0:  # built a moment after it shows; read before a big screen under it
+                time.sleep(wait)
+            state = self._capture(hwnd, self.bridge.clock() if self.bridge else now)
+            if state is not None:
+                self._read_open[hwnd] = (opened, state)
+                self._fresh[hwnd] = state
+
+    def _shown_meanwhile(self, start: float, went_on: float | None, hwnd: int) -> str | None:
+        """The screen after acts begun at ``start``, when the person went on in a window gone
+        now (answered a question, closed a message): a window read while it stood that closed
+        after the acts began, not taken yet as the screen after another act. Not by when it
+        opened: a program redrawing a long block tells its events late, while the window is
+        seen at once (benchmark D09: the Note after Book Order with twelve lines; the Note on
+        the credit hold, the customer's number told only with the OK). None: the chosen
+        window's screen is read."""
+        if not self._read_open or went_on is None or went_on not in self._human_windows:
+            return None
+        if self._human_windows[went_on] in self._windows:
+            return None
+        answered = [
+            (_state_number(state), state)
+            for other, (_, state) in self._read_open.items()
+            if other != hwnd
+            and other not in self._windows
+            and state not in self._used_reads
+            and self._closed_at.get(other, start) >= start - self.TOLD_LATE
+        ]
+        if not answered:
+            return None
+        state = max(answered)[1]
+        self._used_reads.add(state)
+        return state
+
+    TOLD_LATE: ClassVar[float] = 2.0
+    """How much later than it happened the bridge may tell an act, when a program redraws a
+    long block (benchmark D09: a second behind after Book Order with twelve lines)."""
+
+    def _bridge_now(self) -> float:
+        assert self.bridge is not None
+        return self.bridge.clock()
 
     def _row_of(self, act: Act) -> None:
         """A click in a table: the row it chose, read at once (a list window closes with its
@@ -1464,6 +1877,8 @@ class JavaRecorder:
             self._windows_opened(windows, self.bridge.clock())
 
     def _windows_opened(self, windows: dict[int, Window], now: float) -> None:
+        for hwnd in self._windows.keys() - windows.keys():
+            self._closed_at[hwnd] = now
         for hwnd, window in windows.items():
             self._ever[hwnd] = window
             if hwnd not in self._windows:
@@ -1501,7 +1916,9 @@ class JavaRecorder:
                 for hwnd, known in [*self._windows.items(), *self._ever.items()]:
                     if known.title == name:
                         return hwnd
-        if t is not None and any(role == "option pane" for role, _ in source.get("chain") or []):
+        if t is not None and any(
+            role in ("option pane", "alert") for role, _ in source.get("chain") or []
+        ):
             # a question's button told as the question closed, with neither its window nor its
             # title (only the option pane around it: benchmark M1 r2, „Tak” of WCR's question
             # became a step of no window): the dialog opened last before it is the question's
@@ -1604,6 +2021,8 @@ class JavaRecorder:
         Job callbacks may keep the recorder alive; garbage collection cannot be relied on
         to close the trace or the helper process.
         """
+        if self._keys is not None:
+            self._keys.close()
         try:
             if self.writer is not None:
                 self.writer.close()
@@ -1741,7 +2160,7 @@ class JavaRecorder:
         self.interpreter.remember(
             hwnd,
             {
-                e.path: e.value
+                self.interpreter.place_of(hwnd, e.node): e.value
                 for e in screen.elements
                 if e.role in ("textbox", "combobox", "spinbutton")
             },
@@ -1806,14 +2225,15 @@ class JavaRecorder:
         for element in screen.elements:
             if element.role not in ("textbox", "spinbutton"):
                 continue
-            history = self._texts.get((hwnd, element.path))
+            key = (hwnd, self.interpreter.place_of(hwnd, element.node))
+            history = self._texts.get(key)
             if not history or history[-1][0] <= until:
                 continue
             earlier = [text for t, text in history if t <= until]
             if earlier:
                 element.value = earlier[-1]
             else:
-                known = self.interpreter.known.get((hwnd, element.path))
+                known = self.interpreter.known.get(key)
                 element.value = known[1] if known is not None and known[0] <= until else ""
             changed = True
         if changed:  # a block's rows as they were then too (benchmark D06: the new line's
@@ -1838,7 +2258,7 @@ class JavaRecorder:
             if (
                 earlier is not None
                 and earlier.hwnd == seen.window
-                and earlier.by_path(seen.node.path) is not None
+                and element_at(earlier, seen.node) is not None
             ):
                 screen = earlier  # its row as it was before the act
             toolbar = _toolbar_index(screen, seen.node) if screen is not None else None
@@ -1855,6 +2275,18 @@ class JavaRecorder:
                 ]
                 if len(alike) == 1:
                     target = target.model_copy(update={"bbox": alike[0].node.box})
+            if screen is not None:
+                target = _named_by_its_field(target, screen)
+            own = self._windows.get(seen.window) or self._ever.get(seen.window)
+            if (
+                target.dialog is None
+                and own is not None
+                and own.title
+                and self._depth.get(seen.window)
+            ):
+                # a button of a window over the program's own told without its title (a
+                # message's OK told as the message closes, only an alert around it)
+                target = target.model_copy(update={"dialog": title_template(own.title)})
             if act.row is not None:  # a row of a table: its cell, in its row
                 cell = (act.column if act.type in ("check", "uncheck", "fill") else act.cell) or ""
                 target = target.model_copy(
@@ -1928,6 +2360,27 @@ class JavaRecorder:
                 state_after=after,
             )
         )
+
+
+def _state_number(state: str | None) -> int:
+    """The order of a screen read (``s012``: the twelfth); 0 for none."""
+    return int(state[1:]) if state and state[1:].isdigit() else 0
+
+
+def _named_by_its_field(target: ElementInfo, screen: Screen) -> ElementInfo:
+    """A button nothing names, standing right of a field in its line (Oracle Forms' "…" of a
+    list of values or of a calendar, which the bridge tells without a name, so its step went
+    to a person): known by that field (``beside``), as a person says „the … by Name”. A button
+    of a toolbar is known by its place there."""
+    if target.role != "button" or target.name or target.css or target.bbox is None:
+        return target
+    box = target.bbox
+    field = field_beside(screen, box, within=max(8, box[3]))
+    if field is None or not field.name:
+        return target
+    return target.model_copy(
+        update={"beside": field.name, "candidates": [Locator(beside=field.name)]}
+    )
 
 
 def _toolbar_index(screen: Screen, node: Node) -> int | None:
@@ -2084,10 +2537,23 @@ def _screenshot(
         return None
 
 
+_FUNCTION = re.compile(r"(?:Ctrl\+)?(?:Shift\+)?F(?:[1-9]|1[0-2])")
+"""A function key as the recording names it, with what was held (Ctrl+F11, Shift+F5)."""
+
+
 class _KeySampler:
-    """Navigation keys as the person presses them (Enter, Escape, Tab, arrows, F keys), read
-    from the keyboard's state; letters are never read. Only where Maptelo shares the desktop
-    with the person: on another desktop (the benchmark's) it stays empty."""
+    """Navigation keys as the person presses them (Enter, Escape, Tab, arrows, F keys, Ctrl+L
+    for a list of values), read from the keyboard's state; letters are never read. And when a
+    key that writes went down (``typed``): only when, never which one. Only where Maptelo
+    shares the desktop with the person: on another desktop (the benchmark's) it stays empty.
+
+    It reads in a thread of its own, every few milliseconds, each press with the bridge's time
+    it was seen at: the recorder's loop may take seconds to read a screen, and a short press
+    between two of its turns was lost, or put after the events the bridge told later. The
+    loop takes the presses up to the time the bridge has told everything of (``take``)."""
+
+    EVERY_S = 0.008
+    """How often the keyboard's state is read."""
 
     KEYS: ClassVar[dict[int, str]] = {
         0x0D: "Enter",
@@ -2096,13 +2562,88 @@ class _KeySampler:
         0x28: "ArrowDown",
         0x26: "ArrowUp",
         0x22: "PageDown",
-        0x7A: "F11",
+        **{0x6F + n: f"F{n}" for n in range(1, 13)},
+        0x4C: "L",  # with Ctrl only: Oracle Forms' list of values
     }
+    WRITING: ClassVar[tuple[int, ...]] = (
+        0x08,  # Backspace
+        0x20,  # Space
+        0x2E,  # Delete
+        *range(0x30, 0x3A),  # digits
+        *range(0x41, 0x5B),  # letters
+        *range(0x60, 0x70),  # the number pad
+        *range(0xBA, 0xC1),  # ; = , - . / `
+        *range(0xDB, 0xE0),  # [ \ ] '
+        0xE2,  # the key between Shift and Z
+    )
+    """The keys that change a field's text. With Ctrl down only V and X do (a paste, a cut)."""
 
     def __init__(self, user32: Any, pid: int) -> None:
         self.user32 = user32
         self.pid = pid
         self.down: set[int] = set()
+        self._seen: list[tuple[float, str]] = []
+        self._typed: list[float] = []
+        self._lock = threading.Lock()
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._writing: set[int] = set()
+
+    def start(self, clock: Callable[[], float]) -> None:
+        """Read in a thread of its own; each press, and each key that writes going down, stamped
+        with ``clock`` (the bridge's)."""
+
+        def run() -> None:
+            while not self._stop.wait(self.EVERY_S):
+                try:
+                    found = self.pressed()
+                    wrote = self.wrote()
+                except Exception:  # the keyboard's state cannot be read now: next time
+                    continue
+                if found or wrote:
+                    at = clock()
+                    with self._lock:
+                        self._seen += [(at, key) for key in found]
+                        if wrote:
+                            self._typed.append(at)
+
+        self._thread = threading.Thread(target=run, name="java-keys", daemon=True)
+        self._thread.start()
+
+    def take(self, until: float) -> list[tuple[float, str]]:
+        """The presses seen up to ``until``, oldest first; later ones wait for the next turn."""
+        with self._lock:
+            taken = [seen for seen in self._seen if seen[0] <= until]
+            self._seen = [seen for seen in self._seen if seen[0] > until]
+        return taken
+
+    def typed(self, until: float) -> list[float]:
+        """When a key that writes went down, up to ``until`` (bridge time)."""
+        with self._lock:
+            taken = [at for at in self._typed if at <= until]
+            self._typed = [at for at in self._typed if at > until]
+        return taken
+
+    def wrote(self) -> bool:
+        """A key that writes went down since the last look (never which one): letters, digits,
+        Backspace, Delete; with Ctrl only V and X (a paste, a cut)."""
+        if not self._in_program():
+            self._writing.clear()
+            return False
+        ctrl = bool(self.user32.GetAsyncKeyState(0x11) & 0x8000)
+        wrote = False
+        for vk in self.WRITING:
+            if not self.user32.GetAsyncKeyState(vk) & 0x8000:
+                self._writing.discard(vk)
+            elif vk not in self._writing:
+                self._writing.add(vk)
+                wrote = wrote or not ctrl or vk in (0x56, 0x58)
+        return wrote
+
+    def close(self) -> None:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=1)
 
     @classmethod
     def maybe(cls, pid: int) -> _KeySampler | None:
@@ -2137,13 +2678,20 @@ class _KeySampler:
         shift = bool(self.user32.GetAsyncKeyState(0x10) & 0x8000)
         ctrl = bool(self.user32.GetAsyncKeyState(0x11) & 0x8000)
         for vk, name in self.KEYS.items():
-            down = bool(self.user32.GetAsyncKeyState(vk) & 0x8000)
-            if down and vk not in self.down:
+            state = self.user32.GetAsyncKeyState(vk)
+            down = bool(state & 0x8000)
+            if (down or state & 0x0001) and vk not in self.down:  # 1: pressed since last read
                 if name == "Tab" and shift:
                     name = "Shift+Tab"
-                if name == "F11" and ctrl:
-                    name = "Ctrl+F11"
-                out.append(name)
+                if name == "Tab" and shift:
+                    name = "Shift+Tab"
+                if name.startswith("F") and name[1:].isdigit():  # Oracle Forms' keys: F7, F8,
+                    # F10 to save, Ctrl+F11 to query, Shift+F5 ... as the robot posts them
+                    name = ("Ctrl+" if ctrl else "") + ("Shift+" if shift else "") + name
+                if name == "L":
+                    name = "Ctrl+L" if ctrl else ""  # a letter typed: never read
+                if name:
+                    out.append(name)
             if down:
                 self.down.add(vk)
             else:

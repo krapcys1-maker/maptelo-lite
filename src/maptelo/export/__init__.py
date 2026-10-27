@@ -15,9 +15,11 @@ from maptelo.export.images import screenshots_for, step_screenshots
 from maptelo.export.mermaid import render_mermaid
 from maptelo.export.sop import render_sop
 from maptelo.export.svg import render_svg
+from maptelo.files import write_atomic
 from maptelo.mapping.build import MapResult
 from maptelo.mapping.naming import Lang, written_date
 from maptelo.model import ProcessModel, dump_model, lint
+from maptelo.privacy import recorded_values, redact
 from maptelo.trace.schema import Trace
 
 
@@ -104,8 +106,13 @@ def write_bundle(
         )
         + "\n",
     }
+    if model.private:  # documents to share: no value of its recordings
+        values = recorded_values({id(t): t for t, _ in (sources or {}).values()}.values())
+        for key in contents:
+            if key != "model":
+                contents[key] = redact(contents[key], values, lang)
     for key, path in files.items():
-        path.write_text(contents[key], encoding="utf-8", newline="\n")
+        write_atomic(path, contents[key], encoding="utf-8", newline="\n")
     return files
 
 

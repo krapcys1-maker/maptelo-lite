@@ -28,8 +28,10 @@ AppUpdatesURL=https://github.com/krapcys1-maker/maptelo-lite/releases
 VersionInfoVersion={#AppVersion}
 VersionInfoProductName=Maptelo Lite
 VersionInfoDescription=Maptelo Lite
-; where the person says, the Desktop first; for this person only, no administrator
-DefaultDirName={userdesktop}\Maptelo Lite
+; where the person says, the Desktop first; for this person only, no administrator. A Desktop
+; OneDrive keeps in sync is not: it would sync the window's browser data and sign-ins, and its
+; long path leaves little room for Windows' 260 signs (then the person's local programs folder)
+DefaultDirName={code:DefaultFolder}
 ; not the folder of an earlier install (an older Lite kept it in the registry)
 UsePreviousAppDir=no
 DisableDirPage=no
@@ -110,3 +112,15 @@ Type: filesandordirs; Name: "{app}\python32"
 Type: filesandordirs; Name: "{app}\data"
 Type: dirifempty; Name: "{app}\{cm:WorkFolder}"
 Type: dirifempty; Name: "{app}"
+
+[Code]
+function DefaultFolder(Param: String): String;
+var
+  Desktop: String;
+begin
+  Desktop := ExpandConstant('{userdesktop}');
+  if (Pos('ONEDRIVE', Uppercase(Desktop)) > 0) or (Length(Desktop) > 80) then
+    Result := ExpandConstant('{localappdata}\Programs\Maptelo Lite')
+  else
+    Result := Desktop + '\Maptelo Lite';
+end;

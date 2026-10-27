@@ -7,6 +7,7 @@ and interrupts are guesses, listed in ``notes`` for the person to confirm.
 
 from __future__ import annotations
 
+import itertools
 import json
 import os
 import re
@@ -19,9 +20,9 @@ from typing import Any, Literal
 from urllib.parse import unquote, urlsplit
 
 from maptelo import options, sentences
-from maptelo.consent import CONSENT
+from maptelo.consent import CONSENT, COOKIES
 from maptelo.data.tables import Table, TableError, read_table
-from maptelo.dates import read_day
+from maptelo.dates import read_day, read_oracle_date
 from maptelo.mapping import shown
 from maptelo.mapping.choices import offered_choices
 from maptelo.mapping.naming import Lang, human_title, say, slug, unique, written_date
@@ -32,13 +33,20 @@ from maptelo.mapping.normalize import (
     normalize,
     one_time_code,
 )
-from maptelo.mapping.shown import ANY_WORD
+from maptelo.mapping.shown import ANY_TEXT, ANY_WORD
 from maptelo.mapping.sources import LIKE, bind, is_search, readings, trace_origins
 from maptelo.model.integrity import PLACEHOLDER
 from maptelo.model.schema import NATIONAL, ProcessModel
 from maptelo.model.urls import fill_from, origin, screen_template
 from maptelo.trace.aria import AriaNode, parse_aria, table_row_nodes, table_rows
-from maptelo.trace.schema import DialogSeen, ElementInfo, Trace, TraceEvent, TraceState
+from maptelo.trace.schema import (
+    DialogSeen,
+    ElementInfo,
+    RowContext,
+    Trace,
+    TraceEvent,
+    TraceState,
+)
 
 _COMMIT_WORDS = re.compile(
     r"\b(save|submit|apply|confirm|send|post|book|approve|reject|create|update|delete|issue|"
@@ -75,6 +83,14 @@ _CONSENT = CONSENT
 the process, though it sends the choice (benchmark M5: „Pliki cookie i zgody”)."""
 _YES = re.compile(r"tak|yes", re.IGNORECASE)
 """The answer that does what a question asks."""
+_ASKS_TO_SAVE = re.compile(
+    r"\b(zapisa[ćc]|zatwierdzi[ćc]|zaksi[ęe]gowa[ćc]|wystawi[ćc]|wys[łl]a[ćc]|usun[ąa][ćc]|"
+    r"utworzy[ćc]|przekaza[ćc]|zarejestrowa[ćc]|zaimportowa[ćc]|zaakceptowa[ćc]|odrzuci[ćc]|"
+    r"save|submit|confirm|post|delete|send|create|approve|reject)\b",
+    re.IGNORECASE,
+)
+"""Words of a question that asks whether to save („Zapisać korektę?”, „Zatwierdzić notę?”,
+„Save the changes?”): its yes saves, whatever the button before it was called."""
 """Buttons that close a window without doing what it asks."""
 _ATTESTS = re.compile(
     r"zgodn|sprawdzi|sprawdzon|zweryfikow|weryfikac|potwierdzam|oświadczam|oswiadczam|"
@@ -238,6 +254,14 @@ _MARKS_MAY = "[" + "".join(map(chr, (0xAE, 0x2122, 0xA9, 0x2120))) + "]?"
 """A word of a name may carry a registered or trade mark on screen that the sheet leaves out."""
 
 
+def _named_pattern(value: str) -> re.Pattern[str]:
+    """The value as a whole part of a title: in any letters and with the shop's ® or ™
+    („Teton Pullover Hoodie” for the sheet's „Teton pullover hoodie”, WebArena-Verified 242),
+    as the run finds it."""
+    loose = r"\s+".join(re.escape(word) + _MARKS_MAY for word in value.split())
+    return re.compile(_SEGMENT + loose + _SEGMENT_END, re.IGNORECASE)
+
+
 class _Screens:
     """The screens of a recording, by their address; a window over the main one (a chooser, an
     approval) has screens of its own, also at the main page's address (benchmark g039)."""
@@ -248,6 +272,7 @@ class _Screens:
         self.app = app
         self.screens: dict[str, _Screen] = {}
         self._by_url: dict[tuple[str, str, int], str] = {}
+        self._patterns: list[tuple[str, str, re.Pattern[str]]] | None = None
         self.typed: dict[str, str] = {}
         """Values a person typed or chose in the recording, by the field's name: a screen named
         by one (after saving, the heading is the page title just typed: WebArena-Verified, CMS
@@ -310,11 +335,15 @@ class _Screens:
         title's separators) marked as the record's (``_MARK``)."""
         if not words:
             return words
-        for value in sorted(self.typed, key=len, reverse=True):
-            # in any letters and with the shop's ® or ™ („Teton Pullover Hoodie” for the sheet's
-            # „Teton pullover hoodie”, WebArena-Verified 242), as the run finds it
-            loose = r"\s+".join(re.escape(word) + _MARKS_MAY for word in value.split())
-            pattern = re.compile(_SEGMENT + loose + _SEGMENT_END, re.IGNORECASE)
+        if self._patterns is None:  # made once: a sheet gives thousands of values
+            self._patterns = [
+                (value, value.split()[0].casefold(), _named_pattern(value))
+                for value in sorted(self.typed, key=len, reverse=True)
+            ]
+        folded = words.casefold()
+        for value, first, pattern in self._patterns:
+            if first not in folded:
+                continue  # not in these words at all: most values are in no title
             marked = "\x01" + value + "\x02"
             words = pattern.sub(lambda _, marked=marked: marked, words)  # type: ignore[misc]
         return words
@@ -420,6 +449,42 @@ RowRule = Literal["rule", "key", "all", "sorted"]
 and so comes from the work list ("Numer = PO/2026/0001"), or only by all of its values."""
 
 
+def _read_before_its_window(act: Act, nxt: ElementInfo, aria: str) -> bool:
+    """The screen before the act does not show the element acted on either, in the window the
+    next step's element is in: it was read before that window was all there (a server's answer
+    later), so the next element missing from it is no sign of what the act did (benchmark D08:
+    „OK” of the list of values, taken for the result of clicking its row)."""
+    own = act.event.target
+    if own is None or not own.role or not own.name or not own.dialog:
+        return False
+    return own.dialog == nxt.dialog and parse_aria(aria).find(own.role, own.name) is None
+
+
+def _named_by_its_defaults(
+    cells: dict[str, str], own: str, rows: list[dict[str, str]]
+) -> dict[str, Any] | None:
+    """A new line no value of the record names yet, whose other cells hold only what the form
+    wrote by itself as the cursor came (Oracle Forms' Grouping Number -1): those cells, with its
+    own field still empty, when they name one row on the screen (benchmark D08: the second
+    qualifier's Qualifier Context, the first row holding -1 and „Customer”, the second -1 and
+    nothing). Amounts and dates are no such default: they name a row only on one day."""
+    shown_cells = {
+        c: v
+        for c, v in cells.items()
+        if c != own and v and not shown.measure(v) and read_day(v) is None
+        and read_oracle_date(v) is None
+    }  # fmt: skip
+    if not shown_cells or len(shown_cells) != sum(1 for c, v in cells.items() if c != own and v):
+        return None
+    fits = sum(
+        1
+        for row in rows
+        if not (row.get(own) or "").strip()
+        and all((row.get(c) or "").strip() == v for c, v in shown_cells.items())
+    )
+    return {"where": {**shown_cells, own: None}} if fits == 1 else None
+
+
 def _row_rule(trace: Trace, act: Act) -> tuple[dict[str, str], RowRule]:
     """Pick the column that explains which row was chosen. A word that singles the row out
     is a rule; else a number or a code that does is the record's key, a value to take from the
@@ -501,6 +566,140 @@ def _form_name(step: dict[str, Any]) -> str:
     password and its confirmation do not (``PASSWORD``, ``CONFIRM_PASSWORD``, benchmark p15)."""
     names = [str(r["field"]) for r in step.get("target") or [] if r.get("field")]
     return re.sub(r"\d+", "", names[0]) if names else ""
+
+
+_NOT_TEXT = {"button", "link", "textbox", "combobox", "checkbox", "menuitem", "tab", "option"}
+_RECORD_NUMBER = re.compile(r"\d{4}")
+"""Four digits in a row: a record's own number (an invoice's, the KSeF number), not a status."""
+
+
+def _texts(state: TraceState | None) -> set[str]:
+    """What a screen says in words of its own: a status, a cell, a message (no control, and
+    no number of a record, which another record shows otherwise)."""
+    if state is None:
+        return set()
+    found = set()
+    for node in parse_aria(state.aria).walk():
+        if node.role in _NOT_TEXT:
+            continue
+        text = " ".join(str(node.value or node.name or "").split())
+        if 3 <= len(text) <= 80 and not _RECORD_NUMBER.search(text):
+            found.add(text)
+    return found
+
+
+_DONE_SAID = re.compile(
+    r"\b(?:has|have) been (?:booked|saved|created|posted|submitted|registered|approved)\b|"
+    r"\b(?:zapisan|zaksięgowan|utworzon|wystawion|zarejestrowan|zatwierdzon)\w*",
+    re.IGNORECASE,
+)
+"""What a message says when the work was done („Order 61001 has been booked.”)."""
+
+
+def _done_message(state: TraceState) -> bool:
+    """A window that only says the work was done: its one button (OK), nothing to fill or
+    choose, and words that it was done (a refusal's message is no save: benchmark D05)."""
+    root = parse_aria(state.aria)
+    nodes = list(root.walk())
+    buttons = sum(1 for n in nodes if n.role == "button")
+    fields = sum(
+        1 for n in nodes if n.role in ("textbox", "combobox", "checkbox", "radio", "listbox")
+    )
+    return buttons == 1 and fields == 0 and bool(_DONE_SAID.search(state.aria))
+
+
+def _same_click(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    """The same button clicked again on the same screen, which stays (an answer that closes a
+    question, or a click that opens a window, is another step each time)."""
+    stays = not any(s.get(k) for s in (a, b) for k in ("closes_window", "opens_window"))
+    return (
+        stays
+        and a.get("action") == b.get("action") == "click"
+        and _NUMBERED.sub("", str(a["id"])) == _NUMBERED.sub("", str(b["id"]))
+        and a.get("in_state") == b.get("in_state")
+        and (a.get("target") or [None])[0] == (b.get("target") or [None])[0]
+    )
+
+
+_LINE_KEYS = ("Enter", "Tab")
+"""Keys a person presses between a line's fields, or not: a line is the same line either way."""
+
+
+def _line_values(step: dict[str, Any]) -> set[str]:
+    values = [step.get("value"), *(step.get("within") or {}).get("where", {}).values()]
+    return {str(v).removeprefix("$inputs.") for v in values if str(v).startswith("$inputs.")}
+
+
+def _lines_left_out(steps: list[dict[str, Any]], spans: list[tuple[int, int]]) -> bool:
+    """A value the lines' steps take is also taken by a step outside them: the block was found
+    at the wrong place (a line begun before it, or ended after it)."""
+    start, end = spans[0][0], spans[-1][1]
+    inside = {v for s in steps[start:end] for v in _line_values(s)}
+    outside = {v for s in steps[:start] + steps[end:] for v in _line_values(s)}
+    return bool(inside & outside)
+
+
+def _lines_without_keys(
+    steps: list[dict[str, Any]], keys: list[tuple[str, ...]]
+) -> list[tuple[int, int]] | None:
+    """The lines found by their steps without the Enter and Tab between fields: (start, end) of
+    each line in ``steps``, the keys after a line's last field belonging to it."""
+    kept = [
+        i
+        for i, s in enumerate(steps)
+        if not (s.get("action") == "press" and str(s.get("value")) in _LINE_KEYS)
+    ]
+    found = repeated_block([keys[i] for i in kept])
+    if found is None:
+        return None
+    start, length, times = found
+    starts = [kept[start + n * length] for n in range(times)]
+    after = kept[start + times * length] if start + times * length < len(kept) else len(steps)
+    return list(zip(starts, [*starts[1:], after], strict=True))
+
+
+def _lines_with_fields_of_some(
+    steps: list[dict[str, Any]], keys: list[tuple[str, ...]]
+) -> list[tuple[int, int]] | None:
+    """The lines found when the fields only some lines have (a line's warehouse, typed only for
+    the lines shipped from another one) are left out, as the Enter and Tab between fields are:
+    (start, end) of each line in ``steps``, such a field belonging to the line it was typed in.
+    The lines' fields are those typed most often; a field typed fewer times, each time between
+    the first and the last line's fields (or right after them, when also typed between), is
+    one of some lines."""
+    entries = [i for i, s in enumerate(steps) if s.get("action") in _ENTRIES]
+    counts = Counter(keys[i] for i in entries)
+    most = max(counts.values(), default=0)
+    if most < 2:
+        return None
+    lined = [i for i in entries if counts[keys[i]] == most]
+    first, last = lined[0], lined[-1]
+    inside = {keys[i] for i in entries if first < i < last and counts[keys[i]] < most}
+    end = last + 1
+    while end < len(steps) and (
+        keys[end] in inside
+        or (steps[end].get("action") == "press" and str(steps[end].get("value")) in _LINE_KEYS)
+    ):
+        end += 1
+    some = {k for k in inside if all(first < i < end for i in entries if keys[i] == k)}
+    if not some:
+        return None
+    kept = [
+        i
+        for i, s in enumerate(steps)
+        if keys[i] not in some
+        and not (s.get("action") == "press" and str(s.get("value")) in _LINE_KEYS)
+    ]
+    found = repeated_block([keys[i] for i in kept])
+    if found is None:
+        return None
+    start, length, times = found
+    starts = [kept[start + n * length] for n in range(times)]
+    stop = start + times * length
+    after = kept[stop] if stop < len(kept) else len(steps)
+    if starts[0] > first or after <= last:
+        return None  # the block found is not the lines' fields
+    return list(zip(starts, [*starts[1:], after], strict=True))
 
 
 def repeated_block(keys: list[tuple[str, ...]]) -> tuple[int, int, int] | None:
@@ -695,6 +894,56 @@ _NO_ROLE = (None, "presentation", "none", "generic")
 clicked by its words."""
 
 
+_SETTLED_BY = {  # Lite maps one recording: the rule is written in words
+    "choice": (
+        "słowami w opisie kroku (Maptelo Lite tworzy mapę z jednego nagrania, a "
+        "kilka nagrań łączy pełne Maptelo)",
+        "in words in the step's description (Maptelo Lite maps one recording; the "
+        "full Maptelo joins several)",
+    ),
+    "row": (
+        "albo opisz ją słowami w opisie kroku",
+        "or write it in the step's description",
+    ),
+    "constants": (
+        "wartość, która jest zawsze taka sama, opisz w opisie kroku (Maptelo "
+        "Lite tworzy mapę z jednego nagrania, a kilka nagrań łączy pełne Maptelo)",
+        "write a value that is always the same in the step's description "
+        "(Maptelo Lite maps one recording; the full Maptelo joins several)",
+    ),
+}
+
+_LIST_ITEMS = ("option", "listitem", "treeitem", "menuitem", "gridcell", "cell", "row")
+"""What a list of values offers: its items, rows and cells; a button or a link holding a value
+of the record is named by it otherwise (``named_by_data``, ``named_in_part``)."""
+
+
+def _table_of(row: RowContext) -> str:
+    """A table as a rule names it: by its caption, else by its columns (Oracle Forms' blocks
+    have none: a price list's qualifiers and its lines are two tables of one screen)."""
+    return row.table or "|".join(row.cells)
+
+
+def _place(act: Act) -> tuple[str, str, str] | None:
+    """The screen, the table and the column of a field in a table's row; None for a field of
+    no table."""
+    target = act.event.target
+    if target is None or target.row is None or not target.column:
+        return None
+    return _screen_key(act.event.url or "")[1], _table_of(target.row), target.column
+
+
+def _word_pattern(value: str) -> str:
+    """A value as a word of its own in a text (26386-F, not the end of 126386-F)."""
+    body = r"\s+".join(map(re.escape, value.split()))
+    before = r"(?<!\w)" if value[:1].isalnum() else ""
+    return before + body + (r"(?!\w)" if value[-1:].isalnum() else "")
+
+
+def _word_in(value: str, text: str) -> bool:
+    return re.search(_word_pattern(value), text, re.IGNORECASE) is not None
+
+
 def _exception_from(message: str, placeholders: dict[str, str]) -> tuple[str, str]:
     """(id, description) for an error message; typed values become {input} placeholders."""
     description = message.strip()
@@ -744,6 +993,23 @@ class _Builder:
         self.exceptions: dict[str, dict[str, Any]] = {}
         self._step_ids: set[str] = set()
         self._input_names: set[str] = set()
+        self._typed_in: dict[str, tuple[str, str, str] | None] = {}
+        """Input -> the screen, the table and the column its field is in (``_place``); None:
+        no table's. A header's „Start Date” and the lines' „Start Date” are two inputs."""
+        self._using: dict[str, str] = {}
+        """The inputs the step being built takes, with the value it took (``used``)."""
+        self.used: dict[str, dict[str, str]] = {}
+        """Step id -> its inputs and the values it took from them in the recording: a line
+        done again takes the next line's values (``fold_lines``)."""
+        self.lines: list[dict[str, str]] = []
+        """The values each line of the record took (``fold_lines``), for their columns."""
+        self._table: Table | Literal[False] | None = False
+        """The sheet, once read (False: not read yet)."""
+        self._holding: dict[str, set[int]] = {}
+        self.in_row: dict[str, tuple[tuple[str, str, str], int]] = {}
+        """Step id -> the screen, table and column its element is in (``_place``), and its row."""
+        self._picked_in: dict[str, str] = {}
+        """The table each input picked a row of was named (its rows clicked)."""
         self._picked_labels: list[str] = []
         """The fields of the dates picked so far: a range picks two days for one field."""
         self._attested_on: str | None = None
@@ -839,13 +1105,20 @@ class _Builder:
             # („fedex”, WebArena's Magento): the record's value is the words, and a list is
             # chosen by its words as well as by its codes
             value, column = words, by_words
+        place = _place(act)
         for known in self.labelled.get(label, []):
             example = str(self.inputs[known].get("example", ""))
             if value != example and is_search(example, value):
                 continue  # the value typed again as a search („26386%” after „26386-F” in the
                 # same field, benchmark M2): typed so, an input of its own
+            if known in self._typed_in and self._typed_in[known] != place:
+                continue  # the field of the same name in a table's rows, or outside them (an
+                # input of a row's cell, named for its column, is the value typed there too)
             held = self.column_of(example)
             if column is None or held is None or held == column:
+                self._using.setdefault(known, value)
+                if value.strip() and not act.event.secret and not one_time_code(act):
+                    self.placeholders.setdefault(value, known)  # its value too: a row shows it
                 return known  # the same field again, or its value of the record's next line
         again = label in self.labelled  # another field of the label: named by its column
         plain_label = PLACEHOLDER.sub("", label).strip(" :") or "value"  # „Ilość do zwrotu”
@@ -872,6 +1145,8 @@ class _Builder:
         self.inputs[name] = spec
         self.inputs_by_field.setdefault(label, name)
         self.labelled.setdefault(label, []).append(name)
+        self._typed_in[name] = place
+        self._using.setdefault(name, value)
         if value and not once:
             self.placeholders[value] = name
         return name
@@ -997,31 +1272,297 @@ class _Builder:
             (str(s["action"]), _NUMBERED.sub("", str(s["id"])), _form_name(s), str(s.get("value")))
             for s in steps
         ]
-        found = repeated_block(keys)
-        if found is None:
-            return steps
-        start, length, times = found
-        block = steps[start : start + length]
+        while True:
+            found = repeated_block(keys)
+            spans = (
+                [(found[0] + n * found[1], found[0] + (n + 1) * found[1]) for n in range(found[2])]
+                if found is not None
+                else []
+            )
+            if not spans or _lines_left_out(steps, spans):
+                # a key told in one line and not in another (an Enter the program's delay
+                # swallowed): the lines found without the keys, each line with its own steps
+                spans = _lines_without_keys(steps, keys) or []
+                if not spans or _lines_left_out(steps, spans):
+                    # a field typed in some lines only (the line's own warehouse): the lines
+                    # found without it, when the sheet tells which lines have it
+                    spans = _lines_with_fields_of_some(steps, keys) or []
+                    if not spans or _lines_left_out(steps, spans):
+                        return steps  # no block whose lines hold every value of a line: as done
+            start, end = spans[0][0], spans[-1][1]
+            runs = [steps[a:b] for a, b in spans]
+            outside = steps[:start] + steps[end:]
+            if self.lines_of_sheet(runs, outside) is not False:
+                break
+            # rows of one table typed one after another, each with values of its own that no
+            # row of the sheet names (a price list's qualifiers): no lines of the record
+            for at in range(start, end):
+                keys[at] = ("#rows", str(at))
+        times = len(spans)
+        line_start, line_end = max(spans, key=lambda span: span[1] - span[0])  # the fullest line
+        block = steps[line_start:line_end]
         if not any(s["action"] in _ENTRIES for s in block):
             return steps  # clicked again and again ("next month"): not lines of a record
         if all(s["action"] == "pick_date" for s in block):
             return steps  # days of one calendar (a stay from - to): dates of one record
+        elsewhere = {
+            name for step in outside for name in re.findall(r"inputs\.(\w+)", json.dumps(step))
+        }
+
+        def same(step: dict[str, Any]) -> tuple[str, ...]:
+            return keys[steps.index(step)]
+
+        def mates_of(step: dict[str, Any]) -> list[dict[str, Any] | None]:
+            # the same step in each line (lines may differ by a key between fields)
+            return [next((s for s in run if same(s) == same(step)), None) for run in runs]
+
+        for run in runs:  # a field of other lines the fullest one has not: where they typed it
+            for k, step in enumerate(run):
+                if step["action"] in _ENTRIES and not any(same(b) == same(step) for b in block):
+                    before = next(
+                        (b for p in reversed(run[:k]) for b in block if same(b) == same(p)), None
+                    )
+                    block.insert(block.index(before) + 1 if before is not None else 0, step)
+        some: dict[str, dict[str, Any]] = {}
+        for step in block:
+            if step["action"] in _ENTRIES and None in mates_of(step):
+                rule = self.typed_in_some_lines(step, runs, mates_of(step), outside)
+                if rule is None:
+                    return steps  # a field of some lines the sheet does not tell: as done
+                some[str(step["id"])] = rule
         for step in block:
             step["per_line"] = True
-            for value in [step.get("value"), *(step.get("within") or {}).get("where", {}).values()]:
-                name = (
-                    str(value).removeprefix("$inputs.") if str(value).startswith("$inputs.") else ""
-                )
-                if name in self.inputs:
+            if str(step["id"]) in some:
+                step["when"] = some[str(step["id"])]
+                self.inputs[str(step["value"]).removeprefix("$inputs.")]["required"] = False
+            mates = mates_of(step)
+            taken = [self.used.get(str(s["id"]), {}) for s in mates if s is not None]
+            for name in re.findall(r"inputs\.(\w+)", json.dumps(step)):
+                values = {shown.plain(t[name]).casefold() for t in taken if name in t}
+                if name in self.inputs and (len(values) > 1 or name not in elsewhere):
+                    # one value a line; the header's value the lines name too (the account in
+                    # the item's option) stays the record's one
                     self.inputs[name]["per_line"] = True
-        first, last = block[0]["intent"], block[-1]["intent"]
+        self.lines = []
+        for run in runs:  # as each line first took it: typed („31830%”), not as a row shows it
+            line: dict[str, str] = {}
+            for step in run:
+                for name, value in self.used.get(str(step["id"]), {}).items():
+                    line.setdefault(name, value)
+            self.lines.append(line)
+        first_intent, last_intent = block[0]["intent"], block[-1]["intent"]
         self.note(
-            f"Kroki od „{first}” do „{last}” powtórzono {times} razy, po jednym razie na "
-            "pozycję: to jeden blok, który robot robi dla każdej pozycji rekordu.",
-            f"The steps from “{first}” to “{last}” were done {times} times, once a line: one "
-            "block the robot does for each line of the record.",
+            f"Kroki od „{first_intent}” do „{last_intent}” powtórzono {times} razy, po jednym "
+            "razie na pozycję: to jeden blok, który robot robi dla każdej pozycji rekordu.",
+            f"The steps from “{first_intent}” to “{last_intent}” were done {times} times, once a "
+            "line: one block the robot does for each line of the record.",
         )
-        return steps[: start + length] + steps[start + length * times :]
+        return steps[:start] + block + steps[end:]
+
+    def typed_in_some_lines(
+        self,
+        step: dict[str, Any],
+        runs: list[list[dict[str, Any]]],
+        mates: list[dict[str, Any] | None],
+        outside: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        """When a field typed in some lines only is typed: when the line's column of the sheet
+        has a value, as it had in exactly the lines that typed it (the warehouse the sheet names
+        for a line shipped from another one, empty for the others). None when the sheet does not
+        tell so."""
+        value = str(step.get("value") or "")
+        table = self.sheet_table()
+        if not value.startswith("$inputs.") or table is None:
+            return None
+        name = value.removeprefix("$inputs.")
+        typed = next((self.used.get(str(m["id"]), {}).get(name) for m in mates if m), None)
+        column = self.column_of(typed) if typed else None
+        if column is None or name not in self.inputs:
+            return None
+        everyone = set(range(len(table.rows)))
+        record = self.rows_named(outside, everyone) or everyone
+        for run, mate in zip(runs, mates, strict=True):
+            rows = self.rows_named(run, record)
+            if not rows:
+                return None
+            given = {bool(table.rows[r].get(column, "").strip()) for r in rows}
+            if given != {mate is not None}:
+                return None
+        return {"value": {"of": value, "empty": False}}
+
+    def rows_of_one_table(self, steps: list[dict[str, Any]]) -> None:
+        """The same field typed in several rows of one table that are no lines of the record
+        (a price list's qualifiers: a context, an attribute and a value in each of three rows):
+        an input for each row (its screen, table, column and row), with that row's value, which
+        its column of the sheet holds or not. One input would type the first row's value into
+        every row."""
+        rows: dict[tuple[str, tuple[str, str, str]], dict[int, list[dict[str, Any]]]] = {}
+        for step in steps:
+            value, where = step.get("value"), self.in_row.get(str(step["id"]))
+            if step.get("per_line") or where is None or not isinstance(value, str):
+                continue
+            name = value.removeprefix("$inputs.")
+            if value.startswith("$inputs.") and name in self.inputs:
+                rows.setdefault((name, where[0]), {}).setdefault(where[1], []).append(step)
+        for (name, place), typed in rows.items():
+            if len(typed) < 2 or self.lines_of_sheet(list(typed.values()), []) is True:
+                continue  # one row; or the values of the sheet's rows, one a row: its lines
+            label = str(self.inputs[name].get("description") or name)
+            word = "wiersz" if self.lang == "pl" else "row"
+            for number, (index, own) in enumerate(typed.items(), start=1):
+                given = self.used.get(str(own[0]["id"]), {}).get(name)
+                new = name if number == 1 else unique(f"{name}_{number}", self._input_names)
+                spec = dict(self.inputs[name], description=f"{label} ({word} {number})")
+                if given is not None and new != name:
+                    spec["example"] = given
+                    self.placeholders.setdefault(given, new)
+                self.inputs[new] = spec
+                self._typed_in[new] = place
+                if new == name:
+                    continue
+                column = place[2]
+                for step in steps:  # the row's own steps: its value, and its cell in their rules
+                    where = self.in_row.get(str(step["id"]))
+                    if where is None or where[0][:2] != place[:2] or where[1] != index:
+                        continue
+                    if step.get("value") == f"$inputs.{name}" and where[0] == place:
+                        step["value"] = f"$inputs.{new}"
+                        used = self.used.setdefault(str(step["id"]), {})
+                        if name in used:
+                            used[new] = used.pop(name)
+                    rule = (step.get("within") or {}).get("where") or {}
+                    if rule.get(column) == f"$inputs.{name}":
+                        rule[column] = f"$inputs.{new}"
+
+    def sheet_table(self) -> Table | None:
+        """The sheet the person worked from, when the recording kept it."""
+        if self._table is False:
+            data, path = self.trace.header.data, self.trace.path
+            try:
+                found = read_table(path.parent / data.file, data.sheet) if data and path else None
+            except (TableError, OSError):
+                found = None
+            self._table = found
+        return self._table if isinstance(self._table, Table) else None
+
+    def rows_holding(self, value: str) -> set[int]:
+        """The rows of the sheet with a cell whose value this is, as it was typed (a date the
+        program's way, an amount, words around it, the part after a separator)."""
+        table = self.sheet_table()
+        if table is None or not value.strip():
+            return set()
+        if value not in self._holding:
+            self._holding[value] = {
+                index
+                for index, row in enumerate(table.rows)
+                if any(cell and readings(cell, value) for cell in row.values())
+            }
+        return self._holding[value]
+
+    def rows_named(self, steps: list[dict[str, Any]], within: set[int]) -> set[int] | None:
+        """The rows of the sheet (of ``within``) holding every value of the sheet the steps
+        took; None when they took none. Values in many places by chance („1”) count only when
+        the distinctive ones leave no row."""
+        values = [
+            value
+            for step in steps
+            for name, value in self.used.get(str(step["id"]), {}).items()
+            if name in self.inputs and value.strip()
+        ]
+        held = [(value, rows & within) for value in values if (rows := self.rows_holding(value))]
+        if not held:
+            return None
+        fits = set(within)
+        for _, rows in held:
+            fits &= rows
+        if not fits:
+            fits = set(within)
+            for value, rows in held:
+                if shown.distinctive(value):
+                    fits &= rows
+        return fits
+
+    def fold_checks(self, steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """A button clicked again and again on one screen until something shows („Sprawdź
+        status w KSeF” until the invoice's number came, three times in one recording, twice in
+        another): one step done until that shows (``repeat``). Without such a text it stays as
+        the clicks the person made."""
+        out: list[dict[str, Any]] = []
+        index = 0
+        while index < len(steps):
+            end = index + 1
+            while end < len(steps) and _same_click(steps[index], steps[end]):
+                end += 1
+            folded = self.until_shown(steps[index:end]) if end - index >= 2 else None
+            if folded is not None:
+                out.append(folded)
+                index = end
+                continue
+            out.append(steps[index])
+            index += 1
+        return out
+
+    def until_shown(self, run: list[dict[str, Any]]) -> dict[str, Any] | None:
+        """The clicks as one step done until what showed only after the last of them."""
+        events = {e.seq: e for e in self.trace.events}
+        acts = [events.get((self.step_events.get(str(s["id"])) or [-1])[-1]) for s in run]
+        if any(a is None for a in acts):
+            return None
+        first = events.get((self.step_events.get(str(run[0]["id"])) or [-1])[0])
+        before = self.trace.state(first.state_before) if first is not None else None
+        shown = [_texts(self.trace.state(a.state_after)) for a in acts if a is not None]
+        seen_before = set().union(*shown[:-1], _texts(before))
+        new = [t for t in shown[-1] if t not in seen_before]
+        if not new:
+            return None
+        text = min(new, key=len)
+        times = [a.t for a in acts if a is not None]
+        gaps = sorted(b - a for a, b in itertools.pairwise(times) if b > a)
+        every = gaps[len(gaps) // 2] if gaps else 3.0
+        step = dict(run[0])
+        step.pop("when", None)
+        step["repeat"] = {
+            "until": {"visible": {"text": text}},
+            "tries": min(50, max(5, 3 * len(run))),
+            "every_ms": int(min(600, max(0.5, every)) * 1000),
+        }
+        seqs = [s for one in run for s in self.step_events.get(str(one["id"]), [])]
+        self.step_events[str(step["id"])] = seqs
+        for one in run[1:]:
+            self.step_events.pop(str(one["id"]), None)
+        self.note(
+            f"Krok „{step['intent']}” powtórzono {len(run)} razy, aż pokazało się „{text}”: "
+            "robot robi go do skutku.",
+            f"The step “{step['intent']}” was done {len(run)} times until “{text}” showed: "
+            "the robot does it until it does.",
+        )
+        return step
+
+    def lines_of_sheet(
+        self, runs: list[list[dict[str, Any]]], outside: list[dict[str, Any]]
+    ) -> bool | None:
+        """Whether steps done again and again are the lines of the record: each time with the
+        values of another row of the sheet, among the rows of the record (those with the values
+        typed once: its header). False when the sheet tells otherwise: rows of a table filled
+        one by one with values no row names (a price list's three qualifiers, the account in
+        every row); None when the sheet cannot tell (no sheet, one row, none of its values)."""
+        table = self.sheet_table()
+        if table is None or len(table.rows) < 2:
+            return None
+        record = self.rows_named(outside, set(range(len(table.rows))))
+        record = record or set(range(len(table.rows)))
+        named = [self.rows_named(run, record) for run in runs]
+        if all(fits is None for fits in named):
+            return None
+        if any(not fits or fits == record for fits in named):
+            return False
+        taken: set[int] = set()
+        for fits in sorted((f for f in named if f is not None), key=len):
+            free = sorted(fits - taken)
+            if not free:
+                return False  # two times the same row: one line typed twice, not two lines
+            taken.add(free[0])
+        return True
 
     def file_input(self, act: Act, label: str) -> str:
         """The file a person chose: a path the data has to give (a column of the sheet),
@@ -1055,21 +1596,35 @@ class _Builder:
                 if seen.type == "downloaded" and step.get("action") == "download":
                     given.update({name.casefold(): step for name in seen.files})
 
-    def value_input(self, column: str, value: str) -> str:
+    def value_input(self, column: str, value: str, table: str | None = None) -> str:
         """An input for a value the person picked by clicking it in a table: the one it was
         typed as when it was searched for first (benchmark D05: the invoice's number typed
-        into "Szukaj", then its row clicked), else a new one named for the column."""
+        into "Szukaj", then its row clicked), else a new one named for the column. A column
+        of that name in another table (``table``) is another input: two lists of values with
+        a „Value” column pick two values."""
         source = self.column_of(value)
         for known in self.labelled.get(column, []):
+            if table and self._picked_in.get(known, table) != table:
+                continue
             held = self.column_of(str(self.inputs[known].get("example", "")))
             if source is None or held is None or source == held:
+                self._using.setdefault(known, value)
                 return known
         typed = self.placeholders.get(value)
         if typed is not None and typed in self.inputs and len(value.strip()) >= 3:
+            self._using.setdefault(typed, value)
             return typed
         again = bool(self.labelled.get(column)) and source is not None
-        name = unique(slug(source if again and source is not None else column), self._input_names)
-        description = f"{column} ({source})" if again else column
+        elsewhere = bool(table) and bool(self.labelled.get(column)) and not again
+        base = column
+        if again and source is not None:
+            base = source
+        elif elsewhere:
+            base = f"{table} {column}"
+        name = unique(slug(base), self._input_names)
+        description = (
+            f"{column} ({source})" if again else f"{column} ({table})" if elsewhere else column
+        )
         spec: dict[str, Any] = {"type": _infer_type(column, value), "description": description}
         if value:
             spec["example"] = value
@@ -1077,6 +1632,9 @@ class _Builder:
         self.inputs[name] = spec
         self.inputs_by_field[column] = name
         self.labelled.setdefault(column, []).append(name)
+        self._using.setdefault(name, value)
+        if table:
+            self._picked_in[name] = table
         return name
 
     def sorted_intent(self, edge: str | None, target: ElementInfo) -> str:
@@ -1158,6 +1716,8 @@ class _Builder:
                 return {"where": {c: ref for c, ref, _ in chosen}}
         if not any(cells.values()) and own:  # a new line: the first empty one
             return {"where": {own: None}, "pick": "first"}
+        if own and not cells.get(own):
+            return _named_by_its_defaults(cells, own, rows)
         return None
 
     def data_cells(self, cells: dict[str, str], own: str) -> list[tuple[str, str | None, str]]:
@@ -1318,6 +1878,64 @@ class _Builder:
         marked = own[: word.start()] + "{inputs." + name + "}" + own[word.end() :]
         return column, name, marked
 
+    def holding_rule(self, words: str) -> tuple[str, list[str], str] | None:
+        """The rule of an item of a list of values whose words hold values of the record (its
+        item and account in „26386-F dla 604217359 - Hurtownia”): the item holding these
+        inputs, in this order (``ANY_TEXT`` for the rest: what else it says is the program's),
+        the inputs, and how a person reads them („Indeks” i „Konto”). The values: typed earlier
+        in the process, and those of the sheet's row the words hold most of, each a word of its
+        own that names one record; None when the words hold none, or are one such value whole
+        (named so elsewhere)."""
+        held = self.held_values(words)
+        if not held:
+            return None
+        names: list[str] = []
+        said: list[str] = []
+        mark = "„{}”" if self.lang == "pl" else "“{}”"
+        for value, column in held:
+            name = self.typed_as_input(value) or self.value_input(column or "value", value)
+            names.append(name)
+            # the sheet's column the value is in, as the person knows it, else the input
+            said.append(mark.format(column) if column else "{" + name + "}")
+        pattern = ANY_TEXT + ANY_TEXT.join("{inputs." + name + "}" for name in names) + ANY_TEXT
+        return pattern, names, say(self.lang, "and").join(said)
+
+    def held_values(self, words: str) -> list[tuple[str, str | None]]:
+        """The record's values the words hold, in their order, each a word of its own that
+        names one record, with the sheet's column holding it (None: typed before)."""
+        text = " ".join(words.split())
+        if not text:
+            return []
+        candidates: dict[str, str | None] = {
+            shown.plain(v): None
+            for v, n in self.placeholders.items()
+            if n in self.inputs and shown.names_one(v) and not self.inputs[n].get("secret")
+        }
+        table = self.sheet_table()
+        best: list[tuple[str, str]] = []
+        for row in table.rows if table is not None else []:
+            hits = [
+                (column, shown.plain(cell))
+                for column, cell in row.items()
+                if cell
+                and not column.startswith("#")
+                and shown.names_one(cell)
+                and _word_in(shown.plain(cell), text)
+            ]
+            if len(hits) > len(best):
+                best = hits
+        for header, cell in best:
+            candidates[cell] = header
+        spans: list[tuple[int, int, str, str | None]] = []
+        for value, held_in in sorted(candidates.items(), key=lambda item: -len(item[0])):
+            found = list(re.finditer(_word_pattern(value), text, re.IGNORECASE))
+            if value.casefold() == text.casefold() or len(found) != 1:
+                continue
+            start, end = found[0].span()
+            if all(end <= s or start >= e for s, e, *_ in spans):
+                spans.append((start, end, value, held_in))
+        return [(value, column) for _, _, value, column in sorted(spans)]
+
     def record_row(self) -> dict[str, str] | None:
         """The row of the sheet this recording worked on: its only row, or the one row holding
         the values the person typed; None when no row stands out."""
@@ -1335,13 +1953,36 @@ class _Builder:
             for a in self.n.acts
             if a.kind in ("fill", "select") and a.event.value
         }
+        # the record opened in a list (its number, or „Otwórz” in its row) names it before a
+        # date typed, which another row may hold by chance (its issue date the rate's day)
+        opened: set[int] | None = None
+        for a in self.n.steps:
+            target = a.event.target
+            if a.kind != "click" or target is None or target.row is None:
+                continue
+            for column, value in target.row.cells.items():
+                value = shown.plain(value)
+                if not shown.names_one(value) or shown.measure(value):
+                    continue
+                matching = {
+                    i
+                    for i, row in enumerate(table.rows)
+                    if shown.plain(row.get(column, "")) == value
+                }
+                if matching:
+                    opened = matching if opened is None else opened & matching
+        if opened is not None:
+            return dict(table.rows[next(iter(opened))]) if len(opened) == 1 else None
         holding = [r for r in table.rows if typed & {shown.plain(v) for v in r.values() if v}]
         return dict(holding[0]) if len(holding) == 1 else None
 
     def typed_as_input(self, value: str) -> str | None:
         """The input a value was typed from earlier in the process (a code searched for)."""
         name = self.placeholders.get(value)
-        return name if name is not None and name in self.inputs else None
+        if name is None or name not in self.inputs:
+            return None
+        self._using.setdefault(name, value)
+        return name
 
     def sheet_row_of(self, cells: dict[str, str]) -> set[str] | None:
         """The values of the sheet's row the picked row shows most of (the record the person
@@ -1440,11 +2081,18 @@ class _Builder:
             words = target.label or target.name
             if not words:
                 continue
+            # an item's field („Ilość do zwrotu: 37241-E”) is named by any item's code ({*}) when
+            # the screen names the item elsewhere; the code is the record's: its own field, then
+            item = act.item if act.item and ANY_WORD in words else None
             found = {
                 (column, value)
                 for value, column in columns.items()
                 if shown.names_one(value)
-                and re.search(rf"(?<![\w-]){re.escape(value)}(?![\w-])", words)
+                and (
+                    value == item
+                    if item is not None
+                    else re.search(rf"(?<![\w-]){re.escape(value)}(?![\w-])", words) is not None
+                )
             }
             if len(found) != 1:
                 continue
@@ -1453,6 +2101,8 @@ class _Builder:
                 continue  # the value typed is the one named: no field named by it
             name = self.value_input(column, value)
             mark = "{inputs." + name + "}"
+            if item is not None:
+                value = ANY_WORD  # what stands for the code in its words is the record's value
             ways = []
             for rung in target.candidates or []:
                 said = rung.model_dump(exclude_none=True)
@@ -1504,7 +2154,19 @@ class _Builder:
         examples = {
             n: str(s["example"]) for n, s in self.inputs.items() if s.get("example") is not None
         }
-        found = trace_origins([examples], [table])
+        per_line = {n for n, s in self.inputs.items() if s.get("per_line")}
+        lines = [
+            {
+                **{n: v for n, v in examples.items() if n not in per_line},
+                **{n: v for n, v in line.items() if n in per_line and v.strip()},
+            }
+            for line in self.lines
+        ]
+        # each line of the record from its row of the sheet, the header's values from all
+        # of them: what one row of them holds by chance is not taken for the column
+        found = trace_origins(lines, [table] * len(lines)) if per_line and lines else None
+        if found is None or not found.origins:
+            found = trace_origins([examples], [table], together=True)
         if not found.origins:
             return None
         row = next((r for r in found.rows if r is not None), {})
@@ -1522,7 +2184,24 @@ class _Builder:
                 f"The value of “{label}” is in several columns of the sheet ({columns}): "
                 "say which one it comes from.",
             )
-        return {"description": Path(data.file).name, "sheet": data.sheet}
+        records: dict[str, Any] = {"description": Path(data.file).name, "sheet": data.sheet}
+        keys = [
+            source.column
+            for name, source in found.origins.items()
+            if name in self.inputs and not self.inputs[name].get("per_line")
+        ]
+        if any(self.inputs[n].get("per_line") for n in found.origins if n in self.inputs):
+            # the header's values name the record; its rows (one a line) are one run
+            records["one_run_per"] = list(dict.fromkeys(keys))
+            self.note(
+                "Wiersze arkusza z tymi samymi wartościami nagłówka ("
+                + ", ".join(f"„{k}”" for k in dict.fromkeys(keys))
+                + ") to jeden rekord: robot wpisuje nagłówek raz, a linie po jednej na wiersz.",
+                "The rows of the sheet with the same header values ("
+                + ", ".join(f"“{k}”" for k in dict.fromkeys(keys))
+                + ") are one record: the robot types the header once and a line for each row.",
+            )
+        return records
 
     def sheet_columns(self) -> dict[str, str]:
         """Each value of the sheet the person worked from, with the one column holding it
@@ -1593,8 +2272,13 @@ class _Builder:
                 if parse_aria(state_before.aria).find("table", table_name) is None:
                     return {"visible": {"role": "table", "name": table_name}}
             # a row's cell or a value typed earlier names this record: another record shows
-            # other words there (benchmark D05: the invoice found by "Znajdź")
-            data_named = nxt.row is not None or (nxt.name or "").strip() in self.placeholders
+            # other words there (benchmark D05: the invoice found by "Znajdź"), as the item of a
+            # list of values holding the record's item does („26386-F dla 604217359 - …”)
+            data_named = (
+                nxt.row is not None
+                or (nxt.name or "").strip() in self.placeholders
+                or (nxt.role in _LIST_ITEMS and bool(self.held_values(nxt.name or "")))
+            )
             # a menu's item shows when the person opens the menu: the next step, not this one's
             # result (benchmark D06: "Save" in File after typing Start Date)
             in_menu = nxt.role == "menuitem" and bool(nxt.column)  # an item of a menu bar's menu
@@ -1617,7 +2301,7 @@ class _Builder:
                     )
                 else:
                     was_there = parse_aria(state_before.aria).find(nxt.role, nxt.name)
-                if was_there is None:
+                if was_there is None and not _read_before_its_window(act, nxt, state_before.aria):
                     shown = {"visible": {"role": nxt.role, "name": nxt.name}}
                     if nxt.field:  # its words may change in an update; the form's name rarely
                         return {"any": [shown, {"visible": {"field": nxt.field}}]}
@@ -1626,7 +2310,7 @@ class _Builder:
 
     def outcomes_for(self, act: Act, expect: dict[str, Any] | None, step: dict[str, Any]) -> None:
         """Turn known rejections into outcomes that raise business exceptions."""
-        rejections = [(a.message, a.values) for a in act.attempts if a.message]
+        rejections = [(a.message, a.values, a.role) for a in act.attempts if a.message]
         alerts = act.appeared("alert")
         ends_here = act is self.n.steps[-1]
         if (
@@ -1636,7 +2320,7 @@ class _Builder:
             and alerts[-1].target.text
             and not _SAVED_MESSAGE.search(alerts[-1].target.text)
         ):
-            rejections.append((alerts[-1].target.text, {}))
+            rejections.append((alerts[-1].target.text, {}, "alert"))
             self.note(
                 f"Nagranie kończy się po kroku „{step['intent']}” komunikatem: "
                 f"{alerts[-1].target.text}",
@@ -1649,7 +2333,8 @@ class _Builder:
             return
         outcomes: dict[str, Any] = {"done": expect or {"not": {"visible": {"role": "alert"}}}}
         handlers: dict[str, Any] = {}
-        for message, values in rejections:
+        refused: list[dict[str, Any]] = []
+        for message, values, role in rejections:
             placeholders = dict(self.placeholders)
             for field_name, value in values.items():
                 if field_name in self.inputs_by_field:
@@ -1665,9 +2350,14 @@ class _Builder:
             pieces = [p.strip() for p in re.split(r"\{[^}]*\}", description) if p.strip()]
             message_words = max(pieces, key=len, default=message.strip())
             outcomes[exception_id] = {
-                "all": [{"visible": {"role": "alert"}}, {"visible": {"text": message_words}}]
+                "all": [{"visible": {"role": role}}, {"visible": {"text": message_words}}]
             }
             handlers[exception_id] = {"raise": exception_id}
+            said = {"visible": {"text": message_words}}
+            if role != "alert" and said not in refused:  # a status line: done is without it
+                refused.append(said)
+        if refused and expect is None:
+            outcomes["done"] = {"not": refused[0] if len(refused) == 1 else {"any": refused}}
         step["outcomes"] = outcomes
         step["on_outcome"] = handlers
 
@@ -1928,9 +2618,15 @@ class _Builder:
                 found = [p for p in found if p.kind == "words" and p.rest]
                 if not found:
                     continue
-            if not distinctive:  # "25": only right after the field's own name („Ilość: 25”)
+            if not distinctive:
+                # "25", „Czynny”: only under the field's own name, in a sentence („Ilość: 25”),
+                # a term's definition („Status VAT”: „Czynny”) or a column („Status VAT”)
                 field_name = (act.field_name or "").casefold()
-                found = [p for p in found if p.kind == "words" and p.label.casefold() == field_name]
+                found = [
+                    p
+                    for p in found
+                    if p.kind in ("words", "term", "cell") and p.label.casefold() == field_name
+                ]
             place = shown.best(found)
             if place is None and found:
                 # several sentences say it: the one whose words stand once on the whole screen
@@ -2115,12 +2811,20 @@ class _Builder:
         if len(place.rows) == 1:
             return {}
         names = {v.casefold(): n for v, n in self.placeholders.items() if n in self.inputs}
+        record = {shown.plain(v).casefold() for v in (self.record_row() or {}).values() if v}
         for column, text in place.row:
-            name = names.get(shown.plain(text).casefold())
-            if column == place.label or column.startswith("#") or name is None:
+            if column == place.label or column.startswith("#"):
                 continue
             same = [r for r in place.rows if dict(r).get(column) == text]
-            if len(same) == 1:
+            if len(same) != 1:
+                continue
+            name = names.get(shown.plain(text).casefold())
+            if name is None and shown.plain(text).casefold() in record:
+                # a value of the record's row that no step typed (the invoice's currency names
+                # the row of the table of rates): an input of the sheet's column
+                held = self.column_of(text)
+                name = self.value_input(held, shown.plain(text)) if held is not None else None
+            if name is not None:
                 return {column: f"$inputs.{name}"}
         return None
 
@@ -2167,6 +2871,7 @@ class _Builder:
         self.inputs[name] = {"type": "date", "description": described, "example": example}
         self.inputs_by_field[described] = name
         self.placeholders[example] = name
+        self._using.setdefault(name, example)
         calendar: dict[str, Any] = {"day": picked.pattern, "days": picked.days}
         if picked.month:
             calendar["month"] = picked.month
@@ -2247,6 +2952,8 @@ class _Builder:
         later = self.n.steps.index(act) + 1 if act in self.n.steps else len(self.n.steps)
         following = self.n.steps[later] if later < len(self.n.steps) else None
         after = self.trace.states.get(act.event.state_after or "")
+        if after is not None and after.window > act.event.window and _done_message(after):
+            return False  # a message saying what the click did: „Order … has been booked.” (D09)
         if after is not None and after.window > act.event.window:
             # unless it went away by itself and the person went on here: a progress window
             # („Importowanie…” after „Importuj zaznaczone”, benchmark M3) is no window the
@@ -2270,13 +2977,23 @@ class _Builder:
         asked = self.n.steps[index - 1]
         before = asked.event.target
         words = f"{before.name or ''} {before.text or ''}" if before is not None else ""
-        if asked.kind not in ("click", "press") or not _COMMIT_WORDS.search(words):
+        if asked.kind not in ("click", "press"):
             return False
         if before is not None and before.dialog == target.dialog:
             return False  # the same window: not a question it brought up
         state = self.trace.state(act.event.state_before)
         root = parse_aria(state.aria) if state is not None else None
         window = root.find("dialog", target.dialog) if root is not None else None
+        # the button before it said it saves, or the question itself asks whether to save: a
+        # program's save may be called „Gotowe” or „OK”, its question says what it does
+        area = (window if window is not None and window.children else root) if root else None
+        said = (
+            " ".join(n.name or n.value or "" for n in area.walk() if n.role != "button")
+            if area
+            else ""
+        )
+        if not _COMMIT_WORDS.search(words) and not _ASKS_TO_SAVE.search(said):
+            return False
         if root is None or window is None:  # its screen was not read (answered at once)
             return _YES.fullmatch(name) is not None  # a yes, never a message's OK
         scope = window if window.children else root  # a window of its own: its whole screen
@@ -2324,11 +3041,11 @@ class _Builder:
             f"Krok „{step['intent']}” to decyzja: wybrano „{name}”, a {where_pl} "
             f"{'jest' if len(others) == 1 else 'są'} też {listed_pl}. Nagranie nie mówi, kiedy "
             "wybrać inaczej, więc decyduje człowiek, a robot zatrzyma się przed tym krokiem. "
-            f"Podaj regułę, kiedy wybierasz „{name}”, albo nagraj przypadek z inną decyzją.",
+            f"Podaj regułę, kiedy wybierasz „{name}”, {_SETTLED_BY['choice'][0]}.",
             f"Step “{step['intent']}” is a decision: “{name}” was chosen, and {where_en} also "
             f"offered {listed_en}. The recording does not say when to choose otherwise, so a "
             "person decides and the robot stops before the step. Give the rule for when "
-            f"“{name}” is chosen, or record a case decided the other way.",
+            f"“{name}” is chosen, {_SETTLED_BY['choice'][1]}.",
         )
 
     def confirms_own(self, act: Act) -> bool:
@@ -2455,8 +3172,16 @@ class _Builder:
             elif edge is not None:  # the newest (or oldest) of a sorted list, whichever it is
                 where = {}
                 step["intent"] = self.sorted_intent(edge, target)
+            elif (target.dialog or act.event.window) and (held := self.holding_rule(value)):
+                # a list of values' row whose words hold the record's values: the row holding
+                # them, not the words this record's row had
+                pattern, _, values = held
+                where = {target.column: pattern}
+                step["intent"] = say(
+                    self.lang, "open_row_holding", column=target.column, values=values
+                )
             else:
-                input_name = self.value_input(target.column, value)
+                input_name = self.value_input(target.column, value, target.row.table)
                 where = {target.column: f"$inputs.{input_name}"}
                 step["intent"] = say(self.lang, "open_row", column=target.column, input=input_name)
             step["within"] = {"table": table, "where": where, **({"pick": edge} if edge else {})}
@@ -2501,7 +3226,7 @@ class _Builder:
                 where, how = {}, "sorted"
             elif how == "key":  # the record the work list names: its value is an input
                 ((column, value),) = where.items()
-                input_name = self.value_input(column, value)
+                input_name = self.value_input(column, value, target.row.table)
                 where = {column: f"$inputs.{input_name}"}
                 rule = f"{column} = {{{input_name}}}"
             step["within"] = {
@@ -2565,8 +3290,9 @@ class _Builder:
             elif how != "key":
                 self.note(
                     f"Krok „{step['intent']}”: potwierdź regułę wyboru wiersza ({rule}) "
-                    "albo nagraj więcej przebiegów.",
-                    f"Step “{step['intent']}”: confirm the row rule ({rule}) or record more runs.",
+                    f"{_SETTLED_BY['row'][0]}.",
+                    f"Step “{step['intent']}”: confirm the row rule ({rule}) "
+                    f"{_SETTLED_BY['row'][1]}.",
                 )
         elif (
             act.kind == "click"
@@ -2601,6 +3327,24 @@ class _Builder:
         elif (
             act.kind == "click"
             and target is not None
+            and target.row is None
+            and target.role in _LIST_ITEMS
+            and (held := self.holding_rule(target.name or target.text or "")) is not None
+        ):  # an item of a list of values named by the record's values („26386-F dla 604217359
+            # - Hurtownia”): the item holding them, not the words this record's item had
+            pattern, names, values = held
+            step["intent"] = (
+                say(self.lang, "dialog_holding", dialog=human_title(target.dialog), values=values)
+                if target.dialog
+                else say(self.lang, "holding", values=values)
+            )
+            own_target = [{"role": target.role, "name": pattern}]
+            if target.dialog:  # only while its window is open, as any button of a window
+                step["when"] = {"visible": {"role": "dialog", "name": target.dialog}}
+            base = "pick_" + "_".join(names)
+        elif (
+            act.kind == "click"
+            and target is not None
             and (target.role in _NAMED_BY_DATA or (target.role in _NO_ROLE and target.text))
             and (in_part := self.named_in_part(target)) is not None
         ):  # a value of the record's row among its words („Tab #1”): asked unless proven
@@ -2615,6 +3359,18 @@ class _Builder:
             if target.dialog:
                 step["when"] = {"visible": {"role": "dialog", "name": target.dialog}}
             base = f"click_{column}"
+        elif (
+            act.kind == "click"
+            and target is not None
+            and target.role == "button"
+            and target.beside
+            and not target.name
+        ):  # a button nothing names, by the field it stands beside (Oracle Forms' "…")
+            step["intent"] = say(self.lang, "beside", field=target.beside)
+            name = label = "…"
+            if target.dialog:  # only while its window is open, as any button of a window
+                step["when"] = {"visible": {"role": "dialog", "name": target.dialog}}
+            base = f"list_{target.beside}"
         elif target is not None and target.dialog:
             step["intent"] = say(self.lang, "dialog", dialog=human_title(target.dialog), name=name)
             dialog = target.dialog
@@ -2674,7 +3430,7 @@ class _Builder:
         )
         no_undo = act.kind == "click" and not _DISMISS.search(words) and self.warned_no_undo(act)
         saves = sends or no_undo or self.sent_by(act) or self.confirms_save(act)
-        if saves and target is not None and _CONSENT.search(target.dialog or ""):
+        if saves and target is not None and COOKIES.search(target.dialog or ""):
             saves = False  # the site's consents answered: a dry run goes past it to the work
         if saves:  # "Księguj" saves too: it sent data; "Tak" to "Zatwierdzić notę?" too
             step["risk"] = "commit"
@@ -2693,6 +3449,9 @@ class _Builder:
         self.outcomes_for(act, expect, step)
         step["evidence"] = self.evidence(seqs, evidence_note)
         self.step_events[step_id] = seqs
+        cell = _place(act)
+        if cell is not None and target is not None and target.row and target.row.index is not None:
+            self.in_row[step_id] = (cell, target.row.index)
         return step
 
     def _landed(self, start_url: str) -> str:
@@ -2728,22 +3487,29 @@ class _Builder:
         start_state = self.screens.state_id(landed_url)
         if start_state:
             open_step["expect"] = {"state": start_state}
-        first_seq = self.n.acts[0].seq if self.n.acts else 1
+        start_act = self.n.acts[0] if self.n.acts and self.n.acts[0].kind == "navigate" else None
+        # opened by its own act (an address typed), else by the recording's start (0): never by
+        # the first step's act, whose description it showed too (a Java program has no address:
+        # the second step's description showed at the first)
+        first_seq = start_act.seq if start_act is not None else 0
         open_step["evidence"] = self.evidence([first_seq])
         self.step_events[open_id] = [first_seq]
         steps.append(open_step)
 
-        start_act = self.n.acts[0] if self.n.acts and self.n.acts[0].kind == "navigate" else None
         acts = [a for a in self.n.steps if a is not start_act]  # others: another application
         for index, act in enumerate(acts):
             following = acts[index + 1] if index + 1 < len(acts) else None
+            self._using = {}
             steps.append(self.build_step(act, following))
+            self.used[str(steps[-1]["id"])] = self._using
         self.windows_and_dialogs(steps[1:], acts)
         steps = self.read_copied(steps, acts)
         steps = self.read_looked_up(steps)
         self.link_downloads(steps, acts)
         steps = self.each_rows(steps)
         steps = self.fold_lines(steps)
+        steps = self.fold_checks(steps)
+        self.rows_of_one_table(steps)
         self.open_by_data(steps)
         self.dialog_templates(steps)
         self.person_notes(steps)
@@ -2789,9 +3555,9 @@ class _Builder:
         if self.inputs:
             self.note(
                 "Wszystkie wprowadzone i wybrane wartości potraktowano jako dane wejściowe; "
-                "rozpoznanie wartości stałych wymaga kilku nagrań.",
+                f"{_SETTLED_BY['constants'][0]}.",
                 "Every entered or selected value was treated as an input; "
-                "identifying constants requires several recordings.",
+                f"{_SETTLED_BY['constants'][1]}.",
             )
 
         records = self.bind_sources() if self.sheet else None
@@ -2822,7 +3588,9 @@ class _Builder:
             "exceptions": self.exceptions,
             "steps": steps,
         }
-        if self.trace.header.private:
+        # a part of a model of several recordings (``sheet`` False) keeps its values for the
+        # build to find where each comes from; the model the build makes leaves them out
+        if self.trace.header.private and self.sheet:
             keep_private(data)
         model = ProcessModel.model_validate(data)
         return MapResult(

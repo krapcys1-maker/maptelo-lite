@@ -10,6 +10,7 @@ workspace.
 
 from __future__ import annotations
 
+import logging
 import os
 import secrets
 import subprocess
@@ -31,7 +32,7 @@ from starlette.responses import (
 )
 from starlette.routing import BaseRoute, Mount, Route
 from starlette.staticfiles import StaticFiles
-from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from maptelo import __version__, environment
 from maptelo.checks import summary_line
@@ -39,7 +40,12 @@ from maptelo.data import sheet_names
 from maptelo.data.tables import TableError
 from maptelo.mapping.naming import Lang
 from maptelo.studio import readiness, recording
-from maptelo.studio.common import RunProblemError, keep_page_language, page_language
+from maptelo.studio.common import (
+    RunProblemError,
+    keep_page_language,
+    off_loop,
+    page_language,
+)
 from maptelo.studio.jobs import BusyError, Jobs
 from maptelo.studio.polish import polish, polish_all
 from maptelo.studio.workspace import Workspace
@@ -56,6 +62,8 @@ WORKSPACE_FILE = {
 }
 """How a workspace file is served: checked again each time, and a page among them opens as a
 sandbox, apart from Studio's origin, its key and its API."""
+
+log = logging.getLogger("maptelo.studio")
 
 
 class _NotFoundError(Exception):
@@ -86,6 +94,14 @@ class _Fresh(StaticFiles):
         return response
 
 
+def _cookie(host: str) -> str:
+    """The key's cookie of the Studio at this address: a browser keeps cookies by host, not
+    by port, so two Studios on this computer (Lite and the full one, two starts) would take
+    each other's key under one name."""
+    port = host.rpartition(":")[2] if not host.endswith("]") else ""
+    return f"{COOKIE}_{port}" if port.isdigit() else COOKIE
+
+
 def _hostname(host: str) -> str:
     if host.startswith("["):
         return host[: host.find("]") + 1]
@@ -110,7 +126,8 @@ class Guard:
             )
             return
         if scope["path"].startswith("/api/"):
-            given = Request(scope).cookies.get(COOKIE) or headers.get("x-maptelo-token", "")
+            cookie = _cookie(headers.get("host", ""))
+            given = Request(scope).cookies.get(cookie) or headers.get("x-maptelo-token", "")
             if not secrets.compare_digest(given.encode(), self.token.encode()):
                 message = "Open Studio from the address it showed when it started."
                 await JSONResponse({"error": message}, 401)(scope, receive, send)
@@ -121,6 +138,36 @@ class Guard:
                 )
                 return
         await self.app(scope, receive, send)
+
+
+class _Failsafe:
+    """What nobody expected: kept in the log with where it happened, and said on the page as
+    a sentence (the page keeps working), never a bare 500 or a connection cut off."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        started = False
+
+        async def sending(message: Message) -> None:
+            nonlocal started
+            started = started or message["type"] == "http.response.start"
+            await send(message)
+
+        try:
+            await self.app(scope, receive, sending)
+        except Exception as exc:
+            if started:
+                raise
+            request = Request(scope)
+            log.error("%s %s failed", request.method, request.url.path, exc_info=exc)
+            said = f"this could not be done ({exc.__class__.__name__}): {exc}"
+            response = JSONResponse({"error": _said(said, _lang(request))}, 500)
+            await response(scope, receive, send)
 
 
 def _lang(request: Request) -> Lang:
@@ -212,7 +259,13 @@ def create_app(
         if given is not None:
             response = RedirectResponse("/", status_code=303)
             if secrets.compare_digest(given.encode(), token.encode()):
-                response.set_cookie(COOKIE, token, httponly=True, samesite="strict", path="/")
+                response.set_cookie(
+                    _cookie(request.headers.get("host", "")),
+                    token,
+                    httponly=True,
+                    samesite="strict",
+                    path="/",
+                )
             return response
         if lite:  # the page is Lite's before the key is given: no robot's menu, Lite's own words
             page = (STATIC / "index.html").read_text("utf-8")
@@ -266,11 +319,15 @@ def create_app(
             return _problems(["the file is empty"], lang=lang)
         if len(body) > MAX_UPLOAD:
             return _problems(["the file is larger than 50 MB"], 413, lang)
-        try:
+
+        def keep() -> dict[str, Any]:
             path = workspace.keep_sheet(name, body)
+            return {"sheet": workspace.relative(path), "sheets": sheet_names(path)}
+
+        try:
+            return JSONResponse(await off_loop(workspace.root, keep))
         except (ValueError, TableError) as exc:
             return _problems([str(exc)], lang=lang)
-        return JSONResponse({"sheet": workspace.relative(path), "sheets": sheet_names(path)})
 
     def job(request: Request) -> JSONResponse:
         try:
@@ -308,7 +365,10 @@ def create_app(
                 return _problems(["which step: its action's number"], lang=lang)
             if found.folder is None:
                 return _problems(["a step is described while its recording runs"], 409, lang)
-            recording.keep_note(found.folder, action, text, when, person)
+            try:
+                recording.keep_note(found.folder, action, text, when, person)
+            except RunProblemError as exc:
+                return _problems(exc.problems, 409, lang)
             found.emit("note", action=action, text=text, when=when, person=person)
             return JSONResponse({"action": action, "text": text}, 202)
         if not text:
@@ -338,9 +398,11 @@ def create_app(
         key, one = request.path_params["key"], request.path_params["recording"]
         data = await _json_object(request)
         first = data.get("first")
-        if not isinstance(first, int) or first < 1:
+        if not isinstance(first, int) or isinstance(first, bool) or first < 0:
+            # 0: the step opening the program, by the recording's start
             return _problems(["which step: its first action's number"], lang=lang)
-        try:
+
+        def write() -> dict[str, Any]:
             recording.write_note(
                 workspace,
                 key,
@@ -350,7 +412,10 @@ def create_app(
                 str(data.get("when") or ""),
                 bool(data.get("person")),
             )
-            made = recording.map_recording(workspace, key, one, str(data.get("lang") or lang))
+            return recording.map_recording(workspace, key, one, str(data.get("lang") or lang))
+
+        try:
+            made = await off_loop(workspace.root, write)
         except RunProblemError as exc:
             return _problems(exc.problems, 400, lang)
         return JSONResponse(made)
@@ -367,8 +432,13 @@ def create_app(
         if not isinstance(answers, dict):
             return _problems(["the card: its answers by question"], lang=lang)
         try:
-            written = recording.write_process_card(
-                workspace, request.path_params["key"], answers, str(data.get("lang") or lang)
+            written = await off_loop(
+                workspace.root,
+                recording.write_process_card,
+                workspace,
+                request.path_params["key"],
+                answers,
+                str(data.get("lang") or lang),
             )
         except RunProblemError as exc:
             return _problems(exc.problems, 400, lang)
@@ -451,7 +521,9 @@ def create_app(
     async def make_map(request: Request) -> JSONResponse:
         data = await _json_object(request)
         try:
-            made = recording.map_recording(
+            made = await off_loop(
+                workspace.root,
+                recording.map_recording,
                 workspace,
                 str(data.get("process", "")),
                 str(data.get("recording", "")),
@@ -524,5 +596,6 @@ def create_app(
         _BadRequestError: bad_request,
     }
     app = Starlette(routes=routes, exception_handlers=handlers, max_body_size=MAX_UPLOAD + 1024)
+    app.add_middleware(_Failsafe)
     app.add_middleware(Guard, token=token)
     return app

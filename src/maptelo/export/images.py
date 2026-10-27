@@ -83,6 +83,8 @@ def screenshots_for(
         trace, seqs = sources.get(step.id, (None, ()))
         if trace is None or trace.path is None or not seqs:
             continue
+        if model.private and not trace.header.private:
+            continue  # a picture taken uncovered: a private process shows none of it
         event = next((e for e in trace.events if e.seq == seqs[-1]), None)
         if event is None:
             continue

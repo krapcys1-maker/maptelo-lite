@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterator
 from dataclasses import dataclass, field
+from functools import lru_cache
 
 _LINE = re.compile(
     r'^(?P<indent>\s*)- (?P<role>[^\s":\[]+)'
@@ -68,6 +69,13 @@ class AriaNode:
         if self.value and not self.role.startswith("/"):
             return self.value
         return " ".join(t for t in (c.text() for c in self.children) if t).strip()
+
+
+@lru_cache(maxsize=512)
+def parsed(snapshot: str) -> AriaNode:
+    """The snapshot read once, for code that only reads the tree (never changes it): a build
+    asks of one screen many times."""
+    return parse_aria(snapshot)
 
 
 def parse_aria(snapshot: str) -> AriaNode:

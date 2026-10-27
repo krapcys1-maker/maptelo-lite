@@ -56,6 +56,9 @@ SENTENCES: list[tuple[str, str]] = [
     ("the calendar cannot be moved towards “{wanted}”",
      "kalendarza nie da się przesunąć w stronę „{wanted}”"),
     ("the calendar did not reach “{wanted}”", "kalendarz nie doszedł do „{wanted}”"),
+    ("{file} cannot be opened to cover its secret columns ({detail}); it is not copied",
+     "nie da się otworzyć pliku {file}, by zakryć jego kolumny poufne ({detail}); nie "
+     "został skopiowany"),
     # the browser
     ("the profile {folder} is in use by another Maptelo browser: wait for it to finish, "
      "or use another profile",
@@ -84,9 +87,6 @@ SENTENCES: list[tuple[str, str]] = [
     ("IT's policy {path} cannot be read: {reason}",
      "nie da się odczytać zasad IT {path}: {reason}"),
     ("IT's policy {path} is not valid: {reason}", "zasady IT {path} są niepoprawne: {reason}"),
-    ("AI is turned off by IT's policy ({path})", "AI jest wyłączone przez zasady IT ({path})"),
-    ("IT's policy allows AI only at {endpoint} ({path})",
-     "zasady IT dopuszczają AI tylko pod adresem {endpoint} ({path})"),
     # Maptelo Lite: a demonstration and its map, no robot
     ("the full Maptelo runs processes: Maptelo Lite only maps them",
      "procesy uruchamia pełne Maptelo: Maptelo Lite tylko je mapuje"),
@@ -119,11 +119,23 @@ SENTENCES: list[tuple[str, str]] = [
     ("{name} could not be deleted (Windows says {code})",
      "nie udało się usunąć {name} (Windows zgłasza kod {code})"),
     ("the file is empty", "plik jest pusty"),
+    ("{what} was made by a newer Maptelo (its format {given}; this one reads up to {known}): "
+     "update Maptelo to open it",
+     "ten plik zapisała nowsza wersja Maptelo (format {given}; ta wersja czyta do {known}): "
+     "zaktualizuj Maptelo, aby go otworzyć"),
+    ("the step descriptions in {path} cannot be read",
+     "nie da się odczytać opisów kroków w {path}: plik zostaje bez zmian"),
+    ("this could not be done ({kind}): {detail}",
+     "Studio nie mogło tego wykonać ({kind}): {detail}"),
     ("the file is larger than 50 MB", "plik ma więcej niż 50 MB"),
     ("the language is pl or en", "język to pl albo en"),
     ("{title} is still running", "wciąż trwa: {title}"),
     ("the process needs a name with letters or digits, e.g. Ceny klientów",
      "proces potrzebuje nazwy z literami albo cyframi, np. Ceny klientów"),
+    ("the name {title} gives the folder {folder}, which the process {known} already has: "
+     "give this process another name, or choose that process to record it again",
+     "nazwa „{title}” daje folder {folder}, który ma już proces „{known}”: nadaj temu procesowi "
+     "inną nazwę albo wybierz tamten proces, aby nagrać go ponownie"),
     ("the profile name must be small letters, digits, - or _ (up to 64), e.g. praca",
      "nazwa profilu: małe litery, cyfry, - albo _ (do 64 znaków), np. praca"),
     ("the address must start with http:// or https://",

@@ -27,6 +27,10 @@ SECRET_HEADER = re.compile(
 COVERED = "••••••"
 
 
+class CoverError(ValueError):
+    """A sheet whose secret columns cannot be covered: no copy of it is made."""
+
+
 def secret_columns(headers: Iterable[str], also: Collection[str] = ()) -> list[str]:
     """The headers of columns that hold secrets: by their words, or named in ``also``."""
     return [h for h in headers if h and (h in also or SECRET_HEADER.search(h))]
@@ -61,9 +65,10 @@ def _workbook(source: Path, target: Path, also: Collection[str]) -> list[str]:
 
     try:
         workbook = load_workbook(source)  # formulas and formatting stay as they are
-    except Exception:  # not a workbook after all: a copy cannot say more than the file
-        shutil.copyfile(source, target)
-        return []
+    except Exception as exc:  # a copy whose secret columns cannot be covered is not made
+        raise CoverError(
+            f"{source.name} cannot be opened to cover its secret columns ({exc}); it is not copied"
+        ) from exc
     covered: list[str] = []
     for worksheet in workbook.worksheets:
         values = [[cell_text(c) for c in row] for row in worksheet.iter_rows(values_only=True)]

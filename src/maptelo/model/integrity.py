@@ -11,11 +11,22 @@ from collections.abc import Iterable, Iterator, Sequence
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from maptelo.model.schema import Predicate, ProcessModel, Step
+    from maptelo.model.schema import Effect, Predicate, ProcessModel, Step
 
 WHOLE_REF = re.compile(r"^\$(inputs|vars)\.([a-z][a-z0-9_]*)$")
 PLACEHOLDER = re.compile(r"\{(inputs|vars)\.([a-z][a-z0-9_]*)\}")
 _LOOSE_REF = re.compile(r"\$(inputs|vars)\.")
+
+
+def lines_named(effect: Effect, lines: set[str]) -> bool:
+    """A screen's check whose row is named by values of the record's lines (an order's line
+    by its number): one row for each line, each line's values compared in its own row."""
+    verifier = effect.verifier
+    return verifier.kind == "screen" and any(
+        space == "inputs" and name in lines
+        for value in verifier.row.values()
+        for space, name in value_refs(value)
+    )
 
 
 def value_refs(value: object) -> list[tuple[str, str]]:
@@ -49,6 +60,35 @@ def result_reads(steps: Sequence[Any]) -> list[str]:
         }
         - used
     )
+
+
+_TYPES_IN = {"fill", "select_option", "check", "uncheck", "upload", "pick_date", "choose"}
+"""Actions that put a value into the application."""
+
+
+def _refs_in(value: object) -> set[tuple[str, str]]:
+    if isinstance(value, dict):
+        return set().union(*(_refs_in(v) for v in value.values()))
+    if isinstance(value, list):
+        return set().union(*(_refs_in(v) for v in value))
+    return set(value_refs(value))
+
+
+def typed_inputs(steps: Sequence[Any]) -> set[str]:
+    """The inputs the steps put into the application (typed, chosen, ticked, attached)."""
+    return {
+        name
+        for step in steps
+        if str(getattr(getattr(step, "action", None), "value", "")) in _TYPES_IN
+        for space, name in value_refs(step.value)
+        if space == "inputs"
+    }
+
+
+def verified_inputs(effects: Sequence[Any]) -> set[str]:
+    """The inputs the effects' independent reads compare (or find the record by)."""
+    dumped = [e.model_dump(exclude_none=True, mode="json").get("verifier") for e in effects]
+    return {name for space, name in _refs_in(dumped) if space == "inputs"}
 
 
 def misplaced_ref(value: object) -> bool:
@@ -112,6 +152,8 @@ def _issues(model: ProcessModel) -> Iterator[str]:
     for idx, effect in enumerate(model.effects):
         checked: list[object] = effect.verifier.values()
         yield from _check_values(f"effects[{idx}] ({effect.id})", checked, model, set(), False)
+        if lines_named(effect, lines):
+            continue  # a screen's row for each line, named by the line's values
         for name in sorted({n for v in checked for _, n in value_refs(v)} & lines):
             yield (
                 f"effects[{idx}] ({effect.id}): checks the whole record, not the value of one "
@@ -146,6 +188,16 @@ def _issues(model: ProcessModel) -> Iterator[str]:
                 if isinstance(text := getattr(rung, key, None), str) and "{" in text
             )
         yield from _check_values(where, values, model, defined_vars, True)
+        if step.undo is not None:  # read before anything of the record is read on a screen
+            undone: list[object] = step.undo.empty.values()
+            yield from _check_values(f"{where} undo", undone, model, set(), False)
+        if step.find is not None:  # read and opened with the record's own values
+            found: list[object] = [
+                *step.find.read.values(),
+                step.find.list,
+                *step.find.row.where.values(),
+            ]
+            yield from _check_values(f"{where} find", found, model, set(), False)
         for outcome, handler in (step.on_outcome or {}).items():
             if handler.raise_ is not None and handler.raise_ not in model.exceptions:
                 yield f"{where}: outcome '{outcome}' raises unknown exception '{handler.raise_}'"

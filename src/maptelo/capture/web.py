@@ -24,7 +24,15 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from playwright.sync_api import BrowserContext, Download, Frame, Page, Request, sync_playwright
+from playwright.sync_api import (
+    BrowserContext,
+    Dialog,
+    Download,
+    Frame,
+    Page,
+    Request,
+    sync_playwright,
+)
 from playwright.sync_api import Error as PlaywrightError
 
 from maptelo.browser import SANDBOX, AddressError, open_address, profile_context
@@ -49,6 +57,10 @@ from maptelo.windows import latest_open
 RECORDER_JS = (Path(__file__).with_name("recorder.js")).read_text(encoding="utf-8")
 BINDING = "__mapteloEmit"
 _PAGE_STATE = "() => window.__mapteloPageState ? window.__mapteloPageState() : null"
+
+
+def _left_to_the_person(dialog: Dialog) -> None:
+    """Leave a browser dialog open for the person (see Recorder.__init__)."""
 
 
 @dataclass(frozen=True)
@@ -131,6 +143,22 @@ def new_recording_id() -> str:
     return datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ") + "-" + secrets.token_hex(2)
 
 
+LONGEST_PATH = 240
+"""Characters a copy's path may have: Windows' old limit is 260, and a workspace on a synced
+Desktop is deep already."""
+
+
+def _short_name(folder: Path, source: Path) -> str:
+    """The sheet's name for its copy, shortened when the copy's path would be too long for
+    Windows (a sheet's name as long as its title, on a OneDrive Desktop)."""
+    name, suffix = source.name, source.suffix.lower()
+    room = min(80, LONGEST_PATH - len(str(folder)) - 1)
+    if len(name) <= room:
+        return name
+    stem = source.stem[: max(0, room - len(suffix))].rstrip(" .")
+    return (stem or "sheet") + suffix
+
+
 class Recorder:
     def __init__(
         self, context: BrowserContext, out_dir: Path, options: RecorderOptions | None = None
@@ -164,6 +192,11 @@ class Recorder:
         self._said: queue.SimpleQueue[tuple[float, str]] = queue.SimpleQueue()
         context.expose_binding(BINDING, self._on_emit)
         context.on("request", self._on_request)
+        # A browser dialog (alert, confirm, prompt) is the person's to answer in the window.
+        # With no listener Playwright dismisses every one at once: confirm() would say
+        # "Cancel" before anyone saw it. This listener answers nothing, so the dialog stays
+        # for the person, and recorder.js reports what they answered.
+        context.on("dialog", _left_to_the_person)
         context.add_init_script(script=RECORDER_JS)
 
     @property
@@ -181,6 +214,7 @@ class Recorder:
         self.page = page or self.context.new_page()
         self._allowed.add(_origin(url))
         self._t0 = time.time()
+        data = self._keep_data()  # before the trace: a sheet that cannot be covered stops here
         self._writer = TraceWriter(self.trace_path)
         viewport = self.page.viewport_size
         timezone, locale = self._zone_and_language()
@@ -196,7 +230,7 @@ class Recorder:
                 viewport=(viewport["width"], viewport["height"]) if viewport else None,
                 timezone=timezone,
                 locale=locale,
-                data=self._keep_data(),
+                data=data,
                 private=self.options.private,
             )
         )
@@ -208,6 +242,9 @@ class Recorder:
         except AddressError:
             self._forget()
             raise
+        landed = self.page.url  # http -> https, host -> www., a portal handing over
+        if landed.startswith(("http://", "https://")):
+            self._allowed.add(_origin(landed))
         with contextlib.suppress(PlaywrightError):
             self.page.bring_to_front()  # it opened behind Studio's window (the 11.10 test)
         self._install_in_open_documents()
@@ -279,9 +316,9 @@ class Recorder:
         source = self.options.data
         if source is None:
             return None
-        copy = self.out_dir / "data" / source.name
-        covered_copy(source, copy)  # a password column does not go with the recording
-        return DataRef(file=f"data/{source.name}", sheet=self.options.sheet)
+        name = _short_name(self.out_dir / "data", source)
+        covered_copy(source, self.out_dir / "data" / name)  # a password column stays behind
+        return DataRef(file=f"data/{name}", sheet=self.options.sheet)
 
     def _zone_and_language(self) -> tuple[str | None, str | None]:
         """Dates typed on screen mean local time: runs must use the same zone and language."""
@@ -437,13 +474,17 @@ class Recorder:
         state = self._capture_state(page_info)
         written = 0
         owners = _senders(batch, sent)
-        for index, (ts, payload) in enumerate(batch):
-            event = self._event(ts, payload, state.id if state else None, owners.get(index, []))
+        events = [
+            self._event(ts, payload, state.id if state else None, owners.get(index, []))
+            for index, (ts, payload) in enumerate(batch)
+        ]
+        if state is not None:  # first: a recording cut off here still has what it names
+            self._writer.write(state)
+        for event in events:
             if event is not None:
                 self._writer.write(event)
                 written += 1
         if state is not None:
-            self._writer.write(state)
             self._current_state[window] = state.id
             if state.screenshot is not None:
                 self._current_shot[window] = self.out_dir / state.screenshot

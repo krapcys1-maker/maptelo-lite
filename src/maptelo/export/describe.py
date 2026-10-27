@@ -39,9 +39,15 @@ WORDS: dict[Lang, dict[str, str]] = {
         "inputs": "Dane wejściowe",
         "source_column": "Skąd",
         "per_row": "Dla każdego wiersza arkusza „{sheet}” ({file}): jeden przebieg na wiersz.",
+        "per_record": (
+            "Dla każdego rekordu arkusza „{sheet}” ({file}): wiersze z tymi samymi wartościami "
+            "kolumn {keys} to jeden przebieg, a każdy z nich to jedna pozycja."
+        ),
         "from_column": "kolumna „{column}”",
         "counted_from": "liczona z {base}: {shift}",
         "typed_as": "wpisywana jako {pattern}",
+        "taken_after": "część po „{separator}”",
+        "written_as": "w arkuszu zapisana jako {pattern}",
         "input": "Nazwa",
         "type": "Typ",
         "description": "Opis",
@@ -157,9 +163,15 @@ WORDS: dict[Lang, dict[str, str]] = {
         "inputs": "Inputs",
         "source_column": "Source",
         "per_row": "For each row of the sheet “{sheet}” ({file}): one run per row.",
+        "per_record": (
+            "For each record of the sheet “{sheet}” ({file}): the rows with the same values in "
+            "the columns {keys} are one run, each of them one line."
+        ),
         "from_column": "column “{column}”",
         "counted_from": "counted from {base}: {shift}",
         "typed_as": "typed as {pattern}",
+        "taken_after": "the part after “{separator}”",
+        "written_as": "written in the sheet as {pattern}",
         "input": "Name",
         "type": "Type",
         "description": "Description",
@@ -265,14 +277,19 @@ def records_text(model: ProcessModel, lang: Lang) -> str | None:
     if model.records is None:
         return None
     sheet = model.records.sheet or "1"
-    return word(lang, "per_row").format(sheet=sheet, file=model.records.description or "—")
+    file = model.records.description or "—"
+    if model.records.one_run_per:  # a record of several rows: its header and its lines
+        mark = "„{}”" if lang == "pl" else "“{}”"
+        keys = ", ".join(mark.format(column) for column in model.records.one_run_per)
+        return word(lang, "per_record").format(sheet=sheet, file=file, keys=keys)
+    return word(lang, "per_row").format(sheet=sheet, file=file)
 
 
 def input_source(spec: InputSpec, lang: Lang) -> str:
     """Where an input comes from: its column, and how it is typed on screen; a date counted
     from another one says from which."""
     if spec.derived is not None:
-        shift = day_shift(spec.derived.days, lang)
+        shift = day_shift(spec.derived.days, lang, working=spec.derived.working)
         text = word(lang, "counted_from").format(base=spec.derived.from_, shift=shift)
         if spec.typed_as:
             text += ", " + word(lang, "typed_as").format(pattern=spec.typed_as)
@@ -280,6 +297,10 @@ def input_source(spec: InputSpec, lang: Lang) -> str:
     if spec.column is None:
         return ""
     text = word(lang, "from_column").format(column=spec.column)
+    if spec.taken_after:  # 5510 of „CENNIK_ZK_5510”
+        text += ", " + word(lang, "taken_after").format(separator=spec.taken_after)
+    if spec.written_as:  # the sheet's 46327 for 2026-11-01, 15/November/2026
+        text += ", " + word(lang, "written_as").format(pattern=spec.written_as)
     if spec.typed_as:
         text += ", " + word(lang, "typed_as").format(pattern=spec.typed_as)
     return text

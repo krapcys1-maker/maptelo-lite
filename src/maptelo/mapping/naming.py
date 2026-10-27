@@ -63,6 +63,7 @@ TEMPLATES: dict[Lang, dict[str, str]] = {
         "open_row": "Otwórz wiersz, w którym {column} = {{{input}}}",
         "open_row_by": "Otwórz wiersz, w którym {rule}",
         "click": "Kliknij „{name}”",
+        "beside": "Kliknij „…” przy polu „{field}”",
         "click_link": "Kliknij link „{name}”",
         "menu": "Wybierz z menu „{menu}” pozycję „{name}”",
         "row": "W tabeli „{table}” wybierz wiersz, w którym {rule}",
@@ -76,6 +77,10 @@ TEMPLATES: dict[Lang, dict[str, str]] = {
         "row_first": "W tabeli „{table}” wybierz pierwszy wiersz (według „{column}”, {order})",
         "row_last": "W tabeli „{table}” wybierz ostatni wiersz (według „{column}”, {order})",
         "dialog": "W oknie „{dialog}” kliknij „{name}”",
+        "holding": "Wybierz z listy pozycję zawierającą {values}",
+        "dialog_holding": "W oknie „{dialog}” wybierz pozycję zawierającą {values}",
+        "open_row_holding": "Otwórz wiersz, w którym „{column}” zawiera {values}",
+        "and": " i ",
         "press": "Naciśnij {keys}",
         "check": "Zaznacz „{name}”",
         "uncheck": "Odznacz „{name}”",
@@ -103,6 +108,7 @@ TEMPLATES: dict[Lang, dict[str, str]] = {
         "open_row": "Open the row where {column} = {{{input}}}",
         "open_row_by": "Open the row where {rule}",
         "click": "Click “{name}”",
+        "beside": "Click “…” by the “{field}” field",
         "click_link": "Click the “{name}” link",
         "menu": "Choose “{name}” in the “{menu}” menu",
         "row": "In the “{table}” table, pick the row where {rule}",
@@ -116,6 +122,10 @@ TEMPLATES: dict[Lang, dict[str, str]] = {
         "row_first": "In the “{table}” table, pick the first row (by “{column}”, {order})",
         "row_last": "In the “{table}” table, pick the last row (by “{column}”, {order})",
         "dialog": "In the “{dialog}” window, click “{name}”",
+        "holding": "Choose the item of the list that holds {values}",
+        "dialog_holding": "In the “{dialog}” window, choose the item that holds {values}",
+        "open_row_holding": "Open the row whose “{column}” holds {values}",
+        "and": " and ",
         "press": "Press {keys}",
         "check": "Tick “{name}”",
         "uncheck": "Untick “{name}”",
@@ -174,8 +184,22 @@ _COMPARISON: dict[Lang, dict[str, str]] = {
 }
 
 
-def day_shift(days: int, lang: Lang) -> str:
-    """'dzień wcześniej', '3 dni później' / 'the day before', '3 days after'."""
+def day_shift(days: int, lang: Lang, *, working: bool = False) -> str:
+    """'dzień wcześniej', '3 dni później' / 'the day before', '3 days after'; in working days:
+    'ostatni dzień roboczy wcześniej', '2 dni robocze później' / 'the working day before'."""
+    if working:
+        if lang == "pl":
+            if abs(days) == 1:
+                return "ostatni dzień roboczy wcześniej" if days < 0 else "następny dzień roboczy"
+            unit = (
+                "dni robocze"
+                if 2 <= abs(days) % 10 <= 4 and abs(days) // 10 != 1
+                else "dni roboczych"
+            )
+            return f"{abs(days)} {unit} {'wcześniej' if days < 0 else 'później'}"
+        if abs(days) == 1:
+            return "the working day before" if days < 0 else "the next working day"
+        return f"{abs(days)} working days {'before' if days < 0 else 'after'}"
     if lang == "pl":
         if abs(days) == 1:
             return "dzień wcześniej" if days < 0 else "dzień później"

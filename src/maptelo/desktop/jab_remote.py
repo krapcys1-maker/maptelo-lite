@@ -50,11 +50,15 @@ ROOT = Path(__file__).resolve().parents[2]
 """The folder Maptelo's package is in (site-packages, or src in a checkout)."""
 
 BOOT = (
-    "import sys; sys.path.append(sys.argv[1]); "
+    "import sys; "
+    "sys.path.insert(next((n for n, p in enumerate(sys.path) if 'site-packages' in p), "
+    "len(sys.path)), sys.argv[1]); "
     "from maptelo.desktop.jab_remote import serve; serve()"
 )
 """What the helper Python runs (``-I``: nothing from the environment or the user's folders):
-its own standard library first, Maptelo's folder after it."""
+its own standard library first, then Maptelo's folder, then its installed packages. The Maptelo
+that started the helper is the one it runs, not one installed in the helper's Python (a checkout's
+worktree with the main checkout's environment: the helper ran the main checkout's bridge)."""
 
 OLDEST = (3, 12)
 """The oldest Python the helper runs on: the one Maptelo itself needs."""
@@ -75,6 +79,7 @@ ASKED = frozenset(
         "select",
         "clear_selection",
         "do_action",
+        "clock",
     }
 )
 """What the helper answers: the bridge's questions and acts (its events come by themselves)."""
@@ -295,7 +300,8 @@ def _answer(
     except Exception as exc:  # a fault here: the caller hears of it, its trace goes to the log
         traceback.print_exc(file=sys.stderr)
         reply.update(error=type(exc).__name__, message=f"{type(exc).__name__}: {exc}")
-    reply["stuck"] = bool(getattr(bridge, "stuck", False))
+    answers = getattr(bridge, "answers_again", None)
+    reply["stuck"] = not answers() if callable(answers) else bool(getattr(bridge, "stuck", False))
     with contextlib.suppress(OSError, ValueError):  # the other side is gone
         say(reply)
 
@@ -322,6 +328,8 @@ class RemoteBridge(Bridge):
         self._writing = threading.Lock()
         self._ids = itertools.count(1)
         self._waiting: dict[int, tuple[threading.Event, list[dict[str, Any]]]] = {}
+        self._late: set[int] = set()
+        """Questions not answered in time: their answer says whether the program is back."""
         self._said: list[str] = []
 
     # -- life ------------------------------------------------------------------------------------
@@ -417,6 +425,9 @@ class RemoteBridge(Bridge):
                 done, box = waiting
                 box.append(message)
                 done.set()
+            elif message.get("id") in self._late:  # the answer that did not come in time
+                self._late.discard(message.get("id"))
+                self.stuck = bool(message.get("stuck"))  # the program answers again
         # the helper ended: no answer comes to those still waiting
         self.ready = False
         self.status = f"the helper of the Java Access Bridge ended{self._last_words()}"
@@ -458,6 +469,7 @@ class RemoteBridge(Bridge):
             ) from exc
         if not done.wait(wait):
             self._waiting.pop(number, None)
+            self._late.add(number)
             self.stuck = True  # as the bridge's own thread: nothing else passes now
             raise AccessBridgeError(
                 "the Java program does not answer (a window it opened may be waiting)"
@@ -465,7 +477,7 @@ class RemoteBridge(Bridge):
         if not box:
             raise AccessBridgeError(self.status)
         answer = box[0]
-        self.stuck = self.stuck or bool(answer.get("stuck"))
+        self.stuck = bool(answer.get("stuck"))  # the helper's bridge: as it is now
         if "error" in answer:
             kind = StaleNodeError if answer["error"] == "StaleNodeError" else AccessBridgeError
             raise kind(str(answer.get("message") or answer["error"]))
@@ -474,6 +486,9 @@ class RemoteBridge(Bridge):
     def _ask(self, op: str, *args: Any, wait: float = 30.0, **kwargs: Any) -> Any:
         if not self.ready:
             raise AccessBridgeError(self.status)
+        if self.stuck:  # it may answer again: the helper says so at once (its clock is no call)
+            with contextlib.suppress(AccessBridgeError):
+                self._exchange({"op": "clock", "args": [], "kwargs": {}}, WAIT_MORE)
         if self.stuck:
             raise AccessBridgeError(
                 "the Java program still does not answer (a window it opened may be waiting)"

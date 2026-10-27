@@ -406,6 +406,18 @@ async function api(path, { method = "GET", body, raw = false } = {}) {
   return data;
 }
 
+// A view that follows a job asks again after a failed request: one lost answer (Studio busy
+// for a moment, the computer waking up) does not end it; a job Studio does not know does.
+async function jobNow(id, after, alive) {
+  for (let pause = 500; ; pause = Math.min(pause * 2, 5000)) {
+    try { return await api(`/api/jobs/${id}?after=${after}`); }
+    catch (error) {
+      if ((error.status && error.status < 500) || !alive()) throw error;
+      await new Promise((resolve) => setTimeout(resolve, pause));
+    }
+  }
+}
+
 function plural(n, one, few, many) {
   if (lang === "en" && EN_PLURALS[one]) return `${n} ${EN_PLURALS[one][n === 1 ? 0 : 1]}`;
   const tens = n % 100, ones = n % 10;
@@ -651,7 +663,7 @@ async function showRecordJob(id, first) {
        footer);
   while (alive) {
     let job;
-    try { job = await api(`/api/jobs/${id}?after=${after}`); }
+    try { job = await jobNow(id, after, () => alive); }
     catch (error) { show(problemsBox([error.message])); return; }
     for (const event of job.events) {
       after = event.seq;
@@ -765,7 +777,7 @@ async function waitFor(id, render) {
   leave = () => { alive = false; };
   while (alive) {
     let job;
-    try { job = await api(`/api/jobs/${id}?after=0`); }
+    try { job = await jobNow(id, 0, () => alive); }
     catch (error) { show(problemsBox([error.message])); return; }
     render(job);
     if (job.state !== "running") return;

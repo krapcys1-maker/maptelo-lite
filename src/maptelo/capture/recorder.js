@@ -512,10 +512,32 @@
     return at + 1;
   }
 
+  // Every element that matches, also inside components' own trees (shadow DOM): a password
+  // field of a sign-in component is a password field of the page.
+  function deepAll(selector, root = document, found = []) {
+    found.push(...root.querySelectorAll(selector));
+    for (const el of root.querySelectorAll("*")) {
+      if (el.shadowRoot) deepAll(selector, el.shadowRoot, found);
+    }
+    return found;
+  }
+
+  // A field once a password stays one: an eye button turns it into text (type=text) to show
+  // what was typed, and that does not make the password any less secret.
+  const secretFields = new Set();
+  const SECRET_AUTOCOMPLETE = /(?:^|\s)(?:current-password|new-password|one-time-code)(?:\s|$)/;
+  const isSecretField = (el) => {
+    if (el.tagName !== "INPUT") return false;
+    if (inputType(el) === "password" || SECRET_AUTOCOMPLETE.test(el.autocomplete || "")) {
+      secretFields.add(el);
+    }
+    return secretFields.has(el);
+  };
+
   function flushFill(el) {
     if (!edited.has(el)) return;
     edited.delete(el);
-    const secret = el.tagName === "INPUT" && inputType(el) === "password";
+    const secret = isSecretField(el);
     // a field built from a <div contenteditable> has no value: what it shows is the value
     const value = el.isContentEditable ? clean(el.innerText) : el.value;
     emit({
@@ -536,6 +558,7 @@
   document.addEventListener("input", (e) => {
     const el = realTarget(e);
     if (e.isTrusted && isTextInput(el)) {
+      isSecretField(el); // noted while it is still a password field
       edited.add(el);
       window.__mapteloTyped += 1;
       window.__mapteloTypedAt = performance.now();
@@ -608,7 +631,7 @@
     let text = "";
     let el = null;
     if (field && isTextInput(field) && typeof field.selectionStart === "number") {
-      if (field.tagName === "INPUT" && inputType(field) === "password") return;
+      if (isSecretField(field)) return;
       text = String(field.value || "").slice(field.selectionStart, field.selectionEnd);
       el = field;
     } else {
@@ -767,8 +790,12 @@
       typed: window.__mapteloTyped || 0,
       typedQuietMs: performance.now() - (window.__mapteloTypedAt || 0),
       document: performance.timeOrigin,
-      passwords: Array.from(document.querySelectorAll("input[type=password]"))
-        .map((input) => input.value).filter((v) => v.length > 0),
+      // every password typed here, also one whose field now shows it as text
+      passwords: Array.from(new Set([
+        ...deepAll("input[type=password]").map((i) => i.value),
+        ...Array.from(secretFields).map((i) => i.value),
+        ...passwordsTyped,
+      ])).filter((v) => v.length > 0),
     };
   };
 })();

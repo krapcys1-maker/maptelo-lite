@@ -4,9 +4,8 @@ this computer) and the map of one recording. The same as the full Maptelo's ``st
 
 from __future__ import annotations
 
-import logging
+import contextlib
 import os
-import sys
 from pathlib import Path
 from typing import Annotated, NoReturn
 
@@ -22,6 +21,17 @@ app = typer.Typer(
 
 WORKSPACE = Path.home() / "Documents" / "Maptelo Lite"
 """Where Lite keeps recordings and maps unless told otherwise (as its installer does)."""
+STARTED = "MAPTELO_LITE_STARTED"
+"""A file the shortcut's console waits for, saying that Lite is starting (its first start may
+take a minute while an antivirus reads its files): „ready” once the window's address is known,
+else „failed: <why>”. Lite started otherwise leaves it out."""
+
+
+def _tell_shortcut(text: str) -> None:
+    path = os.environ.get(STARTED)
+    if path:
+        with contextlib.suppress(OSError):
+            Path(path).write_text(text, encoding="utf-8")
 
 
 def _fail(message: str) -> NoReturn:
@@ -68,36 +78,30 @@ def studio(
     try:
         from maptelo.studio import Workspace, serve
     except ImportError as exc:
+        _tell_shortcut(f"failed: {exc}")
         _fail(f"the window needs its extra: pip install 'maptelo-lite[studio]' ({exc})")
-    workspace.mkdir(parents=True, exist_ok=True)
-    if sys.stdout is None or sys.stderr is None:  # no console (the shortcut starts pythonw)
-        _log_to_file()
-    folder = Workspace(workspace)
-    typer.echo(f"Maptelo Lite {__version__}, workspace {folder.root}")
-    typer.echo("Open this address (it holds a key for this start only); Ctrl+C stops Lite:")
-    serve(
-        folder,
-        port=port,
-        open_page=open_page,
-        window=window,
-        announce=lambda line: typer.echo(f"  {line}"),
-        lite=True,
-    )
+    ready = False
 
+    def announce(line: str) -> None:
+        nonlocal ready
+        typer.echo(f"  {line}")
+        if not ready and line.startswith("http"):  # the address: the window opens now
+            ready = True
+            _tell_shortcut("ready")
 
-def _log_to_file() -> None:
-    """What Lite would say in a console (its address, a problem as it starts) goes to a file
-    with its data, where a person or IT can read it."""
-    from maptelo.browser import HOME
+    try:
+        workspace.mkdir(parents=True, exist_ok=True)
+        from maptelo.logs import keep_log
 
-    HOME.mkdir(parents=True, exist_ok=True)
-    log = (HOME / "maptelo-lite.log").open("a", encoding="utf-8", buffering=1)
-    sys.stdout = sys.stderr = log
-    # what Maptelo's modules tell there too: which Java Access Bridge, through which Python
-    told = logging.StreamHandler(log)
-    told.setFormatter(logging.Formatter("%(asctime)s %(name)s: %(message)s"))
-    logging.getLogger("maptelo").addHandler(told)
-    logging.getLogger("maptelo").setLevel(logging.INFO)
+        keep_log("maptelo-lite")  # with its data; with no console (pythonw) what it says, too
+        folder = Workspace(workspace)
+        typer.echo(f"Maptelo Lite {__version__}, workspace {folder.root}")
+        typer.echo("Open this address (it holds a key for this start only); Ctrl+C stops Lite:")
+        serve(folder, port=port, open_page=open_page, window=window, announce=announce, lite=True)
+    except Exception as exc:
+        if not ready:
+            _tell_shortcut(f"failed: {exc}")
+        raise
 
 
 @app.command("record")

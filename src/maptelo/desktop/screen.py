@@ -644,3 +644,30 @@ def fill_block_cells(elements: list[Element]) -> None:
 def walk_elements(screen: Screen, roles: Iterable[str]) -> Iterator[Element]:
     wanted = set(roles)
     return (e for e in screen.elements if e.role in wanted)
+
+
+def field_beside(
+    screen: Screen,
+    box: tuple[int, int, int, int],
+    *,
+    within: int | None = None,
+    enabled_only: bool = False,
+) -> Element | None:
+    """The field a button stands beside, by where both stand: the nearest field on its left in
+    its line, ending before the button's middle (Oracle Forms' "…" of a list of values or of a
+    calendar stands at its field's right edge). ``within``: at most so many pixels between the
+    field's end and the button."""
+    x, y, w, h = box
+    middle = y + h / 2
+    line = [
+        e
+        for e in screen.elements
+        if e.role == "textbox"
+        and (e.enabled or not enabled_only)
+        and e.node.box[2] > 0
+        and abs((e.node.box[1] + e.node.box[3] / 2) - middle) <= h / 2
+        and e.node.box[0] < x
+        and e.node.box[0] + e.node.box[2] <= x + w / 2
+        and (within is None or x - (e.node.box[0] + e.node.box[2]) <= within)
+    ]
+    return max(line, key=lambda e: e.node.box[0] + e.node.box[2]) if line else None

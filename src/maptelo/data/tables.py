@@ -1,7 +1,8 @@
 """Tables people work from: a sheet of a workbook or a CSV file, read as rows of text.
 
-Cells keep what people see: whole numbers without ``.0``, dates as YYYY-MM-DD (with the
-time only when there is one), formulas as their last computed value. In a sheet, the
+Cells keep what people see: whole numbers without ``.0`` (in a CSV file too, as a program
+writes them: 604217359.0), dates as YYYY-MM-DD (with the time only when there is one),
+formulas as their last computed value. In a sheet, the
 headers are the row with the columns the process needs (or, when that is not known, the
 first row with at least two values: a title above the table has one). Empty rows are not
 records.
@@ -79,6 +80,16 @@ def _rows(
     return rows, numbers
 
 
+_FLOAT_WHOLE = re.compile(r"-?\d+\.0")
+"""A whole number as a program writes a sheet's number into a CSV file (604217359.0): people
+see 604217359, and a field takes it so."""
+
+
+def _csv_cell(text: str) -> str:
+    cell = text.strip()
+    return cell[:-2] if _FLOAT_WHOLE.fullmatch(cell) else cell
+
+
 def _read_csv(path: Path) -> Table:
     text = path.read_text(encoding="utf-8-sig")
     lines = text.splitlines()
@@ -86,7 +97,9 @@ def _read_csv(path: Path) -> Table:
         dialect: Any = csv.Sniffer().sniff(lines[0], delimiters=",;\t")
     except (csv.Error, IndexError):
         dialect = csv.excel
-    parsed = [[cell.strip() for cell in row] for row in csv.reader(StringIO(text), dialect=dialect)]
+    parsed = [
+        [_csv_cell(cell) for cell in row] for row in csv.reader(StringIO(text), dialect=dialect)
+    ]
     if not parsed:
         return Table([], [], path.name, path)
     rows, numbers = _rows(parsed[0], parsed[1:], 2)

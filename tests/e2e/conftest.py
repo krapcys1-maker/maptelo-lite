@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from pathlib import Path
 
 import httpx2
 import pytest
@@ -9,6 +10,16 @@ from playwright.sync_api import Browser, Page, Playwright, sync_playwright
 from minierp import Settings
 from minierp.scenarios import SCENARIO_PASSWORD, SCENARIO_SEED, SCENARIO_TODAY, login
 from minierp.server import running
+
+HERE = Path(__file__).resolve().parent
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Every test here is an end-to-end one (a browser, the test application), marked or
+    not: ``-m "not e2e"`` never needs a browser."""
+    for item in items:
+        if HERE in item.path.resolve().parents:
+            item.add_marker(pytest.mark.e2e)
 
 
 @pytest.fixture(scope="session")

@@ -368,6 +368,33 @@ def test_a_program_that_does_not_answer_stops_the_questions() -> None:
         bridge.close()
 
 
+def test_a_program_that_answers_again_is_asked_again() -> None:
+    """The window that kept the program waiting was closed: the helper says so as it is asked
+    whether the program answers, and the questions go on (one wait used to end the work)."""
+    bridge = piped().start()
+    try:
+        with pytest.raises(AccessBridgeError, match="does not answer"):
+            bridge.do_action(WINDOW.hwnd, "0/1/5", "click")
+        assert bridge.stuck
+        program = bridge.pipes.program
+        assert program is not None
+        program.stuck = False  # the person answered the program's window
+        assert bridge.windows() == [WINDOW]
+        assert not bridge.stuck
+    finally:
+        bridge.close()
+
+
+def test_a_call_that_comes_back_late_frees_the_bridge() -> None:
+    bridge = object.__new__(jab.Bridge)
+    late = threading.Event()
+    bridge.stuck, bridge._overdue = True, late
+    assert not bridge.answers_again()
+    late.set()  # the program answered the call at last
+    assert bridge.answers_again()
+    assert not bridge.stuck
+
+
 def test_a_bridge_that_does_not_start_says_why() -> None:
     bridge = piped(java_dirs=[Path("nothing")])
     with pytest.raises(AccessBridgeError, match=r"no WindowsAccessBridge-32\.dll"):
@@ -390,9 +417,10 @@ def test_every_question_of_the_bridge_goes_to_the_helper() -> None:
     """A question added to Bridge must be added to the helper too, or it would wait in vain
     for a thread this process does not run."""
     public = {name for name, value in vars(Bridge).items() if callable(value) and name[0] != "_"}
-    built_on_others = {"text", "events", "clock", "delivered"}  # node(); events, times read here
+    built_on_others = {"text", "events", "clock", "delivered", "answers_again"}  # read here
     assert sorted(public - built_on_others - set(vars(RemoteBridge))) == []
-    assert public - built_on_others - {"start", "close", "call"} == jab_remote.ASKED
+    asked = jab_remote.ASKED - {"clock"}  # asked only to hear whether the program is back
+    assert public - built_on_others - {"start", "close", "call"} == asked
 
 
 def test_a_real_helper_process_starts_and_says_what_its_bridge_says() -> None:

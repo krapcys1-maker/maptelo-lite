@@ -17,6 +17,7 @@ SCANNED = ["runtime", "data", "studio", "repair"]
 # doctor, environment: both languages
 SCANNED_FILES = [
     "policy.py",
+    "formats.py",
     "calendars.py",
     "desktop/jab.py",
     "desktop/jab_remote.py",
@@ -25,15 +26,18 @@ SCANNED_FILES = [
 
 NOT_FOR_THE_PAGE = {
     # the line the Java Access Bridge's helper Python runs (desktop/jab_remote.py)
-    "import sys; sys.path.append(sys.argv[1]); from maptelo.desktop.jab_remote import serve; "
-    "serve()",
+    "import sys; sys.path.insert(next((n for n, p in enumerate(sys.path) if 'site-packages' in p), "
+    "len(sys.path)), sys.argv[1]); from maptelo.desktop.jab_remote import serve; serve()",
     # a Java Access Bridge role the recorder compares with (desktop/jab.py), never shown
     "check box menu item",
+    # the start of a failed read's detail, compared with (runtime/verify.py), never shown alone
+    "cannot read the system of record",
     # a job's states, its line in the log and a sheet's name (studio/jobs.py, data/tables.py)
     "running | done | stopped | failed", "job %s failed", "{}, sheet {}",
     # what Studio says in its console when it starts and stops (the command line's language)
     "no Edge or Chrome for a window here: the page opens in the default browser",
-    "the window did not show up; Ctrl+C stops Studio", "the window was closed: Studio stops",
+    "the window did not show up: the page opens in the default browser",
+    "the window was closed: Studio stops", "{} is already running: {}",
     "removed {} evidence files older than {} days (policy)",
     # parts of sentences Maptelo Lite says in place of others (app.py, LITE_WORDS)
     "can be recorded and run", "can be recorded",

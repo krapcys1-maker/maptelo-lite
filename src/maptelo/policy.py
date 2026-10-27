@@ -1,28 +1,17 @@
-"""IT's policy for this computer: what Maptelo may do here, set by the company and not by
-the person at the keyboard (docs/08-srodowiska.md).
+"""IT's policy for this computer: what Maptelo may do here, set by the company and
+not by the person at the keyboard.
 
-    %ProgramData%\\Maptelo\\policy.yaml       for the whole computer, put there by IT
-    policy.yaml next to a portable copy       (the folder with python.exe, or the one above)
-    MAPTELO_POLICY=<path>                     another place (tests, pilots)
+    %ProgramData%\\Maptelo\\policy.yaml   for the whole computer, put there by IT
+    policy.yaml next to a portable copy  (the folder with python.exe, or the one above)
+    MAPTELO_POLICY=<path>                another place (tests, pilots)
     (and the first and last under the old name, Stepproof: formerly.py)
 
-    ai:
-      allowed: false                # no calls to AI models at all
-      endpoint: https://ai.firma.pl/v1   # or: only this one; with the lines below it is the
-      api: openai                   #   company's own AI (--agent company): its protocol,
-      key_env: FIRMA_AI_KEY         #   the variable holding its key,
-      key_header: api-key           #   the header the key goes in (default: Bearer),
-      model: gpt-4.1                #   the model it offers
-    applications:
-      allowed_hosts: [erp.firma.local, "*.firma.pl", login.microsoftonline.com]
     browser:
       channel: msedge               # the company's browser, whatever a person picks
-      company_certificates: true    # trust the company's own certificates (or false: never)
-    evidence:
-      keep_days: 90                 # screenshots of runs (they may show personal data)
 
-A policy that is there but cannot be read stops Maptelo from doing anything (no run, no
-AI) until it is fixed: what is not known to be allowed is not done.
+The same file serves the full Maptelo, whose other sections Lite reads too (a mistake
+in them is shown) but does not apply. A policy that is there but cannot be read is
+shown in the Readiness tab, and does not apply until it is fixed.
 """
 
 from __future__ import annotations
@@ -55,18 +44,15 @@ class _Rules(BaseModel):
 
 
 class AiRules(_Rules):
+    """The full Maptelo's section: Lite reads it, so that one policy file serves both
+    and a mistake in it is shown, and uses none of it."""
+
     allowed: bool = True
     endpoint: str | None = Field(default=None, pattern=r"^https?://")
-    """When set, AI repairs may only call this address (the company's own gateway)."""
     api: Literal["openai", "anthropic"] = "openai"
-    """The protocol the company's AI speaks: chat completions (OpenAI, Azure, most gateways)
-    or Anthropic's messages."""
     key_env: str | None = None
-    """The environment variable (or .env entry) holding the company's key."""
     key_header: str | None = None
-    """The header the key goes in, when not ``Authorization: Bearer`` (``api-key``: Azure)."""
     model: str | None = None
-    """The model the company's AI offers, used when no model is given."""
 
 
 class ApplicationRules(_Rules):
@@ -87,11 +73,21 @@ class EvidenceRules(_Rules):
     """Screenshots of runs may show personal data: kept only this many days (none: no limit)."""
 
 
+class FileRules(_Rules):
+    upload_from: list[str] = Field(default_factory=list)
+    """The only folders a run may send files from (an upload step); none: any folder of this
+    computer (never Maptelo's own data or a person's credentials)."""
+    network: bool = False
+    """Whether a run may open files on network shares (\\\\server\\share): opening one
+    signs in to that server with the person's account."""
+
+
 class PolicyRules(_Rules):
     ai: AiRules = Field(default_factory=AiRules)
     applications: ApplicationRules = Field(default_factory=ApplicationRules)
     browser: BrowserRules = Field(default_factory=BrowserRules)
     evidence: EvidenceRules = Field(default_factory=EvidenceRules)
+    files: FileRules = Field(default_factory=FileRules)
 
 
 @dataclass(frozen=True)
@@ -109,15 +105,6 @@ class Policy:
             return True
         return any(_host_matches(host, pattern.lower()) for pattern in patterns)
 
-    def ai_refusal(self, base_url: str) -> str | None:
-        """Why AI may not be asked at this address, or None when it may."""
-        if not self.rules.ai.allowed:
-            return f"AI is turned off by IT's policy ({self.source})"
-        endpoint = self.rules.ai.endpoint
-        if endpoint and not _endpoint_matches(base_url, endpoint):
-            return f"IT's policy allows AI only at {endpoint} ({self.source})"
-        return None
-
     @property
     def channel(self) -> str | None:
         """The browser the policy names (None for Playwright's Chromium or no rule)."""
@@ -128,12 +115,6 @@ class Policy:
         """What the policy decides, in one line."""
         rules = self.rules
         parts = []
-        if not rules.ai.allowed:
-            parts.append(say(lang, "AI off", "AI wyłączone"))
-        elif rules.ai.endpoint:
-            parts.append(
-                say(lang, f"AI only at {rules.ai.endpoint}", f"AI tylko pod {rules.ai.endpoint}")
-            )
         if rules.applications.allowed_hosts:
             hosts = ", ".join(rules.applications.allowed_hosts)
             parts.append(say(lang, f"the robot opens only {hosts}", f"robot otwiera tylko {hosts}"))
@@ -160,31 +141,6 @@ class Policy:
         return "; ".join(parts) or say(lang, "nothing restricted", "bez ograniczeń")
 
 
-def _endpoint_matches(url: str, endpoint: str) -> bool:
-    """An exact origin and a path boundary, never a textual hostname prefix."""
-    try:
-        candidate, allowed = urlsplit(url), urlsplit(endpoint)
-
-        def origin(part: object) -> tuple[str, str | None, int | None]:
-            parsed = urlsplit(str(part))
-            return (
-                parsed.scheme,
-                parsed.hostname,
-                parsed.port or (443 if parsed.scheme == "https" else 80),
-            )
-
-        if candidate.username or candidate.password or candidate.query or candidate.fragment:
-            return False
-        if origin(url) != origin(endpoint):
-            return False
-        path, prefix = candidate.path.rstrip("/"), allowed.path.rstrip("/")
-        if any(piece in (".", "..") for piece in path.split("/")) or "%" in path:
-            return False
-        return path == prefix or path.startswith(prefix + "/")
-    except ValueError:
-        return False
-
-
 def _host_matches(host: str, pattern: str) -> bool:
     if pattern.startswith("*."):
         return host.endswith(pattern[1:]) or host == pattern[2:]
@@ -194,17 +150,23 @@ def _host_matches(host: str, pattern: str) -> bool:
 def policy_path(
     environ: Mapping[str, str] | None = None, exists: Callable[[Path], bool] = Path.is_file
 ) -> Path | None:
-    """Where IT's policy is, or None when there is none."""
+    """Where IT's policy is, or None when there is none. The computer's own (ProgramData,
+    where only an administrator writes) comes first: a person's environment variable does not
+    put it aside; it names a policy where the computer has none (a test, a portable copy)."""
     env = os.environ if environ is None else environ
-    given = env.get(POLICY_ENV) or env.get(formerly.POLICY_ENV)
-    if given:
-        return Path(given)  # named on purpose: missing is an error, not "no policy"
     data = env.get("ProgramData") or env.get("PROGRAMDATA")
-    candidates = (
+    machine = (
         [Path(data) / folder / "policy.yaml" for folder in ("Maptelo", formerly.POLICY_FOLDER)]
         if data
         else []
     )
+    installed = next((path for path in machine if exists(path)), None)
+    if installed is not None:
+        return installed
+    given = env.get(POLICY_ENV) or env.get(formerly.POLICY_ENV)
+    if given:
+        return Path(given)  # named on purpose: missing is an error, not "no policy"
+    candidates: list[Path] = []
     portable = Path(sys.executable).resolve().parent
     candidates += [portable / "policy.yaml", portable.parent / "policy.yaml"]
     return next((path for path in candidates if exists(path)), None)

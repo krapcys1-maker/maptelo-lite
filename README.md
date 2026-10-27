@@ -63,14 +63,17 @@ w środowisku Java dołączonym do aplikacji, a zakładka „Gotowość” pokaz
 sprawdzono na programach Swing, w tym na czystym systemie Windows z programem dysponującym
 wyłącznie własnym środowiskiem Java, oraz na programie testowym zbudowanym jak Oracle Forms (listy
 wartości wyszukiwane wzorcem „%”, tryb zapytania, bloki wierszy, polskie daty, okno wyboru pliku).
-Działania na samym Oracle Forms jeszcze nie potwierdzono: w pierwszej próbie program przestawał
-odpowiadać przy dłuższym nagraniu. Od wersji 0.1.5 nagrywarka zadaje programowi znacznie mniej
-pytań, a plik `maptelo-lite.log` zapisuje obciążenie nagrania (same liczby, bez treści ekranu).
+Od wersji 0.2.0 nagrywarka zapisuje każdą czynność także w dużym formularzu zbudowanym jak
+Oracle Forms: w bloku wierszy dłuższym niż okno (te same pola pokazują kolejne rekordy), w polach
+z przyciskiem „…” i w oknach otwieranych przez formularz po odpowiedzi serwera. Działania na samym
+Oracle Forms jeszcze nie potwierdzono: w pierwszej próbie program przestawał odpowiadać przy
+dłuższym nagraniu. Od wersji 0.1.5 nagrywarka zadaje programowi znacznie mniej pytań, a plik
+`maptelo-lite.log` zapisuje obciążenie nagrania (same liczby, bez treści ekranu).
 
 Komputer, na którym jest tylko 32-bitowa Java (na przykład Java 7 lub 8 w wersji 32-bitowej), ma
 wyłącznie 32-bitową bibliotekę mostu (`WindowsAccessBridge-32.dll`). Maptelo Lite odczytuje
 wtedy program przez dołączony 32-bitowy Python (folder `python32`), bez uprawnień administratora
-i bez zmian w instalacji Javy. Działanie sprawdzono na 32-bitowej Javie 8
+i bez zmian w instalacji Javy. Działanie sprawdzono na 32-bitowej Javie 8.
 
 ## Prywatność
 
@@ -88,7 +91,8 @@ i bez zmian w instalacji Javy. Działanie sprawdzono na 32-bitowej Javie 8
 - **Instalator** (Windows 10 i 11, 64-bit, bez uprawnień administratora):
   [Maptelo-Lite-Setup.exe](https://github.com/krapcys1-maker/maptelo-lite/releases/latest/download/Maptelo-Lite-Setup.exe)
   lub [maptelo.dev/pobierz](https://maptelo.dev/pobierz/) (z sumami kontrolnymi SHA-256).
-  Instalator pozwala wybrać folder docelowy (domyślnie `Pulpit\Maptelo Lite`) i nie zapisuje
+  Instalator pozwala wybrać folder docelowy (domyślnie `Pulpit\Maptelo Lite`, a gdy Pulpit
+  synchronizuje OneDrive: lokalny folder programów użytkownika) i nie zapisuje
   danych w folderach systemowych ani w rejestrze Windows. W folderze programu znajdują się również
   procesy (`Procesy`) i zapamiętane sesje logowania (`data`). Skróty w menu Start i na pulpicie są
   opcjonalne. Odinstalowanie: „Odinstaluj Maptelo Lite” w folderze programu (procesy pozostają)
@@ -179,13 +183,15 @@ diagram, a BPMN model and a report. It runs locally and uses no AI.
   (enabled with `jabswitch -enable` or by IT). Tested with Swing programs, including on a clean
   Windows with a program that ships only its own Java runtime, and with a test program built
   like Oracle Forms (lists of values searched with “%”, query mode, blocks of rows, Polish dates,
-  a file dialog). Oracle Forms itself is not confirmed yet: in a first trial the program stopped
-  responding during a longer recording. Since 0.1.5 the recorder asks the program far fewer
+  a file dialog). Since 0.2.0 the recorder keeps every action also in a large form built like
+  Oracle Forms: a block of rows longer than its window (the same fields show the next records),
+  fields with a "…" button, windows the form opens after its server answers. Oracle Forms itself is
+  not confirmed yet: in a first trial the program stopped responding during a longer recording. Since 0.1.5 the recorder asks the program far fewer
   questions, and `maptelo-lite.log` records the recording's load (numbers only, no screen
   content). On a computer with only a 32-bit Java (such as a 32-bit Java 7 or 8), whose bridge
   library is `WindowsAccessBridge-32.dll`, Maptelo Lite reads the program through its bundled
   32-bit Python (the `python32` folder), with no administrator rights and no change to the Java
-  installation. Tested on a 32-bit Java 8 
+  installation. Tested on a 32-bit Java 8.
 - **Scope:** Maptelo Lite documents processes; it does not execute them and uses no AI. Automatic
   execution with every result confirmed by an independent read from the system is the full
   Maptelo: [maptelo.dev](https://maptelo.dev).
@@ -200,7 +206,8 @@ diagram, a BPMN model and a report. It runs locally and uses no AI.
 [Maptelo-Lite-Setup.exe](https://github.com/krapcys1-maker/maptelo-lite/releases/latest/download/Maptelo-Lite-Setup.exe)
 (Windows 10 and 11, 64-bit; SHA-256 checksums on
 [maptelo.dev/en/download](https://maptelo.dev/en/download/)). The installer lets you choose the
-destination folder (`Desktop\Maptelo Lite` by default), requires no administrator rights and
+destination folder (`Desktop\Maptelo Lite` by default; the user's local programs folder when
+OneDrive syncs the Desktop), requires no administrator rights and
 writes nothing to system folders or the Windows registry. Processes (`Processes`) and saved
 sign-in sessions (`data`) are kept in the same folder, Start menu and Desktop shortcuts are
 optional, and deleting the folder removes everything. Versions 0.x are not yet code-signed, so

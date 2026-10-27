@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from openpyxl import Workbook, load_workbook
 
 from maptelo.data import read_table, write_results
@@ -83,3 +84,29 @@ def test_the_results_cover_passwords_and_the_columns_of_secret_inputs(tmp_path: 
     assert (
         csv_out.read_text(encoding="utf-8-sig").splitlines()[1] == f"anowak;{COVERED};VERIFIED;ok"
     )
+
+
+def test_a_sheet_that_cannot_be_opened_is_not_copied_in_clear(tmp_path) -> None:
+    from maptelo.data.secrets import CoverError
+
+    source = tmp_path / "hasla.xlsx"
+    source.write_bytes(b"not a workbook: Haslo;admin123")
+    copy = tmp_path / "copy" / "hasla.xlsx"
+    with pytest.raises(CoverError):
+        covered_copy(source, copy)
+    assert not copy.exists()  # no copy whose secret columns stayed in clear
+
+
+def test_a_java_recording_keeps_its_sheet_with_passwords_covered(tmp_path: Path) -> None:
+    from maptelo.capture.java import JavaRecorder, JavaRecorderOptions
+
+    recorder = JavaRecorder.__new__(JavaRecorder)
+    recorder.options = JavaRecorderOptions(data=accounts(tmp_path / "klienci.xlsx"))
+    recorder.folder = tmp_path / "rec"
+    recorder.folder.mkdir()
+    kept = recorder._keep_data()
+    assert kept is not None
+    assert kept.file == "data.xlsx"
+    rows = list(load_workbook(recorder.folder / "data.xlsx").worksheets[0].values)
+    assert "Tajne!2026" not in str(rows)
+    assert COVERED in str(rows)

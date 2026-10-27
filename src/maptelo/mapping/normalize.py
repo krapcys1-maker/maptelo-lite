@@ -50,6 +50,8 @@ class Attempt:
     message: str
     values: dict[str, str]
     event_seqs: list[int]
+    role: str = "alert"
+    """How the application said it: an alert, or a status line."""
 
 
 @dataclass
@@ -473,6 +475,40 @@ def _mark_noise(acts: list[Act]) -> None:
             # Opening a JTable editor is part of filling that cell. Keeping it
             # as a row-selection step can mistake the new amount for its key.
             earlier.role = "noise"
+
+
+_SHOWED = ("appeared", "navigated", "downloaded", "dialog")
+"""What an act showed: a box ticked that showed something is a step of its own."""
+
+
+def _merge_box_toggles(acts: list[Act]) -> None:
+    """The same box ticked and unticked in turn, nothing shown in between, is one step: its
+    last state. A click on it told after the state it gave is that state too (else: unticked,
+    ticked, then a click, three steps of one box)."""
+    kept: Act | None = None
+    for act in [a for a in acts if a.role == "step"]:
+        if (
+            kept is not None
+            and act.kind in ("check", "uncheck", "click")
+            and _same_target(kept, act)
+            and _same_row(kept.event.target, act.event.target)
+            and not any(o.type in _SHOWED for o in kept.observed)
+        ):
+            if act.kind == "click":
+                act.role = "superseded"
+                continue
+            kept.role = "superseded"
+            act.observed = kept.observed + act.observed
+        kept = act if act.kind in ("check", "uncheck") else None
+
+
+def _same_row(one: ElementInfo | None, other: ElementInfo | None) -> bool:
+    """Both out of any table's rows, or in the same row (a column's boxes are one per row)."""
+    a = one.row if one is not None else None
+    b = other.row if other is not None else None
+    if a is None or b is None:
+        return a is b
+    return (a.table, a.index) == (b.table, b.index)
 
 
 def _same_record(clicked: RowContext, filled: RowContext, column: str) -> bool:
@@ -969,15 +1005,54 @@ def _merge_choices(acts: list[Act]) -> None:
             picked.role = "superseded"
 
 
+_DONE_STATUS = re.compile(
+    r"^\s*(?:zapisano|zapisan[aey]|dodano|dodan[aey]|utworzono|zaksięgowano|wysłano|"
+    r"przeliczono|zatwierdzono|saved|added|created|posted|sent|done)\b",
+    re.IGNORECASE,
+)
+"""A status saying the action was done: a step's result, never a refusal."""
+
+_REFUSED_STATUS = re.compile(
+    r"^\s*(?:brak tabeli z dnia\b|no (?:table|rates?) (?:for|on)\b)", re.IGNORECASE
+)
+"""Known read refusals that explicitly say no result was available."""
+
+
+def _status_words(text: str) -> str:
+    """A status without its values („Brak tabeli z dnia #-#-#”): the same message again."""
+    return re.sub(r"\d+", "#", " ".join(text.split())).casefold()
+
+
+def _refused_by_status(act: Act, again: Act) -> str | None:
+    """The status an action showed when it was refused without a word of alarm (no table for a
+    day without quotations): it wrote nothing, and the same action, done again with another
+    value, does not show that status. None when it is no such refusal."""
+    if act.event.sent:
+        return None  # it wrote something: a result of its own (a line added), not a refusal
+    statuses = [o.target.text for o in act.appeared("status") if o.target and o.target.text]
+    if (
+        not statuses
+        or any(_DONE_STATUS.search(s) for s in statuses)
+        or not _REFUSED_STATUS.search(statuses[-1])
+    ):
+        return None
+    later = {
+        _status_words(o.target.text) for o in again.appeared("status") if o.target and o.target.text
+    }
+    return statuses[-1] if _status_words(statuses[-1]) not in later else None
+
+
 def _merge_attempts(acts: list[Act]) -> None:
-    """Fold 'rejected, corrected, repeated' into the repeated action."""
+    """Fold 'rejected, corrected, repeated' into the repeated action: rejected with an alert,
+    or with a status after which the person typed another value and tried again (a day
+    without a table of rates, then the day before it)."""
     changed = True
     while changed:
         changed = False
         steps = [a for a in acts if a.role == "step"]
         for i, act in enumerate(steps):
             alerts = act.appeared("alert")
-            if act.kind not in ("click", "press") or not alerts:
+            if act.kind not in ("click", "press") or not (alerts or act.appeared("status")):
                 continue
             j = next(
                 (
@@ -996,12 +1071,25 @@ def _merge_attempts(acts: list[Act]) -> None:
                     break
                 before.append(steps[k])
             replaced = [s for s in before if s.field_name in entered_again]
+            if alerts:
+                message = alerts[-1].target.text if alerts[-1].target else None
+                role = "alert"
+            else:
+                changed_value = any(
+                    s.event.value != t.event.value
+                    for s in replaced
+                    for t in steps[i + 1 : j]
+                    if t.field_name == s.field_name
+                )
+                message = _refused_by_status(act, steps[j]) if changed_value else None
+                role = "status"
+                if message is None:
+                    continue
             values = {s.field_name or "?": s.event.value or "" for s in replaced}
             seqs = [s.seq for s in replaced] + [act.seq]
             for superseded in [*replaced, act]:
                 superseded.role = "superseded"
-            message = alerts[-1].target.text if alerts[-1].target else None
-            steps[j].attempts.append(Attempt(message or "", values, seqs))
+            steps[j].attempts.append(Attempt(message or "", values, seqs, role))
             steps[j].attempts.extend(act.attempts)
             changed = True
             break
@@ -1100,6 +1188,7 @@ def normalize(trace: Trace) -> Normalized:
     _mark_interrupts(trace, acts)
     _merge_calendar(trace, acts)  # a day clicked shows nothing new, yet it is no stray click
     _mark_noise(acts)
+    _merge_box_toggles(acts)
     if trace.header.program is None:  # only a browser clicks the form's button for an Enter
         _merge_enter_with_its_click(acts)
     else:  # a desktop table's cell edited in its editor

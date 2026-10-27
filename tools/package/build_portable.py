@@ -57,17 +57,62 @@ if exist "%HERE%browsers" set "PLAYWRIGHT_BROWSERS_PATH=%HERE%browsers"
 LITE_CMD = r"""@echo off
 rem Maptelo Lite: record a process, get its map (steps, SOP, BPMN, report). No robot.
 rem Everything stays in this folder: the processes in Procesy (Processes), the sign-ins and
-rem settings in data. No console: what Lite says goes to data\maptelo-lite.log.
+rem settings in data. What Lite says goes to data\maptelo-lite.log; this console only says
+rem that Lite is starting (its first start may take a minute) and why it could not start.
 setlocal
+chcp 65001 >nul
 set "HERE=%~dp0"
+if not exist "%HERE%python\pythonw.exe" goto unpack
 set "WORK=%HERE%Procesy"
 if exist "%HERE%Processes\" set "WORK=%HERE%Processes"
 if not exist "%HERE%Procesy\" if not exist "%HERE%Processes\" (
   reg query "HKCU\Control Panel\International" /v LocaleName 2>nul ^
     | find /i "pl-" >nul || set "WORK=%HERE%Processes"
 )
+echo Maptelo Lite się uruchamia. Pierwsze uruchomienie może potrwać około minuty.
+echo Maptelo Lite is starting. The first start may take about a minute.
+"%HERE%python\python.exe" -c "import maptelo.lite" || goto broken
+if not exist "%HERE%data\" mkdir "%HERE%data"
+set "MAPTELO_LITE_STARTED=%HERE%data\started.txt"
+del "%MAPTELO_LITE_STARTED%" 2>nul
 start "" "%HERE%python\pythonw.exe" -m maptelo.lite studio ^
   --workspace "%WORK%" --data "%HERE%data" %*
+set /a waited=0
+:wait
+if exist "%MAPTELO_LITE_STARTED%" goto started
+>nul ping -n 2 127.0.0.1
+set /a waited+=1
+if %waited%==60 (
+  echo Nadal się uruchamia. Jeśli okno się nie pojawi, zajrzyj do pliku data\maptelo-lite.log.
+  echo Still starting. If no window appears, see data\maptelo-lite.log.
+)
+goto wait
+:started
+findstr /b "ready" "%MAPTELO_LITE_STARTED%" >nul && exit /b 0
+echo.
+echo Maptelo Lite nie uruchomiło się. Maptelo Lite did not start:
+type "%MAPTELO_LITE_STARTED%"
+echo.
+echo Szczegóły / details: data\maptelo-lite.log
+pause
+exit /b 1
+:broken
+echo.
+echo Python z tego folderu nie uruchomił się (przyczyna powyżej). Często blokuje go antywirus
+echo albo zasady IT, które nie pozwalają uruchamiać programów z tego miejsca. Przenieś folder
+echo MapteloLite, np. do Dokumentów, albo poproś dział IT o zgodę.
+echo The Python in this folder did not start (the reason is above). An antivirus or IT rules
+echo may block programs in this place: move the MapteloLite folder, e.g. to Documents, or ask IT.
+pause
+exit /b 1
+:unpack
+echo Brakuje folderu „python” obok tego pliku: archiwum ZIP nie zostało rozpakowane w całości.
+echo Kliknij plik ZIP prawym przyciskiem, wybierz „Wyodrębnij wszystkie…” i uruchom
+echo „Maptelo Lite” z rozpakowanego folderu.
+echo The "python" folder is missing next to this file: extract the whole ZIP ("Extract all...")
+echo and start "Maptelo Lite" from the extracted folder.
+pause
+exit /b 1
 """
 
 LITE_README = """\
@@ -78,6 +123,10 @@ Maptelo Lite nagrywa proces wykonywany w przeglądarce lub w programie Java i pr
 dokumentację: opis kroków, instrukcję stanowiskową (SOP) ze zrzutami ekranu, diagram BPMN oraz
 raport HTML. Program nie wykonuje procesów; służy do tego pełne Maptelo (https://maptelo.dev).
 Nie wymaga uprawnień administratora.
+
+Przed uruchomieniem rozpakuj całe archiwum („Wyodrębnij wszystkie…”). Pierwsze uruchomienie
+może potrwać około minuty; okno konsoli informuje, że program się uruchamia, i zamyka się,
+gdy pojawi się okno Maptelo Lite.
 
 Wszystkie dane pozostają w tym folderze; program nie zapisuje niczego w folderach systemowych
 ani w rejestrze Windows:
@@ -105,6 +154,10 @@ Maptelo Lite records a process performed in a browser or a Java program and prep
 documentation: a description of the steps, a work instruction (SOP) with screenshots, a BPMN
 diagram and an HTML report. It does not execute processes; that is the full Maptelo
 (https://maptelo.dev). No administrator rights are required.
+
+Extract the whole archive ("Extract all...") before starting it. The first start may take
+about a minute; a console window says the program is starting and closes when the Maptelo
+Lite window appears.
 
 All data stays in this folder; nothing is written to system folders or the Windows registry:
   Maptelo Lite       starts the program (an Edge window in app mode; closing it ends the session)
@@ -169,18 +222,64 @@ def _patch_paths(python: Path) -> None:
     pth.write_text("\n".join([*kept, "Lib\\site-packages", ""]), encoding="utf-8")
 
 
+def _locked(extras: list[str], out: Path) -> Path | None:
+    """The versions uv.lock holds, as a requirements file: the package carries what was
+    tested, not whatever an open range gives on the day it is built. None without uv or
+    a lock."""
+    import importlib.util
+
+    found = shutil.which("uv")
+    uv = [found] if found else []
+    if not uv and importlib.util.find_spec("uv") is not None:
+        uv = [sys.executable, "-m", "uv"]  # uv as a module of this Python (py -m uv)
+    lock = Path.cwd() / "uv.lock"
+    if not uv or not lock.is_file():
+        return None
+    wanted = out / "requirements.lock.txt"
+    command = [*uv, "export", "--frozen", "--format", "requirements-txt", "--no-emit-project"]
+    command += [f"--extra={extra}" for extra in extras] + ["--no-dev", "-o", str(wanted)]
+    subprocess.run(command, check=True)
+    return wanted
+
+
 def _install(python: Path, wheel: Path, *, lite: bool = False) -> None:
     target = python / "Lib" / "site-packages"
     target.mkdir(parents=True, exist_ok=True)
     uv = shutil.which("uv")
-    extras = "studio" if lite else "studio,mcp"  # Lite has no agents, so no MCP server
+    extras = ["studio"] if lite else ["studio", "mcp"]  # Lite has no agents, so no MCP server
     name = wheel.name.split("-")[0].replace("_", "-")  # maptelo, or maptelo-lite (its own repo)
-    spec = f"{name}[{extras}] @ {wheel.resolve().as_uri()}"
-    if uv is not None:
-        command = [uv, "pip", "install", "--target", str(target), "--python", sys.executable, spec]
-    else:
-        command = [sys.executable, "-m", "pip", "install", "--target", str(target), spec]
-    subprocess.run(command, check=True)
+    spec = f"{name}[{','.join(extras)}] @ {wheel.resolve().as_uri()}"
+    pip = (
+        [uv, "pip", "install", "--target", str(target), "--python", sys.executable]
+        if uv is not None
+        else [sys.executable, "-m", "pip", "install", "--target", str(target)]
+    )
+    locked = _locked(extras, python.parent)
+    if locked is None:
+        subprocess.run([*pip, spec], check=True)
+        return
+    subprocess.run([*pip, "-r", str(locked)], check=True)  # the tested versions first
+    subprocess.run([*pip, "--no-deps", str(wheel.resolve())], check=True)
+
+
+def _compile(python: Path) -> None:
+    """Every module compiled now, by the Python that runs them: a first start that compiles
+    hundreds of modules while an antivirus reads each file written took a person a minute
+    with nothing on the screen (19.10). Checked by hash, never by date: a ZIP keeps no exact
+    dates, so a date-checked file would be compiled again anyway. A file that does not compile
+    (a library's sample for another Python) is left as it is."""
+    subprocess.run(
+        [
+            str(python / "python.exe"),
+            "-m",
+            "compileall",
+            "-q",
+            "--invalidation-mode",
+            "unchecked-hash",
+            str(python / "Lib" / "site-packages"),
+        ],
+        check=False,
+    )
 
 
 def _chromium(out: Path) -> None:
@@ -212,6 +311,7 @@ def build(
         with zipfile.ZipFile(python32_zip) as archive:
             archive.extractall(out / "python32")
     _install(python, wheel, lite=lite)
+    _compile(python)
     if with_chromium and not lite:
         _chromium(out)
     files = (

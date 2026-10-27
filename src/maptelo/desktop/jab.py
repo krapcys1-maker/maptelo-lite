@@ -175,6 +175,8 @@ class Table:
     headers: list[str]
     rows: list[list[str]]
     selected: list[int] = field(default_factory=list)
+    total: int | None = None
+    """How many rows the table has; more than ``rows`` when only the first were read."""
 
 
 def states_of(text: str) -> frozenset[str]:
@@ -606,6 +608,7 @@ class Bridge:
         if self._thread is not None:
             return self
         self.stuck = False
+        self._overdue: threading.Event | None = None
         self._thread = threading.Thread(target=self._run, name="java-access-bridge", daemon=True)
         self._thread.start()
         if not self._started.wait(timeout):
@@ -718,13 +721,22 @@ class Bridge:
         if not handle or not self._user32.SetThreadDesktop(handle):
             raise AccessBridgeError(f"cannot work on the desktop {name!r}")
 
+    def answers_again(self) -> bool:
+        """Whether the program answers: a call that did not come back in time (kept waiting by
+        a window the program opened) holds the bridge's thread, and nothing else passes until
+        it comes back; then everything does again."""
+        overdue = getattr(self, "_overdue", None)
+        if self.stuck and overdue is not None and overdue.is_set():
+            self.stuck, self._overdue = False, None
+        return not self.stuck
+
     def call(self, task: Callable[[], T], timeout: float = 30.0) -> T:
         """Run ``task`` on the bridge's thread and return what it returned."""
         if threading.current_thread() is self._thread:
             return task()
         if not self.ready:
             raise AccessBridgeError(self.status)
-        if self.stuck:
+        if not self.answers_again():
             raise AccessBridgeError(
                 "the Java program still does not answer (a window it opened may be waiting)"
             )
@@ -732,7 +744,7 @@ class Bridge:
         done = threading.Event()
         self._tasks.put((task, box, done))
         if not done.wait(timeout):
-            self.stuck = True  # the bridge's thread waits for the program: nothing else passes
+            self.stuck, self._overdue = True, done  # its thread waits: nothing else passes
             raise AccessBridgeError(
                 "the Java program does not answer (a window it opened may be waiting)"
             )
@@ -1203,7 +1215,7 @@ class Bridge:
                     rows.append(row)
                     if picked:
                         selected.append(r)
-                return Table(headers, rows, selected)
+                return Table(headers, rows, selected, info.rowCount)
             finally:
                 self._release(vm, *(o for o in owned if o))
 
@@ -1396,6 +1408,11 @@ class Bridge:
                 if event.objects:
                     old, new = event.objects
                     changes = {"old": self._brief(event.vm, old), "new": self._brief(event.vm, new)}
+                if source is not None and "text" in (source.get("node") or {}):
+                    # the text is the field's when it is read here, not when the event came: a
+                    # burst still being read holds what the person typed since (Oracle Forms'
+                    # block moved by a record: 88 fields rewritten, the next item typed meanwhile)
+                    changes = {**changes, "read": self.clock()}
                 self._emit(event.kind, source, t=event.t, **changes)
             except Exception as exc:
                 self._emit(

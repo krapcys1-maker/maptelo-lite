@@ -843,6 +843,8 @@ def test_an_act_whose_next_came_in_the_same_batch_gets_the_screen_at_its_start()
     rec._windows = {7: None}  # type: ignore[dict-item]
     rec._captured_at = 3.39
     rec._last_state = "s003"
+    rec._read_open, rec._fresh, rec._human_fields = {}, {}, {}
+    rec._used_reads, rec._closed_at = set(), {}
     read: list[tuple[int, float]] = []
     written: list[tuple[float, str | None, str | None]] = []
     rec._refresh_windows = lambda: None  # type: ignore[method-assign]
@@ -1419,6 +1421,8 @@ def test_the_screen_after_a_double_click_is_read_after_its_second_click() -> Non
     rec._human_windows = {}
     rec._windows = {}
     rec._captured_at = 0.0
+    rec._read_open, rec._fresh, rec._human_fields = {}, {}, {}
+    rec._used_reads, rec._closed_at = set(), {}
     read: list[float] = []
     written: list[tuple[str, str, str]] = []
     rec._refresh_windows = lambda: None
@@ -1429,6 +1433,84 @@ def test_the_screen_after_a_double_click_is_read_after_its_second_click() -> Non
     assert read == [14.501]  # the price's press, not the double click's own second click
     assert written == [("click", "s010", "s011")]
     assert rec._pending == [(price, "s011")]
+
+
+def test_a_window_the_act_brought_up_is_its_screen_though_gone_when_the_act_is_told() -> None:
+    """Benchmark D09: the customer's number typed, the form's Note on the credit hold came up
+    and the person closed it with OK; the typing was told as an act only with the OK's press,
+    when the Note was gone, and the screen after it was read from the form under it. The Note,
+    read while it stood, is the screen after the typing; the OK's own screen is that Note."""
+    from maptelo.capture.java import Act, JavaRecorder
+
+    rec: Any = JavaRecorder.__new__(JavaRecorder)
+    number = Act("fill", 1.72, None, value="40636304")
+    ok = Act("click", 4.28, None)
+    rec._pending = [(number, "s004"), (ok, "s004")]
+    rec._human = [1.72, 4.279]
+    rec._human_windows = {4.279: 0}
+    rec._windows = {1: None}  # the Note is gone
+    rec._captured_at = 3.4
+    rec._read_open = {9: (3.22, "s005")}  # opened after the typing began, read while it stood
+    rec._fresh, rec._human_fields = {}, {}
+    rec._used_reads, rec._closed_at = set(), {9: 4.53}
+    rec._last_state = "s004"
+    read: list[int] = []
+    written: list[tuple[str, str, str]] = []
+    rec._refresh_windows = lambda: None
+    rec._front_window = lambda since: 1
+    rec._capture = lambda hwnd, until: read.append(hwnd) or "s006"
+    rec._write_act = lambda act, before, after: written.append((act.type, before, after))
+    assert rec._settle_earlier() == 1
+    assert read == []  # not the form under it
+    assert written == [("fill", "s004", "s005")]
+    assert rec._pending == [(ok, "s005")]
+
+
+def test_the_act_before_an_answer_in_a_window_gone_gets_that_window_s_read() -> None:
+    """Benchmark D09: Book Order after twelve lines; the program redrew the block and told its
+    events a second late, so the Note's opening was seen before the press of Book Order was
+    told. The person answered the Note with OK in a window gone now: the act before has the
+    newest window read while it stood since the last screen, whatever the times say."""
+    from maptelo.capture.java import JavaRecorder
+
+    rec: Any = JavaRecorder.__new__(JavaRecorder)
+    rec._windows = {1: None}
+    rec._human_windows = {49.59: 0}
+    rec._last_state = "s056"
+    rec._read_open = {9: (48.16, "s057"), 8: (20.0, "s030")}
+    rec._fresh, rec._used_reads = {}, set()
+    rec._closed_at = {9: 49.26, 8: 21.0}
+    assert rec._shown_meanwhile(48.28, 49.59, 1) == "s057"
+    assert rec._shown_meanwhile(48.28, 49.59, 1) is None  # the screen after one act only
+    rec._used_reads = set()
+    rec._human_windows = {49.59: 1}  # went on in the main window: its own screen is read
+    assert rec._shown_meanwhile(48.28, 49.59, 1) is None
+
+
+def test_the_program_writing_the_typed_field_again_is_no_going_on() -> None:
+    """Benchmark D09: Oracle Forms writes the customer's number back with the defaults it
+    brings, in the field still focused, a moment before its Note comes up; taken for the person
+    going on, the screen after the typing was read before the Note. Typing in another field, or
+    a click, is going on."""
+    from maptelo.capture.java import Act, JavaRecorder, Seen
+    from maptelo.desktop.jab import Node
+
+    number = Node("0/1/3", "text", "Customer Number", "", frozenset(), (10, 10, 90, 20), 0, 3)
+    seen = Seen(number, [], 7, "@10,10")
+    rec: Any = JavaRecorder.__new__(JavaRecorder)
+    rec._human = [3.38, 4.48]
+    rec._human_fields = {3.38: (7, "@10,10")}
+    typed = Act("fill", 2.94, seen, value="40636304")
+    ok = Act("click", 4.47, None)
+    rec._pending = [(typed, "s004"), (ok, "s004")]
+    assert rec._going_on(2.95, [typed]) == 4.48
+    rec._human_fields = {3.38: (7, "@10,40")}
+    assert rec._going_on(2.95, [typed]) == 3.38
+    # SRK writes the invoice's number back as Enter is pressed: the Enter told is going on
+    rec._human_fields = {3.38: (7, "@10,10")}
+    enter = Act("press", 3.38, seen, value="Enter")
+    rec._pending = [(typed, "s004"), (enter, "s004"), (ok, "s004")]
+    assert rec._going_on(2.95, [typed]) == 3.38
 
 
 def test_a_screen_not_read_is_told_in_the_raw_events() -> None:
@@ -1475,3 +1557,33 @@ def test_a_double_click_whose_window_changed_between_its_clicks_is_one() -> None
     other.feed(ev("mouse_clicked", 3.19, "table", "Linie", "0/0/1/0/0/0/0/1/0/2/0/0", chain=chain))
     other.finish(4.0)
     assert [a.clicks for a in other.take()] == [1, 1]
+
+
+def test_a_field_written_and_read_long_after_says_nothing_of_its_start() -> None:
+    """Benchmark D09: the block moved by a record and the program rewrote the next line's
+    fields; the bridge, a second behind, read the quantity's text after the person had typed
+    it. Taken for what the field held before, the typing changed nothing and was lost."""
+    from maptelo.capture.java import UNKNOWN, Interpreter, Seen
+    from maptelo.desktop.jab import Node
+
+    qty = Node("0/1/9", "text", "Qty", "", frozenset(), (300, 200, 60, 20), 0, 9, "130")
+    seen = Seen(qty, [], 7, "@300,200")
+    it = Interpreter()
+    it.known[seen.key], it.read_of[seen.key] = (38.19, "130"), 39.18
+    assert it._start(seen, 39.42) is UNKNOWN
+    it.read_of[seen.key] = 38.2  # read at once: what it held
+    assert it._start(seen, 39.42) == "130"
+
+
+def test_a_message_s_ok_told_with_only_an_alert_around_it_is_in_the_message() -> None:
+    """Benchmark D09: the Note's OK told as the Note closed, with no window and only an alert
+    around it: the window opened last before it, the Note, is the OK's."""
+    from maptelo.capture.java import JavaRecorder
+    from maptelo.desktop.jab import Window
+
+    rec: Any = JavaRecorder.__new__(JavaRecorder)
+    main, note = Window(1, "Programy", 7, True), Window(9, "Note", 7, True, owner=1)
+    rec.main, rec._windows, rec._ever = main, {1: main}, {1: main, 9: note}
+    rec._opened_at = {1: 0.0, 9: 48.27}
+    source = {"node": {"role": "push button", "name": "OK"}, "chain": [["alert", ""]], "window": 0}
+    assert rec._window_of(source, 49.71) == 9

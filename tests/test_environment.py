@@ -177,7 +177,7 @@ def test_rights_loopback_and_it_policy(tmp_path: Path) -> None:
     assert checks["rights"].verdict == "info"
     assert checks["loopback"].verdict == "FAIL"
     assert checks["policy"].verdict == "info"
-    assert checks["policy"].detail == f"IT's policy applies ({rules}): AI off; browser: msedge"
+    assert checks["policy"].detail == f"IT's policy applies ({rules}): browser: msedge"
     assert recommended_browser(computer) == "msedge"  # whatever else is installed
 
     rules.write_text("ai: {allowed: maybe}\n", encoding="utf-8")

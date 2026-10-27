@@ -309,3 +309,78 @@ def test_a_file_told_by_its_name_is_the_cell_naming_it_by_its_path() -> None:
     found = trace_origins([{"plik": "cennik_K0009.xlsx", "siec": "K0009"}], [table])
     assert found.origins["plik"] == Origin("Plik", "text", None)
     assert found.origins["siec"] == Origin("Sieć", "text", None)
+
+
+def test_a_sheet_of_thousands_of_rows_is_searched_at_once() -> None:
+    """Each typed value is compared with every cell of the sheet: a cell is read as a date
+    or a time once, and only when it has a date's shape (a sheet of 2000 rows took 100 s)."""
+    import time
+
+    headers = ["Klient", "Indeks", "Cena", "Od dnia", "Nazwa", "Ilość"]
+    rows = [
+        dict(
+            zip(
+                headers,
+                [f"K{i:04d}", f"{10000 + i}-F", f"{i % 900 + 1},{i % 100:02d}",
+                 f"{i % 28 + 1:02d}.{i % 12 + 1:02d}.2027", f"Produkt numer {i}", str(i % 50 + 1)],
+                strict=True,
+            )
+        )
+        for i in range(2000)
+    ]  # fmt: skip
+    sheet = Table(headers, rows, "duży arkusz")
+    typed = {"customer": "K1234", "cpn": "11234-F", "from": "2027-11-03", "qty": "35"}
+    started = time.monotonic()
+    found = trace_origins([typed] * 3, [sheet] * 3)
+    assert time.monotonic() - started < 10
+    assert {name: o.column for name, o in found.origins.items()} == {
+        "customer": "Klient",
+        "cpn": "Indeks",
+        "from": "Od dnia",
+        "qty": "Ilość",
+    }
+    assert found.origins["from"].written_as == "%d.%m.%Y"
+
+
+def test_an_amount_typed_as_the_cell_writes_it_agrees_with_one_typed_otherwise() -> None:
+    """One recording typed 6.04 for the cell's 6.04, another 2.00 for the cell's 2: both are the
+    column's price written as 0.00 (benchmark D07: the line's price lost its column)."""
+    assert ("number", "0.00") in readings("6.04", "6.04")
+    rows = [
+        {"Indeks": "26386-F", "Cena netto": "6.04"},
+        {"Indeks": "46803-B", "Cena netto": "2"},
+    ]
+    typed = [{"indeks": "26386-F", "cena": "6.04"}, {"indeks": "46803-B", "cena": "2.00"}]
+    tables = [Table(["Indeks", "Cena netto"], [row], "cennik.csv") for row in rows]
+    found = trace_origins(typed, tables)
+    assert found.origins["cena"] == Origin("Cena netto", "number", "0.00")
+
+
+ORDER = ["Zamówienie", "Klient", "Produkt", "Ilość", "Magazyn"]
+ORDERS = Table(
+    ORDER,
+    [
+        dict(zip(ORDER, cells, strict=True))
+        for cells in (
+            ("ZK-4410", "K0010", "26386-F", "40", ""),
+            ("ZK-4410", "K0010", "48212-B", "15", "MAG-GDA"),
+            ("ZK-5120", "K0020", "31830-D", "25", "MAG-POZ"),
+        )
+    ],
+    "zamowienia.xlsx",
+)
+
+
+def test_a_line_s_value_typed_in_another_line_is_found_in_the_record_s_rows() -> None:
+    """The warehouse typed only in the order's second line: the recording's example of it is
+    not in the row of the first line, whose values name the record; another row of the same
+    order has it, and no row of another order counts."""
+    typed = {"zam": "ZK-4410", "klient": "K0010", "produkt": "26386-F", "ilosc": "40",
+             "magazyn": "MAG-GDA"}  # fmt: skip
+    lines = {"produkt", "ilosc", "magazyn"}
+    found = trace_origins([typed], [ORDERS], lines=lines)
+    assert found.origins["magazyn"] == Origin("Magazyn")
+    assert found.origins["produkt"] == Origin("Produkt")
+    assert "magazyn" not in trace_origins([typed], [ORDERS]).origins
+    other = {**typed, "magazyn": "MAG-POZ"}  # another order's warehouse
+    assert "magazyn" not in trace_origins([other], [ORDERS], lines=lines).origins

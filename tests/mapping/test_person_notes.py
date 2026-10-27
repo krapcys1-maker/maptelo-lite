@@ -70,3 +70,37 @@ def test_the_documents_quote_the_description(tmp_path: Path) -> None:
     write_map_bundle(in_english, tmp_path / "en", lang="en")
     english = (tmp_path / "en" / "sop.md").read_text(encoding="utf-8")
     assert f"   - **Description:** {NEWEST}" in english
+
+
+def test_a_description_of_the_first_step_is_not_the_programs_opening() -> None:
+    """A Java program has no address: its first act is the first step's, and the opening was
+    evidenced by it too, so a description written on the second step showed on the first. The
+    opening is the recording's start (0), with its own."""
+    from datetime import UTC, datetime
+
+    from maptelo.trace import ElementInfo, TraceHeader
+
+    url = "java://oracle-applications/Price Lists"
+    name = ElementInfo(tag="java:text", role="textbox", name="Name", label="Name")
+    save = ElementInfo(tag="java:push button", role="button", name="Save")
+    trace = Trace(
+        header=TraceHeader(
+            recording_id="r",
+            started_at=datetime(2026, 10, 19, tzinfo=UTC),
+            start_url="java://oracle-applications/",
+            program="Oracle Applications",
+        ),
+        events=[
+            TraceEvent(seq=1, t=1.0, type="fill", url=url, target=name, value="Wholesale"),
+            TraceEvent(seq=2, t=2.0, type="click", url=url, target=save),
+        ],
+        states={},
+    )
+    steps = map_trace(trace, notes={1: "Nazwa cennika z wniosku."}).model.steps
+    assert [(s.action.value, s.note) for s in steps] == [
+        ("navigate", None),
+        ("fill", "Nazwa cennika z wniosku."),
+        ("click", None),
+    ]
+    opening = map_trace(trace, notes={0: "Program jest już otwarty."}).model.steps
+    assert [s.note for s in opening] == ["Program jest już otwarty.", None, None]

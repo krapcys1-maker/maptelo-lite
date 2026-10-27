@@ -11,7 +11,7 @@ by that (typed) value. Inside longer strings use ``{inputs.name}`` placeholders.
 from __future__ import annotations
 
 import re
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from enum import StrEnum
 from typing import Annotated, Any, Literal, Self
@@ -448,6 +448,18 @@ class ReadRequest(_Model):
         return self
 
 
+class RepeatUntil(_Model):
+    """A click done again until something shows: a status a system gives later („Sprawdź
+    status w KSeF” until the invoice has its number). People click it a few times, waiting in
+    between; the robot does the same, and leaves the record to a person if it does not come."""
+
+    until: Predicate
+    tries: int = Field(ge=2, le=50, description="How many times at most the click is done.")
+    every_ms: int = Field(
+        ge=200, le=600_000, description="How long to wait for it before clicking again."
+    )
+
+
 class Step(_Model):
     id: Identifier
     intent: str = Field(min_length=1, description="What the step achieves, in business terms.")
@@ -479,8 +491,8 @@ class Step(_Model):
     value: Scalar | None = None
     document: DocumentField | None = Field(
         default=None,
-        description="For 'read' with a target that is a document's image: which field of the "
-        "document to read (with a model that sees images; the run needs --vision).",
+        description="For 'read' with a target that is a document's image: which "
+        "field of the document to read.",
     )
     save_as: Identifier | None = Field(
         default=None,
@@ -584,6 +596,22 @@ class Step(_Model):
         "go on, as people did when the application had no such entry (the next step's result "
         "tells, e.g. a message that it was not found). Without it the run stops there.",
     )
+    repeat: RepeatUntil | None = Field(
+        default=None,
+        description="For 'click': done again until something shows (a status that comes later).",
+    )
+    find: FindMade | None = Field(
+        default=None,
+        description="For a step that saves and makes a document: the owner's way to find that "
+        "document when the save's answer is lost (a read by the record's reference, and its row "
+        "on a list). Without it a lost answer leaves the record to a person.",
+    )
+    undo: Undo | None = Field(
+        default=None,
+        description="For a step that saves and makes a document (a draft): the owner's rule for "
+        "that document when the record cannot be finished in it (the application does not offer "
+        "one of the record's values). Without it the document is left to a person.",
+    )
     timeout_s: float | None = Field(default=None, gt=0, le=600)
     evidence: Evidence | None = None
 
@@ -597,6 +625,18 @@ class Step(_Model):
             raise ValueError("read_request is only valid for a read/draft click or press")
         if self.after is not None and self.action is not Action.READ:
             raise ValueError("'after' is only valid for 'read'")
+        if self.repeat is not None and self.action is not Action.CLICK:
+            raise ValueError("'repeat' is only valid for 'click'")
+        if self.find is not None and self.effective_risk not in (
+            RiskClass.COMMIT,
+            RiskClass.IRREVERSIBLE,
+        ):
+            raise ValueError("'find' is only valid for a step that saves")
+        if self.undo is not None and self.effective_risk not in (
+            RiskClass.COMMIT,
+            RiskClass.IRREVERSIBLE,
+        ):
+            raise ValueError("'undo' is only valid for a step that saves")
         if self.looks_like is not None and self.after is None:
             raise ValueError("'looks_like' is only valid with 'after'")
         if self.rest and (self.after is None or self.looks_like is not None):
@@ -688,6 +728,35 @@ class HttpVerifier(_Model):
 
     def describe(self) -> str:
         return self.url
+
+
+class FindMade(_Model):
+    """The owner's way to find the document a save made, when its answer was lost (benchmark
+    "faults", p10: „Utwórz przesyłkę” answered by a gateway error, the parcel made at the
+    courier): ``read`` holds when the record's document is there, and finds none (404) when it
+    is not; the document is opened from ``list``, in the row ``row``, by ``open``. Then the steps
+    after the save go on with that document, and no second one is made."""
+
+    read: HttpVerifier
+    list: str = Field(min_length=1, description="The list's address, as a 'navigate' step's value.")
+    row: WithinRow = Field(description="The record's row on the list: its table and values.")
+    open: Target = Field(description="What opens the document in that row.")
+
+
+class Undo(_Model):
+    """The owner's rule for the document a save made, when the record cannot be finished in it:
+    the robot removes it with ``target`` on the document's screen, only a document this record
+    made in this run and only while the independent read ``empty`` shows it there holding
+    nothing; the same read must then find it gone (benchmark week, p16: a draft request for an
+    index the ERP does not know). A dry run stops before the save that makes it anyway."""
+
+    target: list[Locator] = Field(
+        min_length=1, description="The control on the document's screen that removes it."
+    )
+    empty: HttpVerifier = Field(
+        description="Reads the document: holds while it is there and holds nothing; a record "
+        "not found (404) after the removal confirms it is gone."
+    )
 
 
 class ScreenVerifier(_Model):
@@ -878,6 +947,35 @@ class DayShift(_Model):
 
     from_: Identifier = Field(alias="from", description="The date input it is counted from.")
     days: int = Field(description="Days after that date; negative: before it.")
+    working: bool = Field(
+        default=False,
+        description="The days are working days: Saturdays, Sundays and the public holidays of "
+        "'holidays' are skipped (-1: the last working day before the date, as the NBP rate "
+        "of a tax point).",
+    )
+    holidays: str | None = Field(
+        default=None, description="The country whose public holidays are no working days (PL)."
+    )
+
+    @model_validator(mode="after")
+    def _working(self) -> Self:
+        from maptelo.workdays import COUNTRIES
+
+        if self.holidays is not None and not self.working:
+            raise ValueError("'holidays' is only valid with 'working: true'")
+        if self.holidays is not None and self.holidays not in COUNTRIES:
+            raise ValueError(f"public holidays of {self.holidays!r} are not known")
+        if self.working and self.days == 0:
+            raise ValueError("'working' needs a number of days other than 0")
+        return self
+
+    def count(self, base: date) -> date:
+        """The date counted from ``base``."""
+        if not self.working:
+            return base + timedelta(days=self.days)
+        from maptelo.workdays import shift
+
+        return shift(base, self.days, self.holidays)
 
 
 class InputSpec(_Model):
@@ -904,7 +1002,16 @@ class InputSpec(_Model):
     written_as: str | None = Field(
         default=None,
         description="How the records file writes a date as text, when not as YYYY-MM-DD: a "
-        "pattern such as %m/%d/%Y (09/10/2012) or %d.%m.%Y.",
+        "pattern such as %m/%d/%Y (09/10/2012), %d.%m.%Y or %d/%B/%Y (15/November/2026), "
+        "Oracle's DD-MON-YYYY (15-NOV-2026), or excel: Excel's number of the day, as a CSV file "
+        "saved from a sheet may write it (46326 for 2026-10-31).",
+    )
+    taken_after: str | None = Field(
+        default=None,
+        min_length=1,
+        description="The value is the part of the column's text after these signs, the last "
+        "time they stand in it (the order's number 5510 of the price list's name "
+        "„CENNIK_ZK_5510”: _ZK_); a value without them is taken whole.",
     )
     secret: bool = Field(
         default=False,
@@ -916,6 +1023,11 @@ class InputSpec(_Model):
         description="One value for each line of the record (the products of an order): the "
         "steps that use it are done once per line.",
     )
+    per_column: str | None = Field(
+        default=None,
+        description="The column whose number divides this one's value (a price for 1000 pieces: "
+        "„Cena za” says 1000 szt.); the value typed is the one for a single unit.",
+    )
     derived: DayShift | None = Field(
         default=None,
         description="A date counted from another date of the record (the day before it: "
@@ -926,6 +1038,10 @@ class InputSpec(_Model):
     def _consistent(self) -> Self:
         if self.derived is not None and self.type is not InputType.DATE:
             raise ValueError("'derived' is only valid for date inputs")
+        if self.per_column is not None and (
+            self.column is None or self.type not in (InputType.DECIMAL, InputType.INTEGER)
+        ):
+            raise ValueError("'per_column' is only valid for a number taken from a column")
         if self.pattern is not None:
             if self.type is not InputType.STRING:
                 raise ValueError("'pattern' is only valid for string inputs")
@@ -942,10 +1058,21 @@ class InputSpec(_Model):
             raise ValueError("'choices' are only valid for string inputs")
         if self.typed_as is not None:
             self._check_typed_as(self.typed_as)
-        if self.written_as is not None and (
-            self.type not in (InputType.DATE, InputType.TIME) or "%" not in self.written_as
-        ):
-            raise ValueError("'written_as' is a date or time pattern such as %m/%d/%Y, %I:%M%p")
+        if self.written_as is not None:
+            from maptelo.dates import EXCEL_SERIAL, ORACLE_MASK, ORACLE_MASK_PL
+
+            named = self.type is InputType.DATE and self.written_as in (
+                EXCEL_SERIAL, ORACLE_MASK, ORACLE_MASK_PL
+            )  # fmt: skip
+            if not named and (
+                self.type not in (InputType.DATE, InputType.TIME) or "%" not in self.written_as
+            ):
+                raise ValueError(
+                    "'written_as' is a date or time pattern such as %m/%d/%Y, %I:%M%p (a date "
+                    "also DD-MON-YYYY or excel)"
+                )
+        if self.taken_after is not None and self.type is not InputType.STRING:
+            raise ValueError("'taken_after' is only valid for string inputs")
         if self.example is not None:
             self.coerce(self.example)
         return self
@@ -1033,6 +1160,8 @@ class InputSpec(_Model):
         if isinstance(raw, bool) or raw is None:
             raise ValueError(f"expected text, got {raw!r}")
         text = raw.isoformat() if isinstance(raw, date) else str(raw).strip()
+        if self.taken_after and self.taken_after in text:  # 5510 of „CENNIK_ZK_5510”
+            text = text.rsplit(self.taken_after, 1)[1].strip()
         if self.pattern is not None and re.fullmatch(self.pattern, text) is None:
             raise ValueError(f"{text!r} does not match the pattern {self.pattern}")
         if self.choices is not None and text not in self.choices:
@@ -1075,10 +1204,11 @@ class InputSpec(_Model):
             except ValueError:
                 pass
         if isinstance(raw, str) and self.written_as is not None:  # the sheet's own way
-            try:
-                return datetime.strptime(raw.strip(), self.written_as).date()
-            except ValueError:
-                pass
+            from maptelo.dates import written_day
+
+            day = written_day(raw, self.written_as)
+            if day is not None:
+                return day
         written = f" or {self.written_as}" if self.written_as else ""
         raise ValueError(f"expected a date as YYYY-MM-DD{written}, got {raw!r}")
 

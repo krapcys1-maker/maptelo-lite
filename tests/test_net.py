@@ -26,17 +26,18 @@ def test_https_is_checked_by_the_system() -> None:
 def test_every_connection_carries_the_context(monkeypatch: pytest.MonkeyPatch) -> None:
     seen: dict[str, Any] = {}
 
-    def urlopen(request: object, timeout: float, context: ssl.SSLContext) -> str:
-        seen.update(request=request, timeout=timeout, context=context)
-        return "answer"
+    class Opener:
+        def open(self, request: object, timeout: float) -> str:
+            seen.update(request=request, timeout=timeout)
+            return "answer"
 
-    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(net, "_opener", Opener)
     assert net.open_url("https://erp.example/api", 7) == "answer"
-    assert seen == {
-        "request": "https://erp.example/api",
-        "timeout": 7,
-        "context": net.https_context(),
-    }
+    assert seen == {"request": "https://erp.example/api", "timeout": 7}
+    monkeypatch.undo()
+    handlers = net._opener().handlers
+    https = [h for h in handlers if isinstance(h, urllib.request.HTTPSHandler)]
+    assert [h._context for h in https] == [net.https_context()]  # the system's trust
 
 
 def test_a_summary_in_both_languages() -> None:

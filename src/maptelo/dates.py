@@ -307,3 +307,34 @@ def when_shown(text: str) -> datetime | None:
         except ValueError:
             continue
     return None
+
+
+EXCEL_SERIAL = "excel"
+"""How a sheet saved as CSV may write a date: Excel's number of the day (46326 for 2026-10-31,
+the days since 30 December 1899)."""
+_EXCEL_DAY_ONE = date(1899, 12, 30).toordinal()
+_SERIAL = re.compile(r"\d{5}(?:\.0+)?")
+
+
+def excel_day(text: str) -> date | None:
+    """The day Excel's number stands for: five digits between 1954 and 2119 (a smaller or a
+    larger number is a quantity, an amount, a code); None otherwise."""
+    plain = text.strip()
+    if _SERIAL.fullmatch(plain) is None:
+        return None
+    number = int(plain.split(".")[0])
+    return date.fromordinal(_EXCEL_DAY_ONE + number) if 20000 <= number <= 80000 else None
+
+
+def written_day(text: str, written_as: str) -> date | None:
+    """A date as a sheet writes it: a pattern (%d.%m.%Y, %d/%B/%Y), Oracle's mask
+    (01-NOV-2026, 01-LIS-2026) or Excel's number of the day; None when it is not one."""
+    plain = text.strip()
+    if written_as == EXCEL_SERIAL:
+        return excel_day(plain)
+    if written_as in (ORACLE_MASK, ORACLE_MASK_PL):
+        return read_oracle_date(plain)
+    try:
+        return datetime.strptime(plain, written_as).date()
+    except ValueError:
+        return None

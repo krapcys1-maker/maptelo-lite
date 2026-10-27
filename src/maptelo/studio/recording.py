@@ -12,7 +12,7 @@ import json
 import os
 import sys
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +20,7 @@ from maptelo.browser import profile_dir
 from maptelo.capture import RecorderOptions, new_recording_id, record_session
 from maptelo.export import write_map_bundle
 from maptelo.export.describe import choice_text
+from maptelo.files import write_atomic
 from maptelo.mapping import map_trace
 from maptelo.mapping.naming import Lang
 from maptelo.model import load_model
@@ -28,7 +29,7 @@ from maptelo.studio.discard import discard
 from maptelo.studio.jobs import Job
 from maptelo.studio.polish import polish
 from maptelo.studio.window import bring_forward, browser_windows, out_of_the_way
-from maptelo.studio.workspace import KEY, SHEET_SUFFIXES, Workspace, process_key
+from maptelo.studio.workspace import KEY, SHEET_SUFFIXES, Workspace, process_key, same_name
 from maptelo.trace import TraceError, load_trace, summarize
 from maptelo.trace.schema import ACTION_TYPES
 
@@ -86,6 +87,14 @@ def check_record(workspace: Workspace, request: RecordRequest) -> tuple[Path | N
     problems = []
     if not KEY.fullmatch(request.process):
         problems.append("the process needs a name with letters or digits, e.g. Ceny klientów")
+    elif request.title is not None:  # a name in words: is its folder another process's?
+        known = process_title(workspace, request.process)
+        if known is not None and not same_name(known, request.title):
+            problems.append(
+                f"the name {request.title} gives the folder {request.process}, which the process "
+                f"{known} already has: give this process another name, or choose that process "
+                "to record it again"
+            )
     if request.java:
         if not ON_WINDOWS:
             problems.append(JAVA_ON_WINDOWS)
@@ -117,6 +126,8 @@ def check_record(workspace: Workspace, request: RecordRequest) -> tuple[Path | N
 
 def record_work(workspace: Workspace, request: RecordRequest) -> Callable[[Job], dict[str, Any]]:
     sheet, session = check_record(workspace, request)
+    if not request.private and is_private(workspace, request.process):
+        request = replace(request, private=True)  # recorded again, it stays private
     if request.java:
         return _java_work(workspace, request, sheet)
 
@@ -365,30 +376,50 @@ MAP_FILES = (
 """What the map of one demonstration is (export.write_map_bundle), in the order it is shown."""
 
 
+_SEEN: dict[Path, tuple[tuple[int, int], dict[str, Any]]] = {}
+"""What each recording's page entry says, by its trace file, with the file's size and time:
+a page opened again reads only the recordings that changed since (a long one takes a while)."""
+
+
+def _recording_entry(folder: Path) -> dict[str, Any]:
+    path = folder / "trace.jsonl"
+    try:
+        stat = path.stat()
+        stamp = (stat.st_mtime_ns, stat.st_size)
+    except OSError:
+        stamp = (0, 0)
+    seen = _SEEN.get(path)
+    if seen is not None and seen[0] == stamp:
+        return dict(seen[1])
+    try:
+        trace = load_trace(folder)
+    except (TraceError, OSError, ValueError) as exc:
+        return {"id": folder.name, "problem": str(exc)}  # read again next time: it may be fixed
+    header = trace.header
+    entry = {
+        "id": folder.name,
+        "title": header.title,
+        "note": header.note,
+        "started": header.started_at.isoformat(timespec="seconds"),
+        "url": header.start_url,
+        "program": header.program,
+        "actions": len(trace.actions()),
+        "data": header.data.file if header.data else None,
+        "private": header.private,
+        "ended": trace.end.reason if trace.end else None,
+    }
+    if trace.end is not None:  # a recording still being made grows: never kept half-read
+        _SEEN[path] = (stamp, entry)
+    return dict(entry)
+
+
 def recordings_view(workspace: Workspace, key: str) -> list[dict[str, Any]]:
     found: list[dict[str, Any]] = []
     for folder in workspace.recording_folders(key):
-        try:
-            trace = load_trace(folder)
-        except (TraceError, OSError, ValueError) as exc:
-            found.append({"id": folder.name, "problem": str(exc)})
-            continue
-        header = trace.header
-        found.append(
-            {
-                "id": folder.name,
-                "title": header.title,
-                "note": header.note,
-                "started": header.started_at.isoformat(timespec="seconds"),
-                "url": header.start_url,
-                "program": header.program,
-                "actions": len(trace.actions()),
-                "data": header.data.file if header.data else None,
-                "private": header.private,
-                "ended": trace.end.reason if trace.end else None,
-                "map": map_files(workspace, key, folder.name),
-            }
-        )
+        entry = _recording_entry(folder)
+        if "problem" not in entry:
+            entry["map"] = map_files(workspace, key, folder.name)
+        found.append(entry)
     return found
 
 
@@ -405,6 +436,32 @@ def process_title(workspace: Workspace, key: str) -> str | None:
         if isinstance(title, str) and title.strip():
             return title.strip()
     return None
+
+
+def is_private(workspace: Workspace, key: str) -> bool:
+    """Whether the process is private: a recording of it was, or its model says so."""
+    if recorded_private(workspace, key):
+        return True
+    model = workspace.maps / key / "model.yaml"
+    try:
+        text = model.read_text(encoding="utf-8") if model.is_file() else ""
+    except (OSError, UnicodeDecodeError):
+        return True  # cannot tell: as private
+    return any(line.strip() == "private: true" for line in text.splitlines())
+
+
+def recorded_private(workspace: Workspace, key: str) -> bool:
+    """Whether any recording of the process was made private (its header says so): the
+    process is private before a model is built from it, and stays so."""
+    for folder in workspace.recording_folders(key):
+        try:
+            with (folder / "trace.jsonl").open(encoding="utf-8") as file:
+                header = json.loads(file.readline())
+        except (OSError, ValueError):
+            continue
+        if isinstance(header, dict) and header.get("private") is True:
+            return True
+    return False
 
 
 def forget_process(workspace: Workspace, key: str) -> list[str]:
@@ -470,8 +527,10 @@ def write_process_card(
         raise RunProblemError([f"there is no process {key!r}"])
     card = {k: str(answers.get(k) or "").strip() for k in CARD_FIELDS}
     card = {k: v for k, v in card.items() if v}
-    (workspace.recordings / key / CARD).write_text(
-        json.dumps(card, ensure_ascii=False, indent=1), encoding="utf-8"
+    write_atomic(
+        (workspace.recordings / key / CARD),
+        json.dumps(card, ensure_ascii=False, indent=1),
+        encoding="utf-8",
     )
     for folder in folders:
         if map_files(workspace, key, folder.name) is not None:
@@ -484,13 +543,22 @@ NOTES = "notes.json"
 (the recording's own folder: a map made again keeps them)."""
 
 
-def written_notes(folder: Path) -> dict[int, str | dict[str, Any]]:
-    """By an action's number: why (plain words), or why, when, whether a person decides."""
+def written_notes(folder: Path, *, to_write: bool = False) -> dict[int, str | dict[str, Any]]:
+    """By an action's number: why (plain words), or why, when, whether a person decides.
+    ``to_write``: the notes are read to be written again, and a file that cannot be read is
+    no empty one (writing over it would lose what people wrote): RunProblemError."""
+    path = folder / NOTES
     try:
-        kept = json.loads((folder / NOTES).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        kept = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError) as exc:
+        if to_write:
+            raise RunProblemError([f"the step descriptions in {path} cannot be read"]) from exc
         return {}
     if not isinstance(kept, dict):
+        if to_write:
+            raise RunProblemError([f"the step descriptions in {path} cannot be read"])
         return {}
     return {int(k): v for k, v in kept.items() if str(k).isdigit() and isinstance(v, str | dict)}
 
@@ -498,13 +566,14 @@ def written_notes(folder: Path) -> dict[int, str | dict[str, Any]]:
 def keep_note(folder: Path, seq: int, text: str, when: str = "", person: bool = False) -> None:
     """A step's description kept with its recording, by an action of the step (an empty one
     takes back what was said)."""
-    kept = written_notes(folder)
+    kept = written_notes(folder, to_write=True)
     said: str | dict[str, Any] = text.strip()
     if when.strip() or person:
         said = {"text": text.strip(), "when": when.strip(), "person": bool(person)}
     kept[seq] = said
     folder.mkdir(parents=True, exist_ok=True)
-    (folder / NOTES).write_text(
+    write_atomic(
+        (folder / NOTES),
         json.dumps({str(k): v for k, v in sorted(kept.items())}, ensure_ascii=False, indent=1),
         encoding="utf-8",
     )

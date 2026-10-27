@@ -17,10 +17,11 @@ from __future__ import annotations
 import re
 from collections.abc import Iterator
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Literal
 
 from maptelo.sentences import lead_before, lead_of_rest, rest_after, shape, words_after
-from maptelo.trace.aria import AriaNode, parse_aria, table_row_nodes
+from maptelo.trace.aria import AriaNode, parse_aria, parsed, table_row_nodes
 
 _FIELDS = ("textbox", "searchbox", "spinbutton")
 _SPACES = re.compile(r"\s+")
@@ -70,6 +71,31 @@ MARKS_MAY = "[" + "".join(map(chr, (0xAE, 0x2122, 0xA9, 0x2120))) + "]?"
 ANY_WORD = "{*}"
 """In a name: one word that changes from record to record („Przyjęto: {*}” for the field of
 the item „Przyjęto: 37241-E”)."""
+ANY_TEXT = "{...}"
+"""In a name or in a row's rule: any words, or none. „{...}{inputs.indeks}{...}{inputs.konto}{...}”
+is the option of a list of values that holds the record's item and then its account, whatever
+else it says („26386-F dla 604217359 - Hurtownia”)."""
+
+
+def holding(pattern: str) -> re.Pattern[str]:
+    """What a name with ``ANY_TEXT`` stands for: its other words in that order, in any case and
+    spacing, anything where ``ANY_TEXT`` is (a name compared with it has its spaces made one).
+    A value next to ``ANY_TEXT`` is a whole word: 26386-F is not in „126386-F”."""
+    parts = []
+    for part in pattern.split(ANY_TEXT):
+        words = part.strip()
+        body = r"\s+".join(map(re.escape, words.split()))
+        if words[:1].isalnum():
+            body = r"(?<!\w)" + body
+        if words[-1:].isalnum():
+            body += r"(?!\w)"
+        parts.append(body)
+    return re.compile(".*?".join(parts), re.IGNORECASE | re.DOTALL)
+
+
+def holds(text: str, pattern: str) -> bool:
+    """Whether a name or a cell (``text``) is one ``pattern`` with ``ANY_TEXT`` stands for."""
+    return holding(pattern).fullmatch(" ".join(text.split())) is not None
 
 
 def plain(text: str) -> str:
@@ -109,7 +135,20 @@ def places(aria: str, value: str) -> list[Place]:
     wanted = plain(value)
     if not wanted:
         return []
-    root = parse_aria(aria)
+    return list(_places(aria, wanted))
+
+
+_WORD = re.compile(r"[^\W_]+")
+
+
+@lru_cache(maxsize=1 << 12)
+def _places(aria: str, wanted: str) -> tuple[Place, ...]:
+    """Read once per screen and value: mapping asks of every earlier screen for every value
+    typed, and a long recording has many of both."""
+    word = _WORD.search(wanted)
+    if word is not None and word.group() not in aria:
+        return ()  # not on this screen at all: no need to read it
+    root = parsed(aria)
     found = list(_terms_and_fields(root, wanted))
     for table in (n for n in root.walk() if n.role in ("table", "grid")):
         rows = [tuple(values.items()) for _, values in table_row_nodes(table)]
@@ -121,7 +160,7 @@ def places(aria: str, value: str) -> list[Place]:
         found += _in_sentences(root, wanted)
     else:  # a message copied whole after its label (the failed check as a reason)
         found += _rest_of_messages(root, wanted)
-    return found
+    return tuple(found)
 
 
 def _rest_of_messages(root: AriaNode, wanted: str) -> list[Place]:

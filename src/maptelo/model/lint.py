@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
-from maptelo.model.integrity import predicate_values, value_refs
+from maptelo.model.integrity import predicate_values, typed_inputs, value_refs, verified_inputs
 from maptelo.model.schema import Action, Executor, ProcessModel, RiskClass
 
 
@@ -52,6 +52,14 @@ def lint(model: ProcessModel) -> list[LintIssue]:
         if step.action is Action.CLICK and step.expect is None and step.outcomes is None:
             info(where, "no 'expect' or 'outcomes': drift is noticed only by later steps")
 
+    unchecked = typed_inputs(model.steps) - verified_inputs(model.effects)
+    if model.effects and unchecked:
+        info(
+            "effects",
+            "the process types values no effect reads back: "
+            f"{', '.join(sorted(unchecked))} (VERIFIED does not cover them)",
+        )
+
     used_inputs = _used_inputs(model)
     for name in model.inputs:
         if name not in used_inputs:
@@ -86,4 +94,10 @@ def _used_inputs(model: ProcessModel) -> set[str]:
         values.extend(effect.verifier.values())
     for interrupt in model.interrupts:
         values.extend(a.value for a in interrupt.do)
-    return {name for v in values for ns, name in value_refs(v) if ns == "inputs"}
+    used = {name for v in values for ns, name in value_refs(v) if ns == "inputs"}
+    # the date another is counted from (the rate's day from the day the service was done)
+    return used | {
+        spec.derived.from_
+        for name, spec in model.inputs.items()
+        if name in used and spec.derived is not None
+    }

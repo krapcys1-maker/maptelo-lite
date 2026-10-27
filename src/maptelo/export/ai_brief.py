@@ -122,7 +122,9 @@ WORDS: dict[Lang, dict[str, str]] = {
             "9. Wartości z ekranu porównuj z danymi tak, jak pokazuje je aplikacja: liczby jako "
             "liczby (ekran pokazuje np. „13 749,68 zł”: odstęp między tysiącami, przecinek "
             "dziesiętny i walutę; w danych to 13749.68), daty jako daty („01.11.2026” to "
-            "2026-11-01), tekst bez względu na wielkość liter i powtórzone spacje."
+            "2026-11-01), tekst bez względu na wielkość liter i powtórzone spacje. `{...}` w "
+            "nazwie to dowolne słowa: „{...}{inputs.indeks}{...}{inputs.konto}{...}” to pozycja "
+            "listy, która zawiera wartości indeksu i konta rekordu, w tej kolejności."
         ),
         "card": "Karta procesu",
         "goal": "Cel",
@@ -191,6 +193,8 @@ WORDS: dict[Lang, dict[str, str]] = {
         "e_g": "np.",
         "pattern": "wzorzec: {pattern}",
         "per_line": "osobno dla każdej pozycji",
+        "taken_after": "część wartości kolumny po „{separator}”",
+        "written_as": "arkusz zapisuje datę jako `{pattern}`",
         "no_source": "nieznane",
         "screens": "Ekrany",
         "screen_known": "Rozpoznasz go po",
@@ -292,12 +296,22 @@ WORDS: dict[Lang, dict[str, str]] = {
         ),
         "q_choice": (
             "Krok {n} ({intent}): kiedy wybierasz „{chosen}”, a kiedy {others}? Podaj regułę "
-            "słowami albo nagraj przypadek z inną decyzją. Bez reguły automatyzacja zatrzymuje "
+            "słowami (np. w opisie kroku). Maptelo Lite tworzy mapę "
+            "z jednego nagrania i nie łączy nagrań; robi to pełne Maptelo. "
+            "Bez reguły automatyzacja zatrzymuje "
             "się przed tym krokiem."
         ),
         "q_one": (
             "Mapa powstała z jednego nagrania, czyli jednego przypadku. Jakie inne przypadki "
             "się zdarzają (inne dane, błędy, wyjątki) i co wtedy?"
+        ),
+        "q_one_rows": (
+            "Mapa robi każdy wiersz arkusza osobno, bo nagranie pokazało rekord z jednego "
+            "wiersza. Czy rekord bywa kilkoma wierszami (np. pozycje jednego zamówienia)? Jeśli "
+            "tak, nagraj przypadek z kilkoma wierszami (mapa z takiego nagrania powtarza "
+            "pozycje) albo opisz słowami, po których kolumnach poznać wiersze jednego rekordu i "
+            "które kroki powtarza się dla każdej pozycji. Do tego czasu nie wykonuj wierszy, "
+            "których sprawdzenie wyniku nie odróżnia od siebie."
         ),
         "files": "Pliki",
         "file_json": "ai-brief.json: ta sama treść w postaci do odczytu przez program",
@@ -340,7 +354,9 @@ WORDS: dict[Lang, dict[str, str]] = {
             "9. Compare values on the screen with the inputs as the application shows them: "
             "numbers as numbers (a screen may show “13 749,68 zł”: a space between thousands, a "
             "decimal comma and the currency; in the inputs that is 13749.68), dates as dates "
-            "(“01.11.2026” is 2026-11-01), text regardless of letter case and repeated spaces."
+            "(“01.11.2026” is 2026-11-01), text regardless of letter case and repeated spaces. "
+            "`{...}` in a name is any words: “{...}{inputs.indeks}{...}{inputs.konto}{...}” is "
+            "the item of a list that holds the record's item and account, in this order."
         ),
         "card": "Process card",
         "goal": "Goal",
@@ -407,6 +423,8 @@ WORDS: dict[Lang, dict[str, str]] = {
         "e_g": "e.g.",
         "pattern": "pattern: {pattern}",
         "per_line": "for each line separately",
+        "taken_after": "the part of the column's value after “{separator}”",
+        "written_as": "the sheet writes the date as `{pattern}`",
         "no_source": "not known",
         "screens": "Screens",
         "screen_known": "Recognised by",
@@ -507,12 +525,22 @@ WORDS: dict[Lang, dict[str, str]] = {
         "q_person": "Step {n} ({intent}) is done by a person: may a robot do it, and by what rule?",
         "q_choice": (
             "Step {n} ({intent}): when do you choose “{chosen}”, and when {others}? Give the rule "
-            "in words, or record a case decided the other way. Without a rule the automation "
+            "in words (in the step's description, say). Maptelo Lite maps "
+            "one recording and joins no recordings; the full Maptelo does. "
+            "Without a rule the automation "
             "stops before this step."
         ),
         "q_one": (
             "The map is made from one recording, that is one case. What other cases happen "
             "(other data, errors, exceptions), and what then?"
+        ),
+        "q_one_rows": (
+            "The map does each row of the sheet on its own: the recording showed a record of "
+            "one row. Is a record sometimes several rows (the lines of one order)? If so, record "
+            "a case of several rows (the map of that recording repeats the lines), or say in "
+            "words which columns tell the rows of one record and which steps are repeated for "
+            "each line. Until then, do not run rows that the check of the result cannot tell "
+            "apart."
         ),
         "files": "Files",
         "file_json": "ai-brief.json: the same content for a program to read",
@@ -678,6 +706,9 @@ def open_questions(
         found.append(w["q_verify"])
     if one_recording:
         found.append(w["q_one"])
+        columns = [spec.column for spec in model.inputs.values() if spec.column]
+        if model.records is not None and not model.records.one_run_per and len(columns) > 1:
+            found.append(w["q_one_rows"])  # Lite maps one recording: what joins rows, it asks
     return list(dict.fromkeys(found))
 
 
@@ -779,6 +810,10 @@ def render_ai_brief(
                 else w["no_source"]
             )
             how = []
+            if spec.taken_after:  # 5510 of „CENNIK_ZK_5510”
+                how.append(w["taken_after"].format(separator=spec.taken_after))
+            if spec.written_as:  # Excel's 46327 in a CSV file, 15/November/2026
+                how.append(w["written_as"].format(pattern=spec.written_as))
             if spec.typed_as:
                 typed = _typed_example(spec)
                 how.append(
@@ -998,6 +1033,10 @@ def _typed_example(spec: InputSpec) -> str | None:
     if spec.example is None or spec.secret:
         return None
     value: Any = spec.example
+    if spec.typed_as and "{}" in spec.typed_as and isinstance(value, str):
+        before, after = spec.typed_as.split("{}", 1)
+        if value.startswith(before) and value.endswith(after):
+            return value  # the example as it was typed („Account 604217359”, K0010%)
     try:
         if spec.type is InputType.DATE and isinstance(value, str):
             value = date.fromisoformat(value)
